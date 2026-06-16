@@ -537,19 +537,40 @@ _CHECKERS = {
 }
 
 
-def evaluate(document: Any, catalog: dict) -> list[ValidationIssue]:
-    """Run every rule in *catalog* against *document*. Return all issues found."""
+def evaluate(
+    document: Any, catalog: dict
+) -> tuple[list[ValidationIssue], int, int, int]:
+    """Run every rule in *catalog* against *document*.
+
+    Returns (issues, total, evaluated, skipped).
+    - total:     rules in the catalog with a known Kind
+    - evaluated: rules that ran to completion (including those that found no issues)
+    - skipped:   rules that emitted a yacal-skip issue (cross-document dependency)
+    """
     issues: list[ValidationIssue] = []
+    total = 0
+    evaluated = 0
+    skipped = 0
+
     for rule in catalog.get("Rule", []) or []:
         kind = rule.get("Kind")
         checker = _CHECKERS.get(kind)
-        if checker:
-            try:
-                checker(document, rule, issues)
-            except Exception as exc:
-                issues.append(ValidationIssue(
-                    severity=Severity.WARNING,
-                    message=f"Constraint '{rule.get('Id', '?')}' could not be evaluated: {exc}",
-                    rule_id=f"yacal-eval-error:{rule.get('Id', '?')}",
-                ))
-    return issues
+        if not checker:
+            continue
+        total += 1
+        before = len(issues)
+        try:
+            checker(document, rule, issues)
+        except Exception as exc:
+            issues.append(ValidationIssue(
+                severity=Severity.WARNING,
+                message=f"Constraint '{rule.get('Id', '?')}' could not be evaluated: {exc}",
+                rule_id=f"yacal-eval-error:{rule.get('Id', '?')}",
+            ))
+        new_issues = issues[before:]
+        if any((i.rule_id or "").startswith("yacal-skip:") for i in new_issues):
+            skipped += 1
+        else:
+            evaluated += 1
+
+    return issues, total, evaluated, skipped

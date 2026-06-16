@@ -15,13 +15,14 @@ def human(result: ValidationResult, filename: str, file: TextIO = sys.stdout) ->
 
     if result.valid and not result.issues:
         print(f"PASS  {label} — {filename}", file=file)
+        _print_constraint_summary(result, file)
         return
 
     if result.valid:
         wc = result.warning_count
         print(
             f"PASS  {label} — {filename}  "
-            f"({wc} advisory warning{'s' if wc != 1 else ''})\n",
+            f"({wc} advisory warning{'s' if wc != 1 else ''})",
             file=file,
         )
     else:
@@ -30,7 +31,10 @@ def human(result: ValidationResult, filename: str, file: TextIO = sys.stdout) ->
         parts = [f"{ec} error{'s' if ec != 1 else ''}"]
         if wc:
             parts.append(f"{wc} warning{'s' if wc != 1 else ''}")
-        print(f"FAIL  {label} — {filename}  ({', '.join(parts)})\n", file=file)
+        print(f"FAIL  {label} — {filename}  ({', '.join(parts)})", file=file)
+
+    _print_constraint_summary(result, file)
+    print(file=file)
 
     for i, issue in enumerate(result.issues, 1):
         tag = "ERR" if issue.severity == Severity.ERROR else "WRN"
@@ -46,6 +50,21 @@ def human(result: ValidationResult, filename: str, file: TextIO = sys.stdout) ->
         print(file=file)
 
 
+def _print_constraint_summary(result: ValidationResult, file: TextIO) -> None:
+    if not result.constraints_ran:
+        return
+    n = result.constraints_evaluated
+    t = result.constraints_total
+    s = result.constraints_skipped
+    line = f"        Constraints: {n}/{t} evaluated"
+    if s:
+        line += (
+            f"  ·  {s} skipped"
+            f" (cross-document reference lookup — not supported in single-file mode)"
+        )
+    print(line, file=file)
+
+
 def as_json(result: ValidationResult, filename: str, file: TextIO = sys.stdout) -> None:
     data = {
         "file": filename,
@@ -54,6 +73,11 @@ def as_json(result: ValidationResult, filename: str, file: TextIO = sys.stdout) 
         "valid": result.valid,
         "error_count": result.error_count,
         "warning_count": result.warning_count,
+        "constraints": {
+            "total": result.constraints_total,
+            "evaluated": result.constraints_evaluated,
+            "skipped": result.constraints_skipped,
+        },
         "issues": [
             {
                 "severity": issue.severity.value,

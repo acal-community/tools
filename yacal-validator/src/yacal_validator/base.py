@@ -25,6 +25,9 @@ class ValidationResult:
     profiles: list[str] = field(default_factory=list)
     valid: bool = True
     issues: list[ValidationIssue] = field(default_factory=list)
+    constraints_total: int = 0
+    constraints_evaluated: int = 0
+    constraints_skipped: int = 0
 
     def add_issue(self, issue: ValidationIssue) -> None:
         self.issues.append(issue)
@@ -38,3 +41,7 @@ class ValidationResult:
     @property
     def warning_count(self) -> int:
         return sum(1 for i in self.issues if i.severity == Severity.WARNING)
+
+    @property
+    def constraints_ran(self) -> bool:
+        return self.constraints_total > 0

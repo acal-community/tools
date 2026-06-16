@@ -92,7 +92,11 @@ def validate(
 
     if result.valid and core_constraints_path.exists():
         catalog = load_catalog(core_constraints_path)
-        for issue in eval_constraints(document_plain, catalog):
+        issues, total, evaluated, skipped = eval_constraints(document_plain, catalog)
+        result.constraints_total = total
+        result.constraints_evaluated = evaluated
+        result.constraints_skipped = skipped
+        for issue in issues:
             result.add_issue(issue)
 
     return result
