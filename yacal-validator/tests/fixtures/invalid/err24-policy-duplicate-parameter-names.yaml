@@ -1,0 +1,13 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:duplicate-parameters"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  Parameter:
+    - Name: threshold
+      DataType: "{integer}"
+      Expression:
+        Value: 10
+    - Name: threshold
+      DataType: "{integer}"
+      Expression:
+        Value: 20

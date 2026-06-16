@@ -1,0 +1,11 @@
+ShortIdSet:
+  Id: "urn:example:yacal:ids:healthcare"
+  ShortIdSetReference:
+    - "urn:oasis:names:tc:acal:1.0:core:identifiers"
+  ShortId:
+    - Name: subject-role
+      Value: "urn:example:yacal:healthcare:subject:role"
+    - Name: resource-type
+      Value: "urn:example:yacal:healthcare:resource:type"
+    - Name: record-type
+      Value: "urn:example:yacal:healthcare:resource:record-type"

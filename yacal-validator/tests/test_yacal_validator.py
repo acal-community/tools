@@ -8,6 +8,8 @@ import pytest
 from yacal_validator.validator import validate, detect_profiles
 from yacal_validator.schemas import SCHEMA_FILES
 
+VALID_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "valid"
+
 
 @pytest.fixture(scope="module")
 def yaml_schemas(store):
@@ -99,10 +101,8 @@ Policy:
 # XPath profile tests
 # ---------------------------------------------------------------------------
 
-def test_valid_xpath_rule1(yaml_schemas, xpath_examples):
-    xml_file = xpath_examples / "Rule1.yaml"
-    if not xml_file.exists():
-        pytest.skip("Rule1.yaml not present in xpath examples")
+def test_valid_local_xpath_policy_fixture(yaml_schemas):
+    xml_file = VALID_FIXTURES_DIR / "ex14-policy-xpath-defaults.yaml"
     result = validate(
         xml_file,
         yaml_schemas["structure"],
@@ -112,12 +112,39 @@ def test_valid_xpath_rule1(yaml_schemas, xpath_examples):
     )
     errors = [i for i in result.issues if i.severity.value == "error"]
     assert not errors, f"Unexpected errors: {[i.message for i in errors]}"
+    assert "xpath" in result.profiles
 
 
-def test_valid_xpath_rule2(yaml_schemas, xpath_examples):
-    xml_file = xpath_examples / "Rule2.yaml"
-    if not xml_file.exists():
-        pytest.skip("Rule2.yaml not present in xpath examples")
+def test_valid_local_xpath_entity_selector(yaml_schemas, tmp_path):
+    xml_file = tmp_path / "xpath-entity-selector.yaml"
+    xml_file.write_text("""
+Policy:
+  PolicyId: "urn:example:yacal:policy:xpath-entity-selector"
+  Version: "1.0"
+  CombiningAlgId: "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit"
+  PolicyDefaults:
+    - XPathPolicyDefaults:
+        XPathVersion: "urn:example:xpath:1.0"
+        Namespace:
+          - Prefix: med
+            Name: "urn:example:yacal:medical"
+  CombinerInput:
+    - Rule:
+        Id: permit-resource-entity
+        Effect: Permit
+        VariableDefinition:
+          - VariableId: current_entity
+            Expression:
+              Value: "urn:oasis:names:tc:acal:1.0:attribute-category:resource"
+        Condition:
+          EntityAttributeSelector:
+            Path: "/med:record/@ward"
+            DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"
+            ContextSelectorId: "urn:example:yacal:selector:resource-content"
+            Expression:
+              VariableReference:
+                VariableId: current_entity
+""")
     result = validate(
         xml_file,
         yaml_schemas["structure"],
@@ -127,6 +154,7 @@ def test_valid_xpath_rule2(yaml_schemas, xpath_examples):
     )
     errors = [i for i in result.issues if i.severity.value == "error"]
     assert not errors, f"Unexpected errors: {[i.message for i in errors]}"
+    assert "xpath" in result.profiles
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +226,42 @@ def test_constraint_summary_absent_on_parse_error(yaml_schemas, tmp_path):
     human(result, f.name, file=buf)
     assert "Constraints:" not in buf.getvalue()
     assert result.constraints_total == 0
+
+
+def test_statusdetail_missing_attribute_shape_constraint(yaml_schemas):
+    """The catalog rejects unsupported StatusDetail keys for missing-attribute statuses."""
+    from yacal_validator.constraints import evaluate, load_catalog
+
+    document = {
+        "Response": {
+            "Result": [
+                {
+                    "Decision": "Indeterminate",
+                    "Status": {
+                        "StatusCode": {
+                            "Value": "urn:oasis:names:tc:acal:1.0:status:missing-attribute",
+                        },
+                        "StatusDetail": {
+                            "UnsupportedDetail": [
+                                {
+                                    "AttributeId": "urn:example:yacal:subject:role",
+                                    "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                                }
+                            ]
+                        },
+                    },
+                }
+            ]
+        }
+    }
+
+    catalog = load_catalog(yaml_schemas["constraints"])
+    issues, _, _, _ = evaluate(document, catalog)
+
+    assert any(
+        "statusdetail-missing-attribute-shape" in (issue.rule_id or "")
+        for issue in issues
+    ), f"Expected statusdetail shape constraint to fire. Issues: {[i.rule_id for i in issues]}"
 
 
 def test_constraint_skips_in_json_output(yaml_schemas):

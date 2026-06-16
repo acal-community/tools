@@ -1,0 +1,4 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:null"
+  Version:
+  CombiningAlgId: "{deny-unless-permit}"

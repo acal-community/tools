@@ -222,10 +222,11 @@ def _conditional_presence(root: Any, rule: dict, out: list[ValidationIssue]) -> 
     when_prop_path = when.get("PropertyPath", "")
     when_value = when.get("Value")
     forbidden = rule.get("ForbiddenProperty")
+    allowed_statusdetail_keys = set(rule.get("AllowedStatusDetailKeys") or [])
     rule_id = rule["Id"]
     spec = _provenance(rule)
 
-    if not forbidden:
+    if not forbidden and not allowed_statusdetail_keys:
         return
 
     for path_str, container in eval_path(root, container_path):
@@ -241,6 +242,35 @@ def _conditional_presence(root: Any, rule: dict, out: list[ValidationIssue]) -> 
                     f"'{when_prop_path}' equals '{when_value}' (at {path_str})"
                 ),
                 path=path_str,
+                rule_id=f"yacal:{rule_id}",
+                spec_ref=spec,
+            ))
+        if actual != when_value or not allowed_statusdetail_keys:
+            continue
+        status_detail = container.get("StatusDetail")
+        if status_detail is None:
+            continue
+        if not isinstance(status_detail, dict):
+            out.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message=(
+                    "StatusDetail MUST be a mapping when "
+                    f"'{when_prop_path}' equals '{when_value}'"
+                ),
+                path=f"{path_str}.StatusDetail",
+                rule_id=f"yacal:{rule_id}",
+                spec_ref=spec,
+            ))
+            continue
+        invalid_keys = sorted(set(status_detail) - allowed_statusdetail_keys)
+        if invalid_keys:
+            out.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message=(
+                    "StatusDetail contains unsupported keys "
+                    f"{invalid_keys!r} when '{when_prop_path}' equals '{when_value}'"
+                ),
+                path=f"{path_str}.StatusDetail",
                 rule_id=f"yacal:{rule_id}",
                 spec_ref=spec,
             ))
@@ -574,9 +604,12 @@ def _graph_acyclic(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
     applies = rule.get("AppliesTo", {}) or {}
     id_prop = applies.get("NodeIdentityProperty")
     ref_prop = applies.get("ReferencePath")
+    ref_expr_path = applies.get("ReferenceExpressionPath")
+    ref_wrapper_key = applies.get("ReferenceWrapperKey")
+    ref_id_prop = applies.get("ReferenceIdProperty")
     locations = applies.get("ObjectLocations", []) or []
 
-    if not (id_prop and ref_prop and locations):
+    if not (id_prop and locations and (ref_prop or (ref_expr_path and ref_wrapper_key and ref_id_prop))):
         return
 
     nodes: dict[Any, Any] = {}
@@ -588,12 +621,24 @@ def _graph_acyclic(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
     WHITE, GRAY, BLACK = 0, 1, 2
     color: dict[Any, int] = {nid: WHITE for nid in nodes}
 
+    def refs_for(node: dict) -> list[Any]:
+        if ref_prop:
+            refs = node.get(ref_prop, [])
+            if isinstance(refs, str):
+                return [refs]
+            return refs if isinstance(refs, list) else []
+
+        refs: list[Any] = []
+        for _, expr in _resolve_relative(node, ref_expr_path or ""):
+            for _, ref in _descend(expr, ref_wrapper_key or "", "$"):
+                if isinstance(ref, dict) and ref_id_prop in ref:
+                    refs.append(ref[ref_id_prop])
+        return refs
+
     def dfs(nid: Any) -> bool:
         color[nid] = GRAY
         node = nodes[nid]
-        refs = node.get(ref_prop, [])
-        if isinstance(refs, str):
-            refs = [refs]
+        refs = refs_for(node)
         if isinstance(refs, list):
             for ref in refs:
                 if ref not in color:
@@ -706,6 +751,21 @@ def _find_all(document: Any, key: str) -> list[tuple[str, Any]]:
     return results
 
 
+def _collect_expression_reference_ids(
+    expr: Any,
+    wrapper_key: str,
+    id_property: str,
+    path: str,
+) -> list[tuple[str, Any]]:
+    refs: list[tuple[str, Any]] = []
+    if not wrapper_key:
+        return refs
+    for found_path, ref in _descend(expr, wrapper_key, path):
+        if isinstance(ref, dict) and id_property in ref:
+            refs.append((found_path, ref[id_property]))
+    return refs
+
+
 def _check_rule_id_unique_within_policy(document: Any, out: list[ValidationIssue]) -> None:
     # Catalog gap: no constraint covers Rule.Id uniqueness within Policy.CombinerInput.
     # Rule IDs must be unique within each policy (they are used as identifiers in evaluation).
@@ -782,9 +842,205 @@ def _check_shortid_name_unique(document: Any, out: list[ValidationIssue]) -> Non
                     seen[name] = item_path
 
 
+def _walk_policies(document: Any) -> list[tuple[str, dict, list[str]]]:
+    """Return (path, policy, ancestor_variable_ids) for every Policy object."""
+    results: list[tuple[str, dict, list[str]]] = []
+
+    def walk(policy: dict, path: str, ancestor_ids: list[str]) -> None:
+        results.append((path, policy, ancestor_ids))
+        local_ids = [
+            str(vd.get("VariableId"))
+            for vd in policy.get("VariableDefinition", [])
+            if isinstance(vd, dict) and vd.get("VariableId") is not None
+        ]
+        next_ancestor_ids = ancestor_ids + local_ids
+        for idx, entry in enumerate(policy.get("CombinerInput", []) or []):
+            if not isinstance(entry, dict):
+                continue
+            nested = entry.get("Policy")
+            if isinstance(nested, dict):
+                walk(nested, f"{path}.CombinerInput[{idx}].Policy", next_ancestor_ids)
+
+    for root_path, root_policy in _find_all(document, "Policy"):
+        if isinstance(root_policy, dict):
+            walk(root_policy, root_path, [])
+    return results
+
+
+def _check_policy_variable_scope(document: Any, out: list[ValidationIssue]) -> None:
+    spec = "YACAL §5.12.2 / ACAL §7.13"
+    for policy_path, policy, ancestor_ids in _walk_policies(document):
+        seen_local: dict[str, str] = {}
+        for idx, var_def in enumerate(policy.get("VariableDefinition", []) or []):
+            if not isinstance(var_def, dict):
+                continue
+            var_id = var_def.get("VariableId")
+            if var_id is None:
+                continue
+            item_path = f"{policy_path}.VariableDefinition[{idx}]"
+            var_id_str = str(var_id)
+            if var_id_str in seen_local:
+                out.append(ValidationIssue(
+                    severity=Severity.ERROR,
+                    message=(
+                        f"Duplicate VariableDefinition VariableId {var_id_str!r} at {item_path}; "
+                        f"first at {seen_local[var_id_str]}"
+                    ),
+                    path=item_path,
+                    rule_id="yacal:policy-variable-id-scoped-unique",
+                    spec_ref=spec,
+                ))
+            elif var_id_str in ancestor_ids:
+                out.append(ValidationIssue(
+                    severity=Severity.ERROR,
+                    message=(
+                        f"VariableDefinition VariableId {var_id_str!r} at {item_path} overrides "
+                        "a VariableDefinition already in scope from an enclosing policy"
+                    ),
+                    path=item_path,
+                    rule_id="yacal:policy-variable-id-scoped-unique",
+                    spec_ref=spec,
+                ))
+            else:
+                seen_local[var_id_str] = item_path
+
+
+def _check_rule_variable_scope(document: Any, out: list[ValidationIssue]) -> None:
+    spec = "YACAL §5.12.2 / ACAL §7.13"
+    for policy_path, policy, ancestor_ids in _walk_policies(document):
+        policy_local_ids = {
+            str(vd.get("VariableId"))
+            for vd in policy.get("VariableDefinition", []) or []
+            if isinstance(vd, dict) and vd.get("VariableId") is not None
+        }
+        in_scope = set(ancestor_ids) | policy_local_ids
+        for entry_idx, entry in enumerate(policy.get("CombinerInput", []) or []):
+            if not isinstance(entry, dict):
+                continue
+            rule = entry.get("Rule")
+            if not isinstance(rule, dict):
+                continue
+            seen_local: dict[str, str] = {}
+            for var_idx, var_def in enumerate(rule.get("VariableDefinition", []) or []):
+                if not isinstance(var_def, dict):
+                    continue
+                var_id = var_def.get("VariableId")
+                if var_id is None:
+                    continue
+                item_path = (
+                    f"{policy_path}.CombinerInput[{entry_idx}].Rule.VariableDefinition[{var_idx}]"
+                )
+                var_id_str = str(var_id)
+                if var_id_str in seen_local:
+                    out.append(ValidationIssue(
+                        severity=Severity.ERROR,
+                        message=(
+                            f"Duplicate Rule VariableDefinition VariableId {var_id_str!r} at "
+                            f"{item_path}; first at {seen_local[var_id_str]}"
+                        ),
+                        path=item_path,
+                        rule_id="yacal:rule-variable-id-scoped-unique",
+                        spec_ref=spec,
+                    ))
+                elif var_id_str in in_scope:
+                    out.append(ValidationIssue(
+                        severity=Severity.ERROR,
+                        message=(
+                            f"Rule VariableDefinition VariableId {var_id_str!r} at {item_path} "
+                            "overrides a VariableDefinition already in scope from an enclosing policy"
+                        ),
+                        path=item_path,
+                        rule_id="yacal:rule-variable-id-scoped-unique",
+                        spec_ref=spec,
+                    ))
+                else:
+                    seen_local[var_id_str] = item_path
+
+
+def _check_shortidset_reference_graph(document: Any, out: list[ValidationIssue]) -> None:
+    spec = "YACAL §5.11.1 / ACAL §7.2"
+    nodes: dict[str, tuple[str, dict]] = {}
+    for sid_path, shortidset in _find_all(document, "ShortIdSet"):
+        if sid_path != "ShortIdSet":
+            continue
+        items = shortidset if isinstance(shortidset, list) else [shortidset]
+        for idx, obj in enumerate(items):
+            if not isinstance(obj, dict) or "Id" not in obj:
+                continue
+            obj_path = f"{sid_path}[{idx}]" if isinstance(shortidset, list) else sid_path
+            nodes[str(obj["Id"])] = (obj_path, obj)
+
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: dict[str, int] = {nid: WHITE for nid in nodes}
+
+    def refs_for(node: dict) -> list[str]:
+        refs = node.get("ShortIdSetReference", [])
+        if isinstance(refs, str):
+            return [refs]
+        return [str(r) for r in refs] if isinstance(refs, list) else []
+
+    def dfs(nid: str) -> bool:
+        color[nid] = GRAY
+        _, node = nodes[nid]
+        for ref in refs_for(node):
+            if ref not in nodes:
+                continue
+            if color[ref] == GRAY:
+                return True
+            if color[ref] == WHITE and dfs(ref):
+                return True
+        color[nid] = BLACK
+        return False
+
+    for nid in list(nodes):
+        if color[nid] == WHITE and dfs(nid):
+            path, _ = nodes[nid]
+            out.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message=f"Cycle detected in ShortIdSetReference graph involving {nid!r}",
+                path=path,
+                rule_id="yacal:shortidset-reference-acyclic",
+                spec_ref=spec,
+            ))
+
+    def walk(nid: str, visited: set[str]) -> bool:
+        _, node = nodes[nid]
+        for ref in refs_for(node):
+            if ref not in nodes:
+                continue
+            if ref in visited:
+                return True
+            visited.add(ref)
+            if walk(ref, visited):
+                return True
+            visited.remove(ref)
+        return False
+
+    for nid, (path, node) in nodes.items():
+        refs = refs_for(node)
+        if len(refs) != len(set(refs)):
+            out.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message=f"ShortIdSet {nid!r} references another ShortIdSet more than once",
+                path=path,
+                rule_id="yacal:shortidset-reference-no-repeat",
+                spec_ref=spec,
+            ))
+        if walk(nid, set()):
+            out.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message=f"ShortIdSet {nid!r} indirectly revisits another ShortIdSet",
+                path=path,
+                rule_id="yacal:shortidset-reference-no-repeat",
+                spec_ref=spec,
+            ))
+
 _SUPPLEMENTARY_CHECKS = [
     _check_rule_id_unique_within_policy,
     _check_shortid_name_unique,
+    _check_policy_variable_scope,
+    _check_rule_variable_scope,
+    _check_shortidset_reference_graph,
 ]
 
 

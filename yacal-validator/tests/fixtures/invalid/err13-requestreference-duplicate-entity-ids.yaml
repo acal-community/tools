@@ -1,0 +1,12 @@
+Request:
+  RequestEntity:
+    - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+      Id: subject-one
+    - Category: "urn:oasis:names:tc:acal:1.0:attribute-category:action"
+      Id: action-one
+  MultiRequests:
+    RequestReference:
+      - RequestEntityReference:
+          - Id: subject-one
+          - Id: subject-one
+          - Id: action-one

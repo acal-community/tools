@@ -8,6 +8,14 @@ Most recent decisions at top. No archiving.
 
 ---
 
+## one-test-path-per-yacal-rule-family (June 2026)
+
+The `yacal-validator` suite intentionally maintains at least one deliberate test path for every current YACAL constraint-catalog rule, plus explicit coverage of YAML-specific conformance rules and every supported root document form.
+
+**Why:** This tool is being positioned as the reference validator for YAML ACAL policies. "A lot of tests" is not a sufficient bar; the suite needs traceable coverage over the actual rule inventory so we can tell the difference between an unimplemented rule, an unreachable rule, and a rule that is working correctly. This decision directly shaped the fixture expansion work: when the upstream schemas made some catalog rules unreachable, we patched the loader locally rather than accepting blind spots in the compliance suite.
+
+---
+
 ## constraint-coverage-always-surfaced (June 2026)
 
 `evaluate()` returns `(issues, total, evaluated, skipped)`. `ValidationResult` carries the three counters. Both human and JSON output always include a constraint coverage line when constraints ran.

@@ -8,13 +8,16 @@ Structural schema passes first; constraints run only if structure is clean.
 """
 from __future__ import annotations
 
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import jsonschema
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
+from ruamel.yaml.comments import TaggedScalar
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarint import OctalInt
 
 from .base import Severity, ValidationIssue, ValidationResult
 from .constraints import evaluate as eval_constraints, load_catalog
@@ -23,19 +26,25 @@ _yaml = YAML()
 _yaml.preserve_quotes = True
 
 _XPATH_INDICATORS = frozenset({
-    "XPathAttributeSelector", "XPathPolicyDefaults", "XPathRequestDefaults",
-    "XPathEntityAttributeSelector",
+    "XPathPolicyDefaults", "XPathRequestDefaults", "ContextSelectorId",
+    "XPathCategory", "XPath:", "XPathAttributeSelector", "XPathEntityAttributeSelector",
 })
 _JSONPATH_INDICATORS = frozenset({
-    "JSONPathAttributeSelector", "JSONPathPolicyDefaults",
-    "JSONPathEntityAttributeSelector",
+    "MediaType: application/json", 'MediaType: "application/json"',
+    "Path: $", "Path: \"$", "Path: '$",
+    "JSONPathAttributeSelector", "JSONPathEntityAttributeSelector",
 })
+_YAML_SPEC_REF = "YACAL §5.1.4 / §7.4"
 
 
 def detect_profiles(content: str) -> list[str]:
     profiles: list[str] = []
     if any(k in content for k in _XPATH_INDICATORS):
         profiles.append("xpath")
+
+    # JSONPath selector surface forms in YACAL use the core wrapper keys
+    # AttributeSelector / EntityAttributeSelector, so we infer the profile from
+    # JSON content markers and the conventional '$'-prefixed path syntax.
     if any(k in content for k in _JSONPATH_INDICATORS):
         profiles.append("jsonpath")
     return profiles
@@ -54,8 +63,7 @@ def validate(
     result = ValidationResult(format="yacal", profiles=profiles)
 
     try:
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            document = _yaml.load(f)
+        documents = list(_yaml.load_all(StringIO(content)))
     except Exception as exc:
         result.add_issue(ValidationIssue(
             severity=Severity.ERROR,
@@ -65,7 +73,7 @@ def validate(
         ))
         return result
 
-    if document is None:
+    if not documents or documents[0] is None:
         result.add_issue(ValidationIssue(
             severity=Severity.ERROR,
             message="Document is empty.",
@@ -73,6 +81,20 @@ def validate(
             rule_id="parse:empty",
         ))
         return result
+
+    if len(documents) != 1:
+        result.add_issue(ValidationIssue(
+            severity=Severity.ERROR,
+            message="YACAL documents MUST NOT use YAML multi-document streams.",
+            path="$",
+            rule_id="yaml:multi-document-stream",
+            spec_ref=_YAML_SPEC_REF,
+        ))
+        return result
+
+    document = documents[0]
+    for issue in _lint_yaml_features(document):
+        result.add_issue(issue)
 
     document_plain = _to_plain(document)
 
@@ -168,23 +190,23 @@ def _composed_root(ids: dict[str, str], profiles: list[str]) -> dict:
     if "xpath" in profiles:
         defs["_xpathPolicy"] = {
             "$dynamicAnchor": "PolicyDefaultsTypeExtensions",
-            "$ref": f"{xpath_id}#/$defs/XPathPolicyDefaultsTypeTree",
+            "$ref": f"{xpath_id}#/$defs/XPathPolicyDefaultsTypeExtension",
         }
         defs["_xpathRequest"] = {
             "$dynamicAnchor": "RequestDefaultsTypeExtensions",
-            "$ref": f"{xpath_id}#/$defs/XPathRequestDefaultsTypeTree",
+            "$ref": f"{xpath_id}#/$defs/XPathRequestDefaultsTypeExtension",
         }
         defs["_xpathAttrSel"] = {
             "$dynamicAnchor": "AttributeSelectorTypeExtensions",
-            "$ref": f"{xpath_id}#/$defs/XPathAttributeSelectorTypeTree",
+            "$ref": f"{xpath_id}#/$defs/XPathAttributeSelectorTypeExtension",
         }
         defs["_xpathEntityAttrSel"] = {
             "$dynamicAnchor": "EntityAttributeSelectorTypeExtensions",
-            "$ref": f"{xpath_id}#/$defs/XPathEntityAttributeSelectorTypeTree",
+            "$ref": f"{xpath_id}#/$defs/XPathEntityAttributeSelectorTypeExtension",
         }
         defs["_xpathValue"] = {
             "$dynamicAnchor": "StructuredValueTypeExtensions",
-            "$ref": f"{xpath_id}#/$defs/XPathExpressionValueType",
+            "$ref": f"{xpath_id}#/$defs/XPathStructuredValueTypeExtension",
         }
 
     if "jsonpath" in profiles:
@@ -192,25 +214,25 @@ def _composed_root(ids: dict[str, str], profiles: list[str]) -> dict:
             defs["_xpathAttrSel"] = {
                 "$dynamicAnchor": "AttributeSelectorTypeExtensions",
                 "anyOf": [
-                    {"$ref": f"{xpath_id}#/$defs/XPathAttributeSelectorTypeTree"},
-                    {"$ref": f"{jsonpath_id}#/$defs/JSONPathAttributeSelectorTypeTree"},
+                    {"$ref": f"{xpath_id}#/$defs/XPathAttributeSelectorTypeExtension"},
+                    {"$ref": f"{jsonpath_id}#/$defs/JSONPathAttributeSelectorTypeExtension"},
                 ],
             }
             defs["_xpathEntityAttrSel"] = {
                 "$dynamicAnchor": "EntityAttributeSelectorTypeExtensions",
                 "anyOf": [
-                    {"$ref": f"{xpath_id}#/$defs/XPathEntityAttributeSelectorTypeTree"},
-                    {"$ref": f"{jsonpath_id}#/$defs/JSONPathEntityAttributeSelectorTypeTree"},
+                    {"$ref": f"{xpath_id}#/$defs/XPathEntityAttributeSelectorTypeExtension"},
+                    {"$ref": f"{jsonpath_id}#/$defs/JSONPathEntityAttributeSelectorTypeExtension"},
                 ],
             }
         else:
             defs["_jsonpathAttrSel"] = {
                 "$dynamicAnchor": "AttributeSelectorTypeExtensions",
-                "$ref": f"{jsonpath_id}#/$defs/JSONPathAttributeSelectorTypeTree",
+                "$ref": f"{jsonpath_id}#/$defs/JSONPathAttributeSelectorTypeExtension",
             }
             defs["_jsonpathEntityAttrSel"] = {
                 "$dynamicAnchor": "EntityAttributeSelectorTypeExtensions",
-                "$ref": f"{jsonpath_id}#/$defs/JSONPathEntityAttributeSelectorTypeTree",
+                "$ref": f"{jsonpath_id}#/$defs/JSONPathEntityAttributeSelectorTypeExtension",
             }
 
     return {
@@ -228,7 +250,117 @@ def _load_yaml_schema(path: Path) -> dict:
     _schema_yaml = YAML()
     _schema_yaml.allow_duplicate_keys = True
     raw = _schema_yaml.load(content)
-    return _patch_schema(_to_plain(raw))
+    patched = _patch_schema(_to_plain(raw))
+    if path.name == "acal-core-yaml-v1.0-structure.schema.yaml":
+        _patch_core_schema_shape_bugs(patched)
+    return patched
+
+
+def _patch_core_schema_shape_bugs(schema: dict) -> None:
+    """Patch known core-schema shape bugs that block spec-aligned validation."""
+    defs = schema.get("$defs")
+    if not isinstance(defs, dict):
+        return
+
+    if "AttributeSelectorCoreType" not in defs:
+        defs["AttributeSelectorCoreType"] = {
+            "allOf": [
+                {"$ref": "#/$defs/BaseAttributeSelectorType"},
+                {
+                    "type": "object",
+                    "required": ["Category"],
+                    "properties": {
+                        "Category": {"$ref": "#/$defs/IdentifierType"},
+                    },
+                },
+            ],
+        }
+
+    if "EntityAttributeSelectorCoreType" not in defs:
+        defs["EntityAttributeSelectorCoreType"] = {
+            "allOf": [
+                {"$ref": "#/$defs/BaseAttributeSelectorType"},
+                {
+                    "type": "object",
+                    "required": ["Expression"],
+                    "properties": {
+                        "Expression": {"$ref": "#/$defs/ExpressionTypeTree"},
+                    },
+                },
+            ],
+        }
+
+    defs["AttributeSelectorTypeTree"] = {
+        "type": "object",
+        "required": ["AttributeSelector"],
+        "properties": {
+            "AttributeSelector": {"$dynamicRef": "#AttributeSelectorTypeExtensions"},
+        },
+        "additionalProperties": False,
+    }
+
+    defs["EntityAttributeSelectorTypeTree"] = {
+        "type": "object",
+        "required": ["EntityAttributeSelector"],
+        "properties": {
+            "EntityAttributeSelector": {"$dynamicRef": "#EntityAttributeSelectorTypeExtensions"},
+        },
+        "additionalProperties": False,
+    }
+
+    defs["BaseAttributeSelectorTypeTree"] = {
+        "anyOf": [
+            {"$ref": "#/$defs/AttributeSelectorTypeTree"},
+            {"$ref": "#/$defs/EntityAttributeSelectorTypeTree"},
+        ],
+    }
+
+    defs["IdReferenceType"] = {
+        "type": "object",
+        "properties": {
+            "Id": {"$ref": "#/$defs/URIType"},
+        },
+        "required": ["Id"],
+    }
+
+    defs["ExactMatchIdReferenceType"] = {
+        "allOf": [
+            {"$ref": "#/$defs/IdReferenceType"},
+            {
+                "type": "object",
+                "properties": {
+                    "Version": {"$ref": "#/$defs/VersionType"},
+                },
+                "required": ["Version"],
+            },
+        ],
+        "unevaluatedProperties": False,
+    }
+
+    status_detail_extensions = defs.get("StatusDetailTypeExtensionsDisabled")
+    if isinstance(status_detail_extensions, dict):
+        status_detail_extensions.clear()
+        status_detail_extensions["$dynamicAnchor"] = "StatusDetailTypeExtensions"
+
+    policy_type = defs.get("PolicyType")
+    if isinstance(policy_type, dict):
+        properties = policy_type.get("properties")
+        if isinstance(properties, dict) and isinstance(properties.get("PolicyDefaults"), dict):
+            properties["PolicyDefaults"] = {
+                "type": "array",
+                "items": {"$ref": "#/$defs/PolicyDefaultsTypeTree"},
+                "minItems": 1,
+            }
+
+    request_type = defs.get("RequestType")
+    if isinstance(request_type, dict):
+        properties = request_type.get("properties")
+        if isinstance(properties, dict) and isinstance(properties.get("RequestDefaults"), dict):
+            properties["RequestDefaults"] = {
+                "type": "array",
+                "items": {"$ref": "#/$defs/RequestDefaultsTypeTree"},
+                "minItems": 1,
+            }
 
 
 def _patch_schema(obj: Any) -> Any:
@@ -273,3 +405,82 @@ def _to_plain(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_to_plain(i) for i in obj]
     return obj
+
+
+def _lint_yaml_features(document: Any) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    seen: set[int] = set()
+
+    def visit(node: Any, path: str) -> None:
+        node_id = id(node)
+        if isinstance(node, (dict, list)):
+            if node_id in seen:
+                return
+            seen.add(node_id)
+
+        tag = getattr(node, "tag", None)
+        tag_value = getattr(tag, "value", None)
+        if tag_value is not None:
+            issues.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message=f"YAML tags are not allowed in YACAL documents ({tag_value}).",
+                path=path,
+                rule_id="yaml:disallowed-tag",
+                spec_ref=_YAML_SPEC_REF,
+            ))
+
+        anchor = getattr(node, "anchor", None)
+        anchor_value = getattr(anchor, "value", None)
+        if anchor_value is not None:
+            issues.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message="YAML anchors and aliases are not allowed in YACAL documents.",
+                path=path,
+                rule_id="yaml:disallowed-anchor",
+                spec_ref=_YAML_SPEC_REF,
+            ))
+
+        merge = getattr(node, "merge", None)
+        if merge:
+            issues.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message="YAML merge keys are not allowed in YACAL documents.",
+                path=path,
+                rule_id="yaml:disallowed-merge-key",
+                spec_ref=_YAML_SPEC_REF,
+            ))
+
+        if node is None:
+            issues.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message="YAML null values are not allowed in YACAL documents.",
+                path=path,
+                rule_id="yaml:null-value",
+                spec_ref=_YAML_SPEC_REF,
+            ))
+            return
+
+        if isinstance(node, OctalInt):
+            issues.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message="YAML octal integer notation is not allowed in YACAL documents.",
+                path=path,
+                rule_id="yaml:octal-integer",
+                spec_ref=_YAML_SPEC_REF,
+            ))
+            return
+
+        if isinstance(node, dict):
+            for key, value in node.items():
+                child_path = f"{path}.{key}" if path != "$" else f"$.{key}"
+                visit(value, child_path)
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                visit(value, f"{path}[{index}]")
+        elif isinstance(node, TaggedScalar):
+            # Already covered by the tag check above; return to avoid treating
+            # tagged nulls or scalars as plain Python values.
+            return
+
+    visit(document, "$")
+    return issues

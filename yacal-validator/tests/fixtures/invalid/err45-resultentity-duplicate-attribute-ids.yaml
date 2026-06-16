@@ -1,0 +1,12 @@
+Response:
+  Result:
+    - Decision: Permit
+      ResultEntity:
+        - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+          Attribute:
+            - AttributeId: "urn:example:yacal:subject:role"
+              Value:
+                - doctor
+            - AttributeId: "urn:example:yacal:subject:role"
+              Value:
+                - auditor

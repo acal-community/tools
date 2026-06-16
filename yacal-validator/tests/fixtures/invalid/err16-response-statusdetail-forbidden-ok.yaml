@@ -1,0 +1,10 @@
+Response:
+  Result:
+    - Decision: Permit
+      Status:
+        StatusCode:
+          Value: "urn:oasis:names:tc:acal:1.0:status:ok"
+        StatusDetail:
+          MissingAttributeDetail:
+            - AttributeId: "urn:example:yacal:subject:role"
+              DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"

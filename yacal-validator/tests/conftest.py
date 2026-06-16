@@ -15,8 +15,6 @@ import pytest
 
 _DEFAULT_SPEC_DIR = Path("/Users/wparducci/source/acal/xacml-spec")
 SPEC_DIR = Path(os.environ.get("ACAL_SPEC_DIR", _DEFAULT_SPEC_DIR))
-EXAMPLES_DIR = SPEC_DIR / "examples"
-XPATH_EXAMPLES = EXAMPLES_DIR / "acal-xpath"
 
 
 def _require_spec_dir() -> Path:
@@ -28,12 +26,6 @@ def _require_spec_dir() -> Path:
 @pytest.fixture(scope="session")
 def spec_dir() -> Path:
     return _require_spec_dir()
-
-
-@pytest.fixture(scope="session")
-def xpath_examples() -> Path:
-    _require_spec_dir()
-    return XPATH_EXAMPLES
 
 
 @pytest.fixture(scope="session")

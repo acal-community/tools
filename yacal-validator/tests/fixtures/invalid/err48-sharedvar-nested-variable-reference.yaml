@@ -1,0 +1,15 @@
+Bundle:
+  SharedVariableDefinition:
+    - Id: "urn:example:yacal:shared:nested-variable-reference"
+      Version: "1.0"
+      Expression:
+        Apply:
+          FunctionId: "{and}"
+          Argument:
+            - Value: true
+            - Apply:
+                FunctionId: "{string-is-in}"
+                Argument:
+                  - VariableReference:
+                      VariableId: current_timezone
+                  - Value: "America/New_York"

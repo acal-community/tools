@@ -1,0 +1,11 @@
+Response:
+  Result:
+    - Decision: Permit
+      Notice:
+        - Id: "urn:example:yacal:notice:log"
+          AttributeAssignment:
+            - AttributeId: "urn:example:yacal:notice:priority"
+              DataType: "{string}"
+              Value:
+                - DataType: "{integer}"
+                  Value: "high"

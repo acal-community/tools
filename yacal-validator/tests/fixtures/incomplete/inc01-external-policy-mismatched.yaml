@@ -1,5 +1,5 @@
 # PHASE 2 FIXTURE: External Policy with Parameter.DataType={integer}.
-# Mismatches Argument.DataType={string} in inc01-bundle-external-policy-ref.yaml.
+# Mismatches Argument.DataType={string} in inc01-policy-external-policy-ref.yaml.
 # Providing this via --include produces exit 1 with a DataType error.
 Policy:
   PolicyId: "urn:example:policy:external-with-params"

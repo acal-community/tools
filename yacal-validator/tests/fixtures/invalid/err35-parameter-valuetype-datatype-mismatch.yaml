@@ -1,0 +1,11 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:parameter-datatype-mismatch"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  Parameter:
+    - Name: threshold
+      DataType: "{string}"
+      Expression:
+        Value:
+          DataType: "{integer}"
+          Value: "100"

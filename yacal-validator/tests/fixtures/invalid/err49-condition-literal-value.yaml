@@ -1,0 +1,10 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:literal-condition"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: bad_boolean_condition
+        Effect: Permit
+        Condition:
+          Value: true

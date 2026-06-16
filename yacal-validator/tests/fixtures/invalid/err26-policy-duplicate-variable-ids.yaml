@@ -1,0 +1,11 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:duplicate-variables"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  VariableDefinition:
+    - VariableId: action_is_view
+      Expression:
+        Value: read
+    - VariableId: action_is_view
+      Expression:
+        Value: write

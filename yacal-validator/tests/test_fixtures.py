@@ -24,6 +24,87 @@ VALID_DIR = FIXTURES_DIR / "valid"
 INVALID_DIR = FIXTURES_DIR / "invalid"
 INCOMPLETE_DIR = FIXTURES_DIR / "incomplete"
 
+VALID_FIXTURES = [
+    "ex01-rule-simple-permit.yaml",
+    "ex02-rule-short-identifiers.yaml",
+    "ex03-policy-website-content-access.yaml",
+    "ex04-rule-notice-expression.yaml",
+    "ex06-policy-nested-policies.yaml",
+    "ex08-rule-quantified-expression.yaml",
+    "ex09-bundle-shared-variable.yaml",
+    "ex10-bundle-parameterized-sharedvar.yaml",
+    "ex11-request-multirequests.yaml",
+    "ex12-response-missing-attribute.yaml",
+    "ex13-shortidset-standalone.yaml",
+    "ex14-policy-xpath-defaults.yaml",
+    "ex15-policy-jsonpath-selector.yaml",
+    "ex16-response-full-result.yaml",
+    "ex17-request-multirequests-expanded.yaml",
+]
+
+PROFILE_EXPECTATIONS = {
+    "ex14-policy-xpath-defaults.yaml": ["xpath"],
+    "ex15-policy-jsonpath-selector.yaml": ["jsonpath"],
+}
+
+STRUCTURAL_INVALID_FIXTURES = [
+    "err01-policyset-removed.yaml",
+    "err02-anyof-allof-target-syntax.yaml",
+    "err03-obligation-advice-expressions.yaml",
+    "err05-missing-required-fields.yaml",
+    "err07-rule-with-target.yaml",
+    "err49-condition-literal-value.yaml",
+]
+
+CONSTRAINT_INVALID_RULES = {
+    "err04-duplicate-notice-ids.yaml": "rule-noticeexpression-id-unique",
+    "err06-bundle-duplicate-policy-ids.yaml": "bundle-policy-policyid-unique",
+    "err08-duplicate-rule-ids.yaml": "rule-id-unique-within-policy",
+    "err09-duplicate-shortid-names.yaml": "shortidset-shortid-name-unique",
+    "err10-sharedvar-datatype-mismatch.yaml": "sharedvariablereference-argument-datatype-agreement",
+    "err11-request-duplicate-entity-ids.yaml": "request-entity-id-unique",
+    "err12-request-duplicate-attribute-ids.yaml": "request-attribute-id-unique-within-entity",
+    "err13-requestreference-duplicate-entity-ids.yaml": "requestreference-requestentityreference-id-unique",
+    "err14-requestreference-unresolved-entity-id.yaml": "requestreference-requestentityreference-resolves",
+    "err15-multirequests-duplicate-reference-set.yaml": "multirequests-requestreference-unique-by-entity-id-set",
+    "err16-response-statusdetail-forbidden-ok.yaml": "statusdetail-forbidden-for-ok",
+    "err17-response-statusdetail-forbidden-syntax-error.yaml": "statusdetail-forbidden-for-syntax-error",
+    "err18-response-statusdetail-forbidden-processing-error.yaml": "statusdetail-forbidden-for-processing-error",
+    "err19-bundle-policyreference-without-policy.yaml": "bundle-policyreference-requires-policy",
+    "err20-bundle-duplicate-shortidset-ids.yaml": "bundle-shortidset-id-unique",
+    "err21-bundle-duplicate-sharedvar-ids.yaml": "bundle-sharedvariabledefinition-id-unique",
+    "err22-sharedvar-variable-reference-disallowed.yaml": "shared-variable-definition-no-variable-reference",
+    "err23-sharedvar-reference-cycle.yaml": "shared-variable-reference-acyclic",
+    "err24-policy-duplicate-parameter-names.yaml": "policy-parameter-name-unique",
+    "err25-sharedvar-duplicate-parameter-names.yaml": "shared-variable-parameter-name-unique",
+    "err26-policy-duplicate-variable-ids.yaml": "policy-variable-id-scoped-unique",
+    "err27-rule-duplicate-variable-ids.yaml": "rule-variable-id-scoped-unique",
+    "err28-standalone-shortidset-self-cycle.yaml": "shortidset-reference-acyclic",
+    "err29-bundle-shortidset-repeat-reference.yaml": "shortidset-reference-no-repeat",
+    "err30-policy-defaults-duplicate-subtype.yaml": "policy-defaults-unique-concrete-subtype",
+    "err31-request-defaults-duplicate-subtype.yaml": "request-defaults-unique-concrete-subtype",
+    "err32-attribute-valuetype-datatype-mismatch.yaml": "attribute-valuetype-datatype-agreement",
+    "err33-requestattribute-valuetype-datatype-mismatch.yaml": "requestattribute-valuetype-datatype-agreement",
+    "err34-attributeassignment-valuetype-datatype-mismatch.yaml": "attributeassignment-valuetype-datatype-agreement",
+    "err35-parameter-valuetype-datatype-mismatch.yaml": "parameter-valuetype-datatype-agreement",
+    "err36-policy-notice-duplicate-ids.yaml": "policy-noticeexpression-id-unique",
+    "err37-result-notice-duplicate-ids.yaml": "result-notice-id-unique",
+    "err38-resultentity-duplicate-category.yaml": "result-resultentity-category-unique",
+    "err45-resultentity-duplicate-attribute-ids.yaml": "resultentity-attribute-attributeid-unique",
+    "err46-applicablepolicyreference-duplicate-ids.yaml": "result-applicablepolicyreference-id-unique",
+    "err47-graph-indirect-repeat.yaml": "shortidset-reference-no-repeat",
+    "err48-sharedvar-nested-variable-reference.yaml": "shared-variable-definition-no-variable-reference",
+}
+
+YAML_INVALID_RULES = {
+    "err39-yaml-tag.yaml": "yaml:disallowed-tag",
+    "err40-yaml-anchor-alias.yaml": "yaml:disallowed-anchor",
+    "err41-yaml-merge-key.yaml": "yaml:disallowed-merge-key",
+    "err42-yaml-null.yaml": "yaml:null-value",
+    "err43-yaml-octal-integer.yaml": "yaml:octal-integer",
+    "err44-yaml-multi-document.yaml": "yaml:multi-document-stream",
+}
+
 
 @pytest.fixture(scope="module")
 def schema_paths(store):
@@ -50,25 +131,26 @@ def _validate(path: Path, schema_paths: dict, include_paths: list[Path] | None =
 # Valid fixtures (adoption guide examples — must pass with no errors)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("filename", [
-    "ex01-rule-simple-permit.yaml",
-    "ex02-rule-short-identifiers.yaml",
-    "ex03-policy-website-content-access.yaml",
-    "ex04-rule-notice-expression.yaml",
-    "ex06-policy-nested-policies.yaml",
-    "ex08-rule-quantified-expression.yaml",
-    "ex09-bundle-shared-variable.yaml",
-    "ex10-bundle-parameterized-sharedvar.yaml",
-])
+@pytest.mark.parametrize("filename", VALID_FIXTURES)
 def test_valid_fixture_passes(filename, schema_paths):
-    """Adoption guide examples must pass with no errors and no warnings."""
+    """Curated valid YACAL fixtures must pass with no errors and no warnings."""
     result = _validate(VALID_DIR / filename, schema_paths)
     errors = [i for i in result.issues if i.severity.value == "error"]
     assert result.valid, f"Expected PASS for {filename}, got errors: {[e.message for e in errors]}"
     assert not errors
     assert not result.issues, (
-        f"Unexpected warnings in {filename}: {[i.message for i in result.issues]}"
-    )
+            f"Unexpected warnings in {filename}: {[i.message for i in result.issues]}"
+        )
+
+
+@pytest.mark.parametrize("filename, expected_profiles", PROFILE_EXPECTATIONS.items())
+def test_profile_fixture_detects_expected_profiles(filename, expected_profiles, schema_paths):
+    result = _validate(VALID_DIR / filename, schema_paths)
+    assert result.valid
+    for profile in expected_profiles:
+        assert profile in result.profiles, (
+            f"Expected profile {profile!r} for {filename}, got {result.profiles}"
+        )
 
 
 def test_valid_fixtures_run_full_constraint_catalog(schema_paths):
@@ -97,13 +179,7 @@ def test_valid_fixtures_run_full_constraint_catalog(schema_paths):
 # Invalid fixtures — structural errors (XACML 3.0 constructs removed in ACAL 1.0)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("filename", [
-    "err01-policyset-removed.yaml",
-    "err02-anyof-allof-target-syntax.yaml",
-    "err03-obligation-advice-expressions.yaml",
-    "err05-missing-required-fields.yaml",
-    "err07-rule-with-target.yaml",
-])
+@pytest.mark.parametrize("filename", STRUCTURAL_INVALID_FIXTURES)
 def test_structural_error_fixture_fails(filename, schema_paths):
     """Documents with removed XACML 3.0 constructs or missing required fields must fail."""
     result = _validate(INVALID_DIR / filename, schema_paths)
@@ -130,78 +206,36 @@ def test_err07_rule_with_target_fails(schema_paths):
 # Invalid fixtures — constraint violations (catalog + supplementary checks)
 # ---------------------------------------------------------------------------
 
-def test_err04_duplicate_notice_ids_caught_by_constraint(schema_paths):
-    """Duplicate NoticeExpression IDs within a Rule must be caught by the constraint catalog."""
-    result = _validate(INVALID_DIR / "err04-duplicate-notice-ids.yaml", schema_paths)
-    assert not result.valid
-    constraint_errors = [
-        i for i in result.issues
-        if (i.rule_id or "").startswith("yacal:") and i.severity.value == "error"
-    ]
-    assert any("rule-noticeexpression-id-unique" in (i.rule_id or "") for i in constraint_errors)
-
-
-def test_err06_duplicate_bundle_policy_ids_caught_by_constraint(schema_paths):
-    """Duplicate PolicyId values in a Bundle must be caught by the constraint catalog."""
-    result = _validate(INVALID_DIR / "err06-bundle-duplicate-policy-ids.yaml", schema_paths)
-    assert not result.valid
-    constraint_errors = [
-        i for i in result.issues
-        if (i.rule_id or "").startswith("yacal:") and i.severity.value == "error"
-    ]
-    assert any("bundle-policy-policyid-unique" in (i.rule_id or "") for i in constraint_errors)
-
-
-def test_err08_duplicate_rule_ids_caught_by_supplementary_check(schema_paths):
-    """Duplicate Rule IDs within a Policy CombinerInput are caught by supplementary check.
-    The upstream catalog is missing this constraint — it is implemented locally.
-    """
-    result = _validate(INVALID_DIR / "err08-duplicate-rule-ids.yaml", schema_paths)
+@pytest.mark.parametrize("filename, expected_rule", CONSTRAINT_INVALID_RULES.items())
+def test_constraint_error_fixture_fails_for_expected_rule(filename, expected_rule, schema_paths):
+    result = _validate(INVALID_DIR / filename, schema_paths)
     assert not result.valid
     constraint_errors = [
         i for i in result.issues
         if (i.rule_id or "").startswith("yacal:") and i.severity.value == "error"
     ]
     assert any(
-        "rule-id-unique-within-policy" in (i.rule_id or "") for i in constraint_errors
-    ), f"Supplementary rule-id check did not fire. Issues: {[i.rule_id for i in result.issues]}"
-
-
-def test_err09_duplicate_shortid_names_caught_by_supplementary_check(schema_paths):
-    """Duplicate ShortId Names are caught by supplementary check.
-    The upstream catalog path is wrong for all real document forms — implemented locally.
-    """
-    result = _validate(INVALID_DIR / "err09-duplicate-shortid-names.yaml", schema_paths)
-    assert not result.valid
-    constraint_errors = [
-        i for i in result.issues
-        if (i.rule_id or "").startswith("yacal:") and i.severity.value == "error"
-    ]
-    assert any(
-        "shortidset-shortid-name-unique" in (i.rule_id or "") for i in constraint_errors
-    ), f"Supplementary shortid check did not fire. Issues: {[i.rule_id for i in result.issues]}"
-
-
-def test_err10_sharedvar_datatype_mismatch_caught_by_phase1(schema_paths):
-    """Phase 1: SharedVariableReference DataType mismatch caught via within-Bundle resolution.
-
-    The parameter declares DataType={string}; the reference passes DataType={integer}.
-    The within-document index resolves the definition and the catalog constraint fires.
-    No skip warnings should be emitted — this is a fully evaluated constraint.
-    """
-    result = _validate(INVALID_DIR / "err10-sharedvar-datatype-mismatch.yaml", schema_paths)
-    assert not result.valid
-    constraint_errors = [
-        i for i in result.issues
-        if (i.rule_id or "").startswith("yacal:") and i.severity.value == "error"
-    ]
-    assert any(
-        "sharedvariablereference-argument-datatype-agreement" in (i.rule_id or "")
+        expected_rule in (i.rule_id or "")
         for i in constraint_errors
-    ), f"Phase 1 DataType check did not fire. Issues: {[i.rule_id for i in result.issues]}"
+    ), f"Expected rule {expected_rule!r} for {filename}. Issues: {[i.rule_id for i in result.issues]}"
+
+
+def test_err10_sharedvar_datatype_mismatch_has_no_skip_warnings(schema_paths):
+    """Within-document SharedVariableReference resolution should not produce skip warnings."""
+    result = _validate(INVALID_DIR / "err10-sharedvar-datatype-mismatch.yaml", schema_paths)
     skip_issues = [i for i in result.issues if (i.rule_id or "").startswith("yacal-skip:")]
     assert not skip_issues, (
         f"Expected no skip issues when definition is in-Bundle, got: {[i.message for i in skip_issues]}"
+    )
+
+
+@pytest.mark.parametrize("filename, expected_rule", YAML_INVALID_RULES.items())
+def test_yaml_conformance_fixture_fails_for_expected_rule(filename, expected_rule, schema_paths):
+    result = _validate(INVALID_DIR / filename, schema_paths)
+    assert not result.valid
+    error_rule_ids = [i.rule_id for i in result.issues if i.severity.value == "error"]
+    assert expected_rule in error_rule_ids, (
+        f"Expected YAML rule {expected_rule!r} for {filename}. Issues: {error_rule_ids}"
     )
 
 
@@ -209,7 +243,7 @@ def test_err10_sharedvar_datatype_mismatch_caught_by_phase1(schema_paths):
 # Phase 2: --include for cross-file reference resolution
 # ---------------------------------------------------------------------------
 
-_INC01 = INCOMPLETE_DIR / "inc01-bundle-external-policy-ref.yaml"
+_INC01 = INCOMPLETE_DIR / "inc01-policy-external-policy-ref.yaml"
 _INC01_MATCH = INCOMPLETE_DIR / "inc01-external-policy-matching.yaml"
 _INC01_MISMATCH = INCOMPLETE_DIR / "inc01-external-policy-mismatched.yaml"
 

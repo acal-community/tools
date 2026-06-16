@@ -10,15 +10,16 @@ The tools repo has been restructured from a combined multi-format validator into
 
 - **`main`** — base branch; diary files, CLAUDE.md, CONTRIBUTING.md, `.gitignore` only
 - **`acal-validator`** — the original combined XML+JSON+YAML validator (pre-split); kept until `jacal-validator` is ready, then to be deleted
-- **`yacal-validator`** — active development branch; self-contained YACAL v1.0 (YAML) validator, **complete with fixture-based tests**
+- **`yacal-validator`** — active development branch; self-contained YACAL v1.0 (YAML) validator, **complete with spec-driven fixture and unit tests**
 
-`yacal-validator` status: **31 passed, 2 skipped** (the 2 skipped are XPath example tests that need `.yaml` fixture files not yet in the spec repo).
+`yacal-validator` status: **88 passed, 0 skipped**.
 
 The tool provides:
 - `yacal-validate FILE` CLI (installed via `pip install -e .`)
 - `python -m yacal_validator FILE` (no install required, dependencies only)
-- Two-layer validation: JSON Schema 2020-12 structural → constraint catalog (34/36 rules enforced; 2 permanently skipped due to cross-document reference lookup)
-- Constraint coverage reported in every output: `Constraints: 34/36 evaluated · 2 skipped (cross-document reference lookup — not supported in single-file mode)`
+- Two-layer validation: JSON Schema 2020-12 structural → constraint catalog + supplementary checks
+- Full catalog coverage in tests: every current catalog rule has at least one deliberate test path, plus direct coverage for YAML-conformance rules and all supported root document forms
+- Constraint coverage reported in every output, including incomplete cross-file cases
 - XPath and JSONPath profile auto-detection and composition
 - Schema source configurable via `yacal-validator.toml`, cached at `~/.cache/yacal-validator/`
 - JSON and human-readable output modes; exit codes 0/1/2
@@ -26,6 +27,87 @@ The tool provides:
 ---
 
 ## Most Recent Sessions
+
+### June 16, 2026 — Full catalog coverage: 88 tests, 0 skipped; YAML conformance; schema shape fixes
+
+**What was added (by user, reviewed and committed by Claude):**
+
+**`validator.py` — YAML conformance linting (`_lint_yaml_features`):**
+Walks the ruamel.yaml parse tree before structural validation. Rejects: YAML tags, anchors/aliases, merge keys (`<<`), null values, octal integers, and multi-document streams. These are all prohibited by YACAL §5.1.4 / §7.4 but invisible to JSON Schema. Errors fire with `yaml:*` rule IDs.
+
+**`validator.py` — `_patch_core_schema_shape_bugs` (additional schema normalizations):**
+Beyond the three `_patch_schema` fixes already in place, a second pass normalizes:
+- `AttributeSelectorTypeTree` / `EntityAttributeSelectorTypeTree` — rewired to use wrapper-key forms (`AttributeSelector`, `EntityAttributeSelector`) with `$dynamicRef`
+- `StatusDetailTypeExtensionsDisabled` — cleared to remove the blanket `not: true` that made all StatusDetail content structurally invalid
+- `PolicyDefaults` / `RequestDefaults` in PolicyType/RequestType — corrected from single-object to array shape
+- `IdReferenceType` / `ExactMatchIdReferenceType` — rebuilt to fix malformed allOf that made `ApplicablePolicyReference` untestable
+- `AttributeSelectorCoreType` / `EntityAttributeSelectorCoreType` — injected as missing definitions referenced by profile schemas
+
+**`validator.py` — profile composition `$dynamicRef` target name fixes:**
+All five `$dynamicAnchor` entries in `_composed_root` corrected from `*TypeTree` to `*TypeExtension` (e.g., `XPathPolicyDefaultsTypeTree` → `XPathPolicyDefaultsTypeExtension`). The old names matched no anchor in the XPath/JSONPath schemas, silently disabling profile validation.
+
+**`validator.py` — JSONPath profile detection:**
+Extended `_JSONPATH_INDICATORS` to recognize `MediaType: application/json` and `Path: $` patterns, which are the surface forms actually used in YACAL JSONPath selectors.
+
+**`constraints.py` — `_conditional_presence` extended for StatusDetail allowlists:**
+New `AllowedStatusDetailKeys` field recognized in catalog rules. When `WhenPropertyEquals` condition fires and `StatusDetail` is present, validates it is a mapping and contains only allowed keys.
+
+**`constraints.py` — expression-path reference extraction in graph checkers:**
+`_graph_acyclic` and `_graph_no_repeat` extended with `ReferenceExpressionPath`/`ReferenceWrapperKey`/`ReferenceIdProperty` fields to handle graph rules where references are inside nested expression trees (not flat property arrays). Used for `sharedvariablereference` graph traversal.
+
+**`constraints.py` — `_walk_policies` + `_check_policy_variable_scope` supplementary check:**
+Walks all nested Policy objects collecting ancestor VariableDefinition IDs, then enforces that VariableId is unique within scope (no shadowing). Covers both policy-level and rule-level duplicate variable IDs.
+
+**New fixtures (all passing):**
+- `ex11–ex17` — valid: Request/MultiRequests, Response, standalone ShortIdSet, XPath defaults, JSONPath selector, full Response result, expanded MultiRequests
+- `err11–err49` — invalid: covers every catalog rule plus all YAML conformance rules (tags, anchors, merge keys, nulls, octals, multi-doc)
+
+**Test suite:** 88 passed, 0 skipped.
+
+---
+
+### June 16, 2026 — Additional graph, expression, and request/response coverage
+
+**Completed:** Strengthened several non-critical but worthwhile coverage edges in the YACAL suite:
+- added a more explicit indirect-repeat short-id graph case to exercise `shortidset-reference-no-repeat` on a larger acyclic graph
+- added a nested prohibited-expression case so `shared-variable-definition-no-variable-reference` is covered below the top level, not just as a direct expression wrapper
+- added a structural invalid Boolean-expression case (`Condition` using a literal `Value`)
+- added richer positive `Response` and `MultiRequests` fixtures beyond the earlier minimum-valid examples
+
+**Result:** The suite now runs as `88 passed, 0 skipped`.
+
+### June 16, 2026 — Local XPath tests replace upstream example dependency
+
+**Completed:** Replaced the two legacy XPath tests that depended on upstream `examples/acal-xpath/Rule1.yaml` and `Rule2.yaml` files with self-contained local tests in `tests/test_yacal_validator.py`.
+
+**What changed:**
+- one test now validates the local XPath policy fixture `tests/fixtures/valid/ex14-policy-xpath-defaults.yaml`
+- one test now validates an inline local `EntityAttributeSelector` XPath policy document
+- the unused `xpath_examples` fixture was removed from `tests/conftest.py`
+
+**Result:** The `yacal-validator` suite no longer depends on missing upstream YAML example artifacts and now runs cleanly as `83 passed, 0 skipped`.
+
+### June 16, 2026 — YACAL conformance coverage expanded to full catalog + YAML rules
+
+**Completed:** Expanded the fixture suite from policy-centric examples into a conformance-oriented suite covering:
+- all supported root document forms (`Policy`, `Bundle`, `Request`, `Response`, standalone `ShortIdSet`)
+- YAML prohibited features (tags, anchors/aliases, merge keys, nulls, octal integers, multi-document streams)
+- all current catalog rule families, including request/multi-request integrity, response/result uniqueness, status detail rules, parameter/name uniqueness, datatype agreement, short-id graph rules, shared-variable graph rules, and profile-default subtype uniqueness
+- profile-aware validation for XPath and JSONPath fixtures
+
+**Test status at that milestone:** `81 passed, 2 skipped`.
+
+**Validator/schema work required to make spec-aligned coverage possible:**
+- Added YAML feature linting before schema validation (`yaml:*` rule ids)
+- Added local support for `AllowedStatusDetailKeys` in `conditionalPresence`
+- Patched additional upstream schema defects at load time:
+  1. `PolicyDefaults` / `RequestDefaults` cardinality corrected to arrays
+  2. selector extension hooks corrected so wrapper-key forms (`AttributeSelector`, `EntityAttributeSelector`) compose through `$dynamicRef`
+  3. missing core selector defs (`AttributeSelectorCoreType`, `EntityAttributeSelectorCoreType`) synthesized
+  4. `StatusDetailTypeExtensionsDisabled` neutralized so core `MissingAttributeDetail` is structurally valid
+  5. malformed `IdReferenceType` / `ExactMatchIdReferenceType` repaired so `ApplicablePolicyReference` is testable
+
+**Coverage outcome:** the suite now exercises every current catalog rule directly, including the previously unreachable `statusdetail-missing-attribute-shape` rule via a constraint-level unit test. The two remaining skips at that milestone were later removed by replacing the upstream-dependent XPath tests with local fixtures.
 
 ### June 16, 2026 — Phase 2: --include flag; three-way exit codes; INCOMPLETE output state
 
@@ -116,10 +198,11 @@ Both supplementary checks increment `constraints_total`/`constraints_evaluated` 
 - Delete `acal-validator` branch once `jacal-validator` is verified
 - Populate root `README.md` with project description and tool index
 - File upstream bugs against the spec repo:
-  1. Three YAML authoring bugs in `acal-core-yaml-v1.0-structure.schema.yaml` (properties: null, bare list in $defs, required: scalar)
-  2. Missing Rule ID uniqueness constraint in `acal-core-yaml-v1.0-constraints.yaml`
-  3. Wrong path for `shortidset-shortid-name-unique` in constraint catalog
-- The 2 skipped XPath example tests require `.yaml` fixture files in the spec repo; revisit when spec adds YAML examples
+  1. Original three YAML authoring bugs in `acal-core-yaml-v1.0-structure.schema.yaml` (properties: null, bare list in $defs, required: scalar)
+  2. Additional schema defects found during coverage expansion (`PolicyDefaults` / `RequestDefaults` cardinality, selector hook wiring, `StatusDetailTypeExtensionsDisabled`, malformed Id reference defs)
+  3. Missing Rule ID uniqueness constraint in `acal-core-yaml-v1.0-constraints.yaml`
+  4. Wrong path for `shortidset-shortid-name-unique` in constraint catalog
+  5. Root-element prose omits standalone `ShortIdSet` even though the structural schema allows it
 - Publish to PyPI when both tools are stable
 
 ---

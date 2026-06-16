@@ -1,0 +1,6 @@
+Request:
+  RequestEntity:
+    - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+      Id: duplicate-entity
+    - Category: "urn:oasis:names:tc:acal:1.0:attribute-category:action"
+      Id: duplicate-entity

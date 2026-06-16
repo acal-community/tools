@@ -1,0 +1,8 @@
+Response:
+  Result:
+    - Decision: Permit
+      ApplicablePolicyReference:
+        - Id: "urn:example:yacal:policy:matching"
+          Version: "1.0"
+        - Id: "urn:example:yacal:policy:matching"
+          Version: "2.0"

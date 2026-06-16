@@ -7,6 +7,20 @@ Cross-references use (→ slug-name) notation.
 
 ---
 
+## yacal-profile-and-statusdetail-hooks-need-local-normalization (June 2026)
+
+**Rule:** Treat the upstream YACAL structural schemas as close to normative intent, not as perfectly executable artifacts. Before relying on profile selectors, defaults arrays, `StatusDetail`, or exact-match ID references, normalize the schema locally in `validator.py`.
+
+**Why:** Full coverage work exposed several issues that do not show up in policy-only smoke tests:
+- `PolicyDefaults` / `RequestDefaults` were modeled as single objects even though the spec and constraint catalog treat them as collections
+- selector profile composition was wired to inner selector types rather than the wrapper-key forms actually used in YACAL (`AttributeSelector`, `EntityAttributeSelector`)
+- `StatusDetailTypeExtensionsDisabled: not: true` made even core `MissingAttributeDetail` values structurally invalid
+- `IdReferenceType` / `ExactMatchIdReferenceType` were malformed, which made `ApplicablePolicyReference` effectively untestable
+
+Without local normalization, entire rule families appear "covered" in theory but are unreachable in practice. For a gold-standard validator, unreachable rules are defects, not acceptable caveats.
+
+---
+
 ## yacal-policy-reference-catalog-paths-do-not-cover-bundle-nested (June 2026)
 
 **Rule:** The catalog paths `$.Policy.CombinerInput[].PolicyReference` and `$.Bundle.PolicyReference` do NOT cover `PolicyReference` inside `$.Bundle.Policy[i].CombinerInput[j].PolicyReference`. Test fixtures exercising `policyreference-argument-datatype-agreement` must use a standalone PolicyDocument (root key `Policy`), not a Bundle.

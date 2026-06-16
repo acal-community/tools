@@ -1,5 +1,5 @@
 # PHASE 2 FIXTURE: External Policy with Parameter.DataType={string}.
-# Matches the Argument.DataType={string} in inc01-bundle-external-policy-ref.yaml.
+# Matches the Argument.DataType={string} in inc01-policy-external-policy-ref.yaml.
 # Providing this via --include produces exit 0 with 38/38 evaluated.
 Policy:
   PolicyId: "urn:example:policy:external-with-params"
