@@ -7,6 +7,41 @@ Cross-references use (→ slug-name) notation.
 
 ---
 
+## yacal-constraint-catalog-AppliesTo-nesting (June 2026)
+
+**Rule:** In `acal-core-yaml-v1.0-constraints.yaml`, path fields for non-graph constraint kinds (`uniqueByProperty`, `uniqueByConcreteSubtype`, `nonEmptyWhenPresent`, `conditionalPresence`, `referenceMustResolve`, `uniqueByDerivedSet`, `noNestedExpressionKind`) live under `rule["AppliesTo"]`, not at `rule` top level.
+
+**Why:** Reading from the wrong level caused all 7 non-graph checkers to emit `Path must start with '$'` warnings and skip every document silently. The constraint catalog documentation is not explicit about this nesting. Always use `rule.get("AppliesTo", {}).get("CollectionPath", "")` etc., not `rule.get("CollectionPath", "")`.
+
+---
+
+## yacal-graph-checker-seed-bug (June 2026)
+
+**Rule:** In `_graph_no_repeat`, seed `visited` as an empty set `set()`, NOT `set(refs)` where `refs` is the current node's direct outbound edges.
+
+**Why:** Pre-populating `visited` with the node's own refs caused the traversal to immediately flag any first-hop neighbor that appeared in the starting node's ref list as a "revisit" — producing false-positive cycle detection on valid documents (specifically ex09-bundle-shared-variable). The correct invariant is: mark a node visited only when the DFS actually visits it, not when it's queued.
+
+---
+
+## yacal-spec-schema-has-three-yaml-bugs (June 2026)
+
+**Rule:** Patch `acal-core-yaml-v1.0-structure.schema.yaml` before handing it to the `referencing` library. Three YAML authoring bugs cause crashes:
+1. `ExactMatchIdReferenceType.allOf[1]` has `properties: null` — strip the key
+2. `$defs.QuantifiedExpressionTypeTree` is a bare YAML list — wrap it in `{"oneOf": [...]}`
+3. `ArgumentTypeTree.oneOf[1].required` is a scalar string — promote to `[string]`
+
+**Why:** These bugs exist in the upstream spec repo. The `referencing` library raises `AttributeError: 'NoneType' object has no attribute 'values'` (or similar) when it encounters them during schema resolution. The fix lives in `_patch_schema()` in `validator.py`. These have been filed upstream; remove the patches when the spec repo fixes them.
+
+---
+
+## yacal-catalog-gaps-must-be-patched-locally (June 2026)
+
+**Rule:** When the upstream constraint catalog is wrong or incomplete, implement supplementary checks in `constraints.py` and increment `constraints_total`/`constraints_evaluated`. Never document a silent false negative as a "known gap."
+
+**Why:** yacal-validator is positioned as the gold-standard reference implementation. Two catalog defects were found: (1) no rule for duplicate Rule IDs within a Policy CombinerInput, (2) `shortidset-shortid-name-unique` has path `$.ShortIdSet[].ShortId` matching no real document form. Both were implemented locally. Coverage reporting must stay accurate — supplementary checks must increment counters. (→ gold-standard-yacal-validation)
+
+---
+
 ## bash-quoted-script-hash-corruption (June 2026)
 
 **Rule:** Never pass multi-line Python (or any script) to `python3 -c "..."` with `#` comment lines inside the double-quoted argument. Write to a temp file and execute that instead.

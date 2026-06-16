@@ -125,7 +125,8 @@ def _provenance(rule: dict) -> str | None:
 
 
 def _unique_by_property(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
-    coll_path = rule.get("CollectionPath", "")
+    applies_to = rule.get("AppliesTo", {}) or {}
+    coll_path = applies_to.get("CollectionPath", "")
     keys = rule.get("KeyProperties", [])
     ignore_missing = bool(rule.get("IgnoreMissingKey", False))
     rule_id = rule["Id"]
@@ -156,7 +157,8 @@ def _unique_by_property(root: Any, rule: dict, out: list[ValidationIssue]) -> No
 
 
 def _unique_by_concrete_subtype(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
-    coll_path = rule.get("CollectionPath", "")
+    applies_to = rule.get("AppliesTo", {}) or {}
+    coll_path = applies_to.get("CollectionPath", "")
     rule_id = rule["Id"]
     spec = _provenance(rule)
 
@@ -188,7 +190,8 @@ def _unique_by_concrete_subtype(root: Any, rule: dict, out: list[ValidationIssue
 
 
 def _non_empty_when_present(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
-    container_path = rule.get("ContainerPath", "")
+    applies_to = rule.get("AppliesTo", {}) or {}
+    container_path = applies_to.get("ContainerPath", "")
     if_present = rule.get("IfPresentProperty")
     required = rule.get("RequiredNonEmptyCollectionProperty")
     rule_id = rule["Id"]
@@ -213,7 +216,8 @@ def _non_empty_when_present(root: Any, rule: dict, out: list[ValidationIssue]) -
 
 
 def _conditional_presence(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
-    container_path = rule.get("ContainerPath", "")
+    applies_to = rule.get("AppliesTo", {}) or {}
+    container_path = applies_to.get("ContainerPath", "")
     when = rule.get("WhenPropertyEquals", {}) or {}
     when_prop_path = when.get("PropertyPath", "")
     when_value = when.get("Value")
@@ -340,9 +344,10 @@ def _property_agreement(root: Any, rule: dict, out: list[ValidationIssue]) -> No
 def _reference_must_resolve(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
     rule_id = rule["Id"]
     spec = _provenance(rule)
-    ref_path = rule.get("ReferencePath", "")
-    target_coll_path = rule.get("TargetCollectionPath", "")
-    target_key = rule.get("TargetKeyProperty")
+    applies_to = rule.get("AppliesTo", {}) or {}
+    ref_path = applies_to.get("ReferencePath", "")
+    target_coll_path = applies_to.get("TargetCollectionPath", "")
+    target_key = applies_to.get("TargetKeyProperty")
 
     if not (ref_path and target_coll_path and target_key):
         return
@@ -370,8 +375,9 @@ def _reference_must_resolve(root: Any, rule: dict, out: list[ValidationIssue]) -
 def _unique_by_derived_set(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
     rule_id = rule["Id"]
     spec = _provenance(rule)
-    coll_path = rule.get("CollectionPath", "")
-    derived_path = rule.get("DerivedSetPath", "")
+    applies_to = rule.get("AppliesTo", {}) or {}
+    coll_path = applies_to.get("CollectionPath", "")
+    derived_path = applies_to.get("DerivedSetPath", "")
 
     for coll_str, coll in eval_path(root, coll_path):
         if not isinstance(coll, list):
@@ -404,7 +410,8 @@ def _unique_by_derived_set(root: Any, rule: dict, out: list[ValidationIssue]) ->
 def _no_nested_expression_kind(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
     rule_id = rule["Id"]
     spec = _provenance(rule)
-    expr_path = rule.get("ExpressionPath", "")
+    applies_to = rule.get("AppliesTo", {}) or {}
+    expr_path = applies_to.get("ExpressionPath", "")
     prohibited = rule.get("ProhibitedWrapperKey")
 
     if not prohibited:
@@ -514,7 +521,7 @@ def _graph_no_repeat(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
                 rule_id=f"yacal:{rule_id}",
                 spec_ref=spec,
             ))
-        if walk(nid, set(refs)):
+        if walk(nid, set()):
             out.append(ValidationIssue(
                 severity=Severity.ERROR,
                 message=f"Node '{nid}' indirectly revisits a node in the {rule_id} graph",
@@ -537,14 +544,118 @@ _CHECKERS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Supplementary checks (fill catalog gaps / fix catalog path bugs)
+# ---------------------------------------------------------------------------
+
+def _find_all(document: Any, key: str) -> list[tuple[str, Any]]:
+    """Recursively collect all values at *key* anywhere in the document tree."""
+    results: list[tuple[str, Any]] = []
+
+    def _walk(obj: Any, path: str) -> None:
+        if isinstance(obj, dict):
+            if key in obj:
+                results.append((f"{path}.{key}" if path else key, obj[key]))
+            for k, v in obj.items():
+                _walk(v, f"{path}.{k}" if path else k)
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                _walk(item, f"{path}[{i}]")
+
+    _walk(document, "")
+    return results
+
+
+def _check_rule_id_unique_within_policy(document: Any, out: list[ValidationIssue]) -> None:
+    # Catalog gap: no constraint covers Rule.Id uniqueness within Policy.CombinerInput.
+    # Rule IDs must be unique within each policy (they are used as identifiers in evaluation).
+    spec = "YACAL §5.3.2 / ACAL §7.6"
+    for policy_path, policy in _find_all(document, "Policy"):
+        if not isinstance(policy, dict):
+            continue
+        combiner_input = policy.get("CombinerInput", [])
+        if not isinstance(combiner_input, list):
+            continue
+        seen: dict[Any, str] = {}
+        for idx, entry in enumerate(combiner_input):
+            if not isinstance(entry, dict):
+                continue
+            rule = entry.get("Rule")
+            if not isinstance(rule, dict):
+                continue
+            rule_id_val = rule.get("Id")
+            if rule_id_val is None:
+                continue
+            item_path = f"{policy_path}.CombinerInput[{idx}].Rule"
+            if rule_id_val in seen:
+                out.append(ValidationIssue(
+                    severity=Severity.ERROR,
+                    message=(
+                        f"Duplicate Rule Id {rule_id_val!r} at {item_path}; "
+                        f"first at {seen[rule_id_val]}"
+                    ),
+                    path=item_path,
+                    rule_id="yacal:rule-id-unique-within-policy",
+                    spec_ref=spec,
+                ))
+            else:
+                seen[rule_id_val] = item_path
+
+
+def _check_shortid_name_unique(document: Any, out: list[ValidationIssue]) -> None:
+    # Catalog bug: shortidset-shortid-name-unique has path $.ShortIdSet[].ShortId which
+    # matches no real document form (standalone ShortIdSetDocument has a single ShortIdSet,
+    # not an array; Bundle uses $.Bundle.ShortIdSet[]).
+    # This supplementary check finds all ShortIdSet objects at any depth and enforces
+    # the uniqueness requirement directly.
+    spec = "YACAL §5.11.2 / ACAL §7.2"
+    for sid_path, shortidset in _find_all(document, "ShortIdSet"):
+        # ShortIdSet may be a single object or a list (in Bundle)
+        items = shortidset if isinstance(shortidset, list) else [shortidset]
+        for obj_idx, obj in enumerate(items):
+            if not isinstance(obj, dict):
+                continue
+            obj_path = f"{sid_path}[{obj_idx}]" if isinstance(shortidset, list) else sid_path
+            short_ids = obj.get("ShortId", [])
+            if not isinstance(short_ids, list):
+                continue
+            seen: dict[Any, str] = {}
+            for i, sid in enumerate(short_ids):
+                if not isinstance(sid, dict):
+                    continue
+                name = sid.get("Name")
+                if name is None:
+                    continue
+                item_path = f"{obj_path}.ShortId[{i}]"
+                if name in seen:
+                    out.append(ValidationIssue(
+                        severity=Severity.ERROR,
+                        message=(
+                            f"Duplicate ShortId Name {name!r} at {item_path}; "
+                            f"first at {seen[name]}"
+                        ),
+                        path=item_path,
+                        rule_id="yacal:shortidset-shortid-name-unique",
+                        spec_ref=spec,
+                    ))
+                else:
+                    seen[name] = item_path
+
+
+_SUPPLEMENTARY_CHECKS = [
+    _check_rule_id_unique_within_policy,
+    _check_shortid_name_unique,
+]
+
+
 def evaluate(
     document: Any, catalog: dict
 ) -> tuple[list[ValidationIssue], int, int, int]:
-    """Run every rule in *catalog* against *document*.
+    """Run every rule in *catalog* against *document*, plus supplementary checks.
 
     Returns (issues, total, evaluated, skipped).
-    - total:     rules in the catalog with a known Kind
-    - evaluated: rules that ran to completion (including those that found no issues)
+    - total:     catalog rules with a known Kind + supplementary checks
+    - evaluated: rules/checks that ran to completion
     - skipped:   rules that emitted a yacal-skip issue (cross-document dependency)
     """
     issues: list[ValidationIssue] = []
@@ -572,5 +683,17 @@ def evaluate(
             skipped += 1
         else:
             evaluated += 1
+
+    for check in _SUPPLEMENTARY_CHECKS:
+        total += 1
+        try:
+            check(document, issues)
+        except Exception as exc:
+            issues.append(ValidationIssue(
+                severity=Severity.WARNING,
+                message=f"Supplementary check '{check.__name__}' could not be evaluated: {exc}",
+                rule_id=f"yacal-eval-error:{check.__name__}",
+            ))
+        evaluated += 1
 
     return issues, total, evaluated, skipped

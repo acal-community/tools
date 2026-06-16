@@ -1,0 +1,11 @@
+# ERROR FIXTURE: PolicySet is removed in ACAL 1.0
+# XACML 3.0 used PolicySet to combine multiple policies.
+# In ACAL 1.0, Policy absorbs PolicySet — use Policy with nested Policy in CombinerInput.
+PolicySet:
+  PolicySetId: "urn:example:policyset:document-access"
+  Version: "1.0"
+  PolicyCombiningAlgId: "urn:oasis:names:tc:xacml:3.0:policy-combining-algorithm:deny-unless-permit"
+  Policy:
+    - PolicyId: "urn:example:policy:read-access"
+      Version: "1.0"
+      RuleCombiningAlgId: "urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-unless-permit"

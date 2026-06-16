@@ -1,0 +1,30 @@
+# ERROR FIXTURE: XACML 3.0 AnyOf/AllOf/Match Target syntax is not valid in ACAL 1.0
+# ACAL 1.0 uses a simple BooleanExpression (Apply tree) for Target.
+# The AnyOf/AllOf/Match structure was the XACML 3.0 approach.
+Policy:
+  PolicyId: "urn:example:policy:bad-target"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  Target:
+    AnyOf:
+      - AllOf:
+          - Match:
+              MatchId: "urn:oasis:names:tc:xacml:1.0:function:string-equal"
+              AttributeValue:
+                DataType: "http://www.w3.org/2001/XMLSchema#string"
+                Value: "view"
+              AttributeDesignator:
+                Category: "{action}"
+                AttributeId: "{action-id}"
+  CombinerInput:
+    - Rule:
+        Id: permit-view
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{string-is-in}"
+            Argument:
+              - Value: view
+              - AttributeDesignator:
+                  Category: "{action}"
+                  AttributeId: "{action-id}"

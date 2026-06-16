@@ -213,7 +213,42 @@ def _load_yaml_schema(path: Path) -> dict:
     _schema_yaml = YAML()
     _schema_yaml.allow_duplicate_keys = True
     raw = _schema_yaml.load(content)
-    return _to_plain(raw)
+    return _patch_schema(_to_plain(raw))
+
+
+def _patch_schema(obj: Any) -> Any:
+    # The spec schemas have several authoring bugs that cause the referencing library
+    # to crash. Patch them at load time so the tool stays usable while upstream fixes
+    # are pending.
+    #
+    #  1. 'properties: null' — YAML indentation error; null is invalid JSON Schema.
+    #     Strip the key (no-op in JSON Schema).
+    #  2. '$defs' value is a list — missing 'oneOf:' wrapper; wrap it.
+    #     (QuantifiedExpressionTypeTree in core schema)
+    #  3. 'required' value is a scalar — must be an array.
+    #     (ArgumentTypeTree in core schema)
+    if isinstance(obj, dict):
+        result = {}
+        for k, v in obj.items():
+            if k == "properties" and v is None:
+                continue
+            if k == "$defs" and isinstance(v, dict):
+                fixed_defs = {}
+                for dk, dv in v.items():
+                    if isinstance(dv, list):
+                        fixed_defs[dk] = {"oneOf": _patch_schema(dv)}
+                    else:
+                        fixed_defs[dk] = _patch_schema(dv)
+                result[k] = fixed_defs
+                continue
+            if k == "required" and isinstance(v, str):
+                result[k] = [v]
+                continue
+            result[k] = _patch_schema(v)
+        return result
+    if isinstance(obj, list):
+        return [_patch_schema(i) for i in obj]
+    return obj
 
 
 def _to_plain(obj: Any) -> Any:
