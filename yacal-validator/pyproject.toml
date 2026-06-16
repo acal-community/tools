@@ -2,6 +2,7 @@
 name = "yacal-validator"
 version = "0.1.0"
 description = "Validator for YACAL v1.0 (YAML) policy documents"
+readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 dependencies = [
