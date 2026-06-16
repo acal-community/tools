@@ -8,6 +8,14 @@ Most recent decisions at top. No archiving.
 
 ---
 
+## constraint-coverage-always-surfaced (June 2026)
+
+`evaluate()` returns `(issues, total, evaluated, skipped)`. `ValidationResult` carries the three counters. Both human and JSON output always include a constraint coverage line when constraints ran.
+
+**Why:** The catalog has 36 rules. Two (`sharedvariablereference-argument-datatype-agreement` and `policyreference-argument-datatype-agreement`) require cross-document reference lookup and are permanently skipped in single-file mode. Without explicit surfacing, users get no signal that their document received partial semantic validation — which is unacceptable for a tool positioned as the gold standard. Multi-file batch validation is intentionally left to external tooling (shell loops, `xargs`) so the tool stays single-file and each invocation produces a complete, accurate verdict. The tool's job is to report truthfully; orchestration is the caller's job.
+
+---
+
 ## per-language-tools-no-xml (June 2026)
 
 The tools repo ships one focused tool per policy language: `yacal-validator` (YAML) and `jacal-validator` (JSON). There is no combined multi-format validator and no XML validation.

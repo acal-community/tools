@@ -6,61 +6,48 @@
 
 ## Current State
 
-The tools repo is being split into per-language tools. Three branches exist:
+The tools repo has been restructured from a combined multi-format validator into per-language tools. Three branches:
 
-- **`main`** — base branch; diary files, CLAUDE.md, CONTRIBUTING.md only
-- **`acal-validator`** — the original combined XML+JSON+YAML validator (pre-split); kept until `yacal-validator` and `jacal-validator` are both validated, then to be deleted
-- **`yacal-validator`** — new single-purpose YACAL v1.0 (YAML) validator; currently active; tests passing (8 passed, 2 skipped)
+- **`main`** — base branch; diary files, CLAUDE.md, CONTRIBUTING.md, `.gitignore` only
+- **`acal-validator`** — the original combined XML+JSON+YAML validator (pre-split); kept until `jacal-validator` is ready, then to be deleted
+- **`yacal-validator`** — active development branch; self-contained YACAL v1.0 (YAML) validator, functionally complete
 
-The `yacal-validator` branch contains `tools/yacal-validator/`, a self-contained Python package (src layout, `pyproject.toml`, Python ≥3.11) with:
-- CLI command: `yacal-validate`
-- Two-layer validation: JSON Schema 2020-12 structural validation → constraint catalog
-- `$dynamicRef`/`$dynamicAnchor` profile composition for XPath and JSONPath profiles
-- Schema source configurable via `yacal-validator.toml`, cached in `~/.cache/yacal-validator/`
-- No Saxon dependency; no XML validation; no migration hints
+`yacal-validator` status: **12 passed, 2 skipped** (the 2 skipped are XPath example tests that need `.yaml` fixture files not yet in the spec repo).
+
+The tool provides:
+- `yacal-validate FILE` CLI (installed via `pip install -e .`)
+- `python -m yacal_validator FILE` (no install required, dependencies only)
+- Two-layer validation: JSON Schema 2020-12 structural → constraint catalog (34/36 rules enforced; 2 permanently skipped due to cross-document reference lookup)
+- Constraint coverage reported in every output: `Constraints: 34/36 evaluated · 2 skipped (cross-document reference lookup — not supported in single-file mode)`
+- XPath and JSONPath profile auto-detection and composition
+- Schema source configurable via `yacal-validator.toml`, cached at `~/.cache/yacal-validator/`
+- JSON and human-readable output modes; exit codes 0/1/2
 
 ---
 
 ## Most Recent Sessions
 
-### June 16, 2026 — architectural pivot: split acal-validator into per-language tools
+### June 16, 2026 — Saxon pivot, yacal-validator built, constraint transparency added
 
-**Trigger**: `/grill-me` session established that Saxon EE (commercial license) is required for XSD 1.1 schema validation, and Saxon HE (the free tier) provides zero schema validation capability. Since the `tools` repo is open source, a commercial license dependency is unacceptable. XML/XACML validation will be handled separately (potentially in Java by another team member).
+**Trigger:** A `/grill-me` session on Saxon EE licensing established that Saxon EE (commercial) is required for XSD 1.1 schema processing. The `saxonche` pip package (Saxon HE) cannot perform schema validation at all, making the original `acal-validator` XML path permanently broken for an open-source tool.
 
-**Decision**: Split `acal-validator` into independent per-language tools:
-- `yacal-validator` (this branch) — YAML only
-- `jacal-validator` (next branch, from `main`) — JSON only
-- `acal-validator` branch to be deleted once both are verified
+**Architectural pivot:** Split `acal-validator` into per-language tools. XML validation deferred to a separate effort. `yacal-validator` branch created from `main`, containing only YACAL code carved from `acal-validator` with XML/hint cruft stripped. Flat module layout (`src/yacal_validator/validator.py`, `constraints.py`, `schemas.py`, etc.); no `validators/` subdir; no migration hints; no Saxon dependency. (→ per-language-tools-no-xml)
 
-**Architecture of yacal-validator**:
-- Flat module layout under `src/yacal_validator/`: `validator.py`, `constraints.py`, `schemas.py`, `base.py`, `cli.py`, `output.py`, `config.py`
-- No `validators/` subdir; no format detector (single-format tool)
-- `.json` input → immediate error with "use jacal-validate" message
-- No shared library with jacal-validator; each tool is self-contained
-- No migration hints (clean slate; no XACML 3.0 → ACAL 1.0 migration guidance)
-- Dependencies: `click`, `httpx`, `jsonschema[format-nongpl]`, `referencing`, `ruamel.yaml`
+**`__main__.py` + README:** Added `python -m yacal_validator` support. README documents three invocation modes (run from source, install locally, install from PyPI) and walks through the full PyPI publishing workflow step-by-step for first-time publishers.
 
-**Status**: `yacal-validator` branch complete and tests passing. Next step: create `jacal-validator` branch from `main`.
-
-### June 15–16, 2026 — acal-validator built, debugged, corrected
-
-Designed and built `acal-validator` in a single session. The tool was subjected to a code review that identified five issues, all of which were fixed before the first commit. Key fixes:
-
-1. **YAML no-profile crash**: `_composed_root()` omitted `$id` in the base (no profile) case.
-2. **Incomplete YACAL profile hooks**: Missing `XPathEntityAttributeSelector`, `JSONPathEntityAttributeSelector`, and `$dynamicAnchor` entries.
-3. **`propertyAgreement` rules silently not enforced**: Fields read from wrong level (top vs. `AppliesTo`).
-4. **Test suite tied to one machine**: Added `ACAL_SPEC_DIR` env var override and auto-skip.
-5. **Extension-first format detection**: Changed to content-sniff-first.
+**Constraint coverage transparency:** The catalog has 36 rules. Two require cross-document lookup and are permanently skipped. Before this change, skips were buried as individual WARNING issues; users had no summary-level signal that semantic validation was partial. `evaluate()` now returns `(issues, total, evaluated, skipped)`. `ValidationResult` carries the counters. Both human and JSON output surfaces coverage on every run. Multi-file batch validation stays external (shell loops) — the tool delivers a complete verdict on one file; orchestration is the caller's job. (→ constraint-coverage-always-surfaced)
 
 ---
 
 ## Open Items
 
-- Create `jacal-validator` branch from `main` (next step after this session).
-- Delete `acal-validator` branch once `jacal-validator` is verified.
-- Populate root `README.md` with project description and tool index.
-- Rule*.json example files in the spec repo use `Apply.Expression` instead of `Apply.Argument` — worth filing upstream once reviewed.
-- The 2 skipped XPath example tests in `yacal-validator` require `.yaml` example files in the spec repo (currently only `.xml` examples exist); revisit when spec adds YAML examples.
+- Create `jacal-validator` branch from `main` (next milestone after this session)
+- Delete `acal-validator` branch once `jacal-validator` is verified
+- Populate root `README.md` with project description and tool index
+- The 2 permanently-skipped constraints (`sharedvariablereference-argument-datatype-agreement`, `policyreference-argument-datatype-agreement`) cannot be evaluated without multi-file support — document them prominently in the README as a known limitation
+- The 2 skipped XPath example tests require `.yaml` fixture files in the spec repo (currently only `.xml` examples exist); revisit when spec adds YAML examples
+- Rule*.json example files in the spec repo use `Apply.Expression` instead of `Apply.Argument` — worth filing upstream once reviewed
+- Publish to PyPI when both tools are stable
 
 ---
 
