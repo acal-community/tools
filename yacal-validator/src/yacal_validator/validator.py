@@ -47,6 +47,7 @@ def validate(
     core_constraints_path: Path,
     xpath_structure_path: Path | None,
     jsonpath_structure_path: Path | None,
+    include_paths: list[Path] | None = None,
 ) -> ValidationResult:
     content = yaml_path.read_text(encoding="utf-8")
     profiles = detect_profiles(content)
@@ -92,7 +93,8 @@ def validate(
 
     if result.valid and core_constraints_path.exists():
         catalog = load_catalog(core_constraints_path)
-        issues, total, evaluated, skipped = eval_constraints(document_plain, catalog)
+        extra_docs = _load_include_docs(include_paths) if include_paths else []
+        issues, total, evaluated, skipped = eval_constraints(document_plain, catalog, extra_docs)
         result.constraints_total = total
         result.constraints_evaluated = evaluated
         result.constraints_skipped = skipped
@@ -100,6 +102,19 @@ def validate(
             result.add_issue(issue)
 
     return result
+
+
+def _load_include_docs(paths: list[Path]) -> list[Any]:
+    docs = []
+    for p in paths:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                doc = _yaml.load(f)
+            if doc is not None:
+                docs.append(_to_plain(doc))
+        except Exception:
+            pass
+    return docs
 
 
 def _jsonpath(error: jsonschema.ValidationError) -> str:

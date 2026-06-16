@@ -7,6 +7,14 @@ Cross-references use (→ slug-name) notation.
 
 ---
 
+## yacal-policy-reference-catalog-paths-do-not-cover-bundle-nested (June 2026)
+
+**Rule:** The catalog paths `$.Policy.CombinerInput[].PolicyReference` and `$.Bundle.PolicyReference` do NOT cover `PolicyReference` inside `$.Bundle.Policy[i].CombinerInput[j].PolicyReference`. Test fixtures exercising `policyreference-argument-datatype-agreement` must use a standalone PolicyDocument (root key `Policy`), not a Bundle.
+
+**Why:** The eval_path evaluator matches exact absolute paths. A PolicyReference nested two levels deep inside a Bundle's Policy's CombinerInput is at `$.Bundle.Policy[0].CombinerInput[0].PolicyReference`, which matches neither catalog location. Discovered when Phase 2 test fixtures produced 0 skips instead of 1 because the checker never visited the PolicyReference.
+
+---
+
 ## yacal-constraint-catalog-AppliesTo-nesting (June 2026)
 
 **Rule:** In `acal-core-yaml-v1.0-constraints.yaml`, path fields for non-graph constraint kinds (`uniqueByProperty`, `uniqueByConcreteSubtype`, `nonEmptyWhenPresent`, `conditionalPresence`, `referenceMustResolve`, `uniqueByDerivedSet`, `noNestedExpressionKind`) live under `rule["AppliesTo"]`, not at `rule` top level.

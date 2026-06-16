@@ -27,6 +27,32 @@ The tool provides:
 
 ## Most Recent Sessions
 
+### June 16, 2026 — Phase 2: --include flag; three-way exit codes; INCOMPLETE output state
+
+**Added `--include FILE`** (repeatable) to CLI. Loads additional YACAL files into the resolution index before constraint evaluation. Required when a document has `PolicyReference` or `SharedVariableReference` pointing to definitions in external files.
+
+**Three-way exit codes:**
+- `0` — valid AND fully evaluated (no skipped constraints)
+- `1` — validation failed (one or more errors)
+- `2` — incomplete (cross-file references could not be resolved, provide `--include`)
+         OR tool error (missing schemas, bad input, etc.)
+
+**Output state `INCOMPLETE`** — `human()` now shows `INCOMPLETE  YACAL v1.0 (YAML) — file.yaml  (N constraint(s) not evaluated — use --include)` when `result.incomplete` is True. Previously valid-with-skips fell through to the advisory-warnings PASS branch.
+
+**`result.incomplete`** property on `ValidationResult` — `True` when `constraints_skipped > 0`. Surfaced in JSON output as `"incomplete": true`.
+
+**Architecture:**
+- `_merge_from_document()` — extracts SharedVariableDefinition and Policy entries from any document form (Bundle or standalone PolicyDocument)
+- `_build_resolution_index(document, extra_docs=None)` — runs `_merge_from_document` over primary + extras and merges into shared context dict
+- `evaluate(document, catalog, extra_docs=None)` — passes extra_docs to index builder
+- `validate(..., include_paths=None)` — loads and parses include files via `_load_include_docs()`
+
+**Key lesson:** The catalog paths `$.Policy.CombinerInput[].PolicyReference` and `$.Bundle.PolicyReference` do NOT cover `PolicyReference` nested inside `$.Bundle.Policy[].CombinerInput[]`. The Phase 2 test fixture must be a standalone PolicyDocument, not a Bundle, to exercise the catalog path.
+
+**Test suite:** 36 passed, 2 skipped (permanent XPath). Three new Phase 2 tests (without include → exit 2, with matching include → exit 0, with mismatched include → exit 1).
+
+---
+
 ### June 16, 2026 — Phase 1 within-Bundle resolution; 38/38 constraints evaluated
 
 **Implemented:** Within-document resolution for the two formerly-skipped cross-document constraints (`sharedvariablereference-argument-datatype-agreement` and `policyreference-argument-datatype-agreement`).
@@ -85,7 +111,7 @@ Both supplementary checks increment `constraints_total`/`constraints_evaluated` 
 
 ## Open Items
 
-- **Phase 2**: Add `--include FILE` CLI flag for cross-file reference resolution (PolicyReference/SharedVariableReference to external files)
+- ~~**Phase 2**: Add `--include FILE` CLI flag~~ ✓ Done
 - Create `jacal-validator` branch from `main` (next milestone after Phase 2)
 - Delete `acal-validator` branch once `jacal-validator` is verified
 - Populate root `README.md` with project description and tool index

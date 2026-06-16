@@ -246,16 +246,11 @@ def _conditional_presence(root: Any, rule: dict, out: list[ValidationIssue]) -> 
             ))
 
 
-def _build_resolution_index(document: Any) -> dict:
-    """Index SharedVariableDefinition and Policy entries from a Bundle for within-document lookup.
-
-    Returns {"shared_vars": {Id: [ParameterType]}, "policies": {PolicyId: [ParameterType]}}.
-    """
-    shared_vars: dict[str, list] = {}
-    policies: dict[str, list] = {}
-    if not isinstance(document, dict):
-        return {"shared_vars": shared_vars, "policies": policies}
-    bundle = document.get("Bundle")
+def _merge_from_document(doc: Any, shared_vars: dict, policies: dict) -> None:
+    """Extract SharedVariableDefinition and Policy entries from *doc* into the index maps."""
+    if not isinstance(doc, dict):
+        return
+    bundle = doc.get("Bundle")
     if isinstance(bundle, dict):
         for svd in bundle.get("SharedVariableDefinition") or []:
             if isinstance(svd, dict) and "Id" in svd:
@@ -263,6 +258,23 @@ def _build_resolution_index(document: Any) -> dict:
         for policy in bundle.get("Policy") or []:
             if isinstance(policy, dict) and "PolicyId" in policy:
                 policies[str(policy["PolicyId"])] = list(policy.get("Parameter") or [])
+    # Standalone PolicyDocument form: {Policy: {...}}
+    policy = doc.get("Policy")
+    if isinstance(policy, dict) and "PolicyId" in policy:
+        policies[str(policy["PolicyId"])] = list(policy.get("Parameter") or [])
+
+
+def _build_resolution_index(document: Any, extra_docs: list[Any] | None = None) -> dict:
+    """Build indexes for within-document and include-file reference resolution.
+
+    Scans the primary document plus any extra documents (from --include) and
+    returns {"shared_vars": {Id: [ParameterType]}, "policies": {PolicyId: [ParameterType]}}.
+    """
+    shared_vars: dict[str, list] = {}
+    policies: dict[str, list] = {}
+    _merge_from_document(document, shared_vars, policies)
+    for doc in (extra_docs or []):
+        _merge_from_document(doc, shared_vars, policies)
     return {"shared_vars": shared_vars, "policies": policies}
 
 
@@ -777,7 +789,7 @@ _SUPPLEMENTARY_CHECKS = [
 
 
 def evaluate(
-    document: Any, catalog: dict
+    document: Any, catalog: dict, extra_docs: list[Any] | None = None
 ) -> tuple[list[ValidationIssue], int, int, int]:
     """Run every rule in *catalog* against *document*, plus supplementary checks.
 
@@ -791,7 +803,7 @@ def evaluate(
     evaluated = 0
     skipped = 0
 
-    context = _build_resolution_index(document)
+    context = _build_resolution_index(document, extra_docs)
 
     for rule in catalog.get("Rule", []) or []:
         kind = rule.get("Kind")

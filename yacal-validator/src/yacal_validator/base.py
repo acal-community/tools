@@ -45,3 +45,8 @@ class ValidationResult:
     @property
     def constraints_ran(self) -> bool:
         return self.constraints_total > 0
+
+    @property
+    def incomplete(self) -> bool:
+        """True when constraints_skipped > 0 — validation could not fully evaluate all rules."""
+        return self.constraints_skipped > 0

@@ -25,11 +25,23 @@ from .validator import validate
     is_flag=True, default=False,
     help="Re-fetch schema files from the configured source before validating.",
 )
+@click.option(
+    "--include", "include_paths",
+    multiple=True,
+    type=click.Path(exists=True, path_type=Path),
+    metavar="FILE",
+    help=(
+        "Additional YACAL file to load definitions from (repeatable). "
+        "Required when the primary document contains PolicyReference or "
+        "SharedVariableReference elements whose definitions live in external files."
+    ),
+)
 @click.version_option(__version__, prog_name="yacal-validate")
 def main(
     policy_file: Path,
     output_json: bool,
     refresh_schemas: bool,
+    include_paths: tuple[Path, ...],
 ) -> None:
     """Validate a YACAL v1.0 (YAML) policy document.
 
@@ -39,9 +51,10 @@ def main(
 
     \b
     Exit codes:
-      0  valid
+      0  valid and fully evaluated
       1  validation failed (one or more errors)
-      2  tool error (bad input, network failure, missing schemas)
+      2  incomplete (cross-file references could not be resolved — use --include)
+         or tool error (bad input, network failure, missing schemas)
 
     \b
     Configuration (optional):
@@ -75,6 +88,7 @@ def main(
             core_constraints_path=store.resolve(SCHEMA_FILES["core_constraints"]),
             xpath_structure_path=store.try_resolve(SCHEMA_FILES["xpath_structure"]),
             jsonpath_structure_path=store.try_resolve(SCHEMA_FILES["jsonpath_structure"]),
+            include_paths=list(include_paths) if include_paths else None,
         )
     except FileNotFoundError as exc:
         click.echo(
@@ -92,4 +106,9 @@ def main(
     else:
         human(result, policy_file.name)
 
-    sys.exit(0 if result.valid else 1)
+    if not result.valid:
+        sys.exit(1)
+    elif result.incomplete:
+        sys.exit(2)
+    else:
+        sys.exit(0)

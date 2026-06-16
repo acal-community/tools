@@ -13,6 +13,25 @@ def human(result: ValidationResult, filename: str, file: TextIO = sys.stdout) ->
     if result.profiles:
         label += f" + {', '.join(p.upper() for p in result.profiles)} Profile"
 
+    if result.valid and result.incomplete:
+        sc = result.constraints_skipped
+        print(
+            f"INCOMPLETE  {label} — {filename}  "
+            f"({sc} constraint{'s' if sc != 1 else ''} not evaluated — use --include)",
+            file=file,
+        )
+        _print_constraint_summary(result, file)
+        print(file=file)
+        for i, issue in enumerate(result.issues, 1):
+            tag = "WRN"
+            print(f"  [{tag} {i:02d}]  {issue.message}", file=file)
+            if issue.spec_ref:
+                print(f"           Spec     : {issue.spec_ref}", file=file)
+            if issue.rule_id:
+                print(f"           Rule     : {issue.rule_id}", file=file)
+            print(file=file)
+        return
+
     if result.valid and not result.issues:
         print(f"PASS  {label} — {filename}", file=file)
         _print_constraint_summary(result, file)
@@ -58,10 +77,7 @@ def _print_constraint_summary(result: ValidationResult, file: TextIO) -> None:
     s = result.constraints_skipped
     line = f"        Constraints: {n}/{t} evaluated"
     if s:
-        line += (
-            f"  ·  {s} skipped"
-            f" (cross-document reference lookup — not supported in single-file mode)"
-        )
+        line += f"  ·  {s} skipped"
     print(line, file=file)
 
 
@@ -71,6 +87,7 @@ def as_json(result: ValidationResult, filename: str, file: TextIO = sys.stdout) 
         "format": result.format,
         "profiles": result.profiles,
         "valid": result.valid,
+        "incomplete": result.incomplete,
         "error_count": result.error_count,
         "warning_count": result.warning_count,
         "constraints": {

@@ -22,6 +22,7 @@ from yacal_validator.validator import validate
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 VALID_DIR = FIXTURES_DIR / "valid"
 INVALID_DIR = FIXTURES_DIR / "invalid"
+INCOMPLETE_DIR = FIXTURES_DIR / "incomplete"
 
 
 @pytest.fixture(scope="module")
@@ -34,13 +35,14 @@ def schema_paths(store):
     }
 
 
-def _validate(path: Path, schema_paths: dict):
+def _validate(path: Path, schema_paths: dict, include_paths: list[Path] | None = None):
     return validate(
         path,
         core_structure_path=schema_paths["structure"],
         core_constraints_path=schema_paths["constraints"],
         xpath_structure_path=schema_paths["xpath"],
         jsonpath_structure_path=schema_paths["jsonpath"],
+        include_paths=include_paths,
     )
 
 
@@ -201,3 +203,52 @@ def test_err10_sharedvar_datatype_mismatch_caught_by_phase1(schema_paths):
     assert not skip_issues, (
         f"Expected no skip issues when definition is in-Bundle, got: {[i.message for i in skip_issues]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: --include for cross-file reference resolution
+# ---------------------------------------------------------------------------
+
+_INC01 = INCOMPLETE_DIR / "inc01-bundle-external-policy-ref.yaml"
+_INC01_MATCH = INCOMPLETE_DIR / "inc01-external-policy-matching.yaml"
+_INC01_MISMATCH = INCOMPLETE_DIR / "inc01-external-policy-mismatched.yaml"
+
+
+def test_phase2_without_include_is_incomplete(schema_paths):
+    """Without --include, a cross-file PolicyReference produces incomplete validation (exit 2).
+
+    The document is structurally valid and the referenced policy exists — but since
+    the policy definition is not provided, the DataType constraint cannot be evaluated.
+    result.valid must be True (document has no errors) and result.incomplete must be True.
+    """
+    result = _validate(_INC01, schema_paths)
+    assert result.valid, "Document is structurally valid; errors indicate a regression"
+    assert result.incomplete, "Expected incomplete=True when --include is absent"
+    assert result.constraints_skipped > 0
+    skip_issues = [i for i in result.issues if (i.rule_id or "").startswith("yacal-skip:")]
+    assert skip_issues, "Expected at least one skip issue for the cross-file PolicyReference"
+
+
+def test_phase2_with_matching_include_is_complete_pass(schema_paths):
+    """With --include providing the matching Policy, validation is fully evaluated and passes."""
+    result = _validate(_INC01, schema_paths, include_paths=[_INC01_MATCH])
+    assert result.valid
+    assert not result.incomplete, "Expected incomplete=False when --include resolves all references"
+    assert result.constraints_skipped == 0
+    errors = [i for i in result.issues if i.severity.value == "error"]
+    assert not errors
+
+
+def test_phase2_with_mismatched_include_catches_datatype_error(schema_paths):
+    """With --include providing a Policy whose parameter DataType mismatches the argument, validation fails."""
+    result = _validate(_INC01, schema_paths, include_paths=[_INC01_MISMATCH])
+    assert not result.valid
+    assert not result.incomplete, "Result is FAIL (error found), not incomplete"
+    constraint_errors = [
+        i for i in result.issues
+        if (i.rule_id or "").startswith("yacal:") and i.severity.value == "error"
+    ]
+    assert any(
+        "policyreference-argument-datatype-agreement" in (i.rule_id or "")
+        for i in constraint_errors
+    ), f"Phase 2 DataType check did not fire. Issues: {[i.rule_id for i in result.issues]}"
