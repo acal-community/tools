@@ -27,6 +27,28 @@ The tool provides:
 
 ## Most Recent Sessions
 
+### June 16, 2026 — Phase 1 within-Bundle resolution; 38/38 constraints evaluated
+
+**Implemented:** Within-document resolution for the two formerly-skipped cross-document constraints (`sharedvariablereference-argument-datatype-agreement` and `policyreference-argument-datatype-agreement`).
+
+Before Phase 1, both constraints blanket-skipped every document with advisory warnings. After Phase 1, for any document whose references resolve within the same Bundle, both constraints are fully evaluated — no skip warnings emitted.
+
+**Mechanism:** `_build_resolution_index(document)` scans a Bundle and builds two indexes:
+- `shared_vars: {Id → [ParameterType]}`  (from `Bundle.SharedVariableDefinition[]`)
+- `policies: {PolicyId → [ParameterType]}` (from `Bundle.Policy[]`)
+
+`evaluate()` builds the index before running catalog rules and passes it to `_property_agreement` via `context=`. For each `SharedVariableReference`/`PolicyReference` found in the document, the checker resolves it in the index. If found: runs `_check_argument_datatype_agreement()` which matches positional and named arguments against parameter DataType declarations. If not found (cross-file, Phase 2 territory): emits a per-reference skip warning with hint "Use --include to provide the definition file."
+
+**Output change:** All valid fixtures now show `Constraints: 38/38 evaluated` with no skip annotation (was `34/36 evaluated · 2 skipped`).
+
+**Test suite:** 33 passed, 2 skipped (permanent XPath). Two new fixtures added:
+- `ex10-bundle-parameterized-sharedvar.yaml` — valid; exercises DataType agreement check
+- `err10-sharedvar-datatype-mismatch.yaml` — invalid; `{integer}` passed where `{string}` required
+
+**Phase 2 (next):** Add `--include FILE` CLI flag to load external definition files into the resolution index, enabling full evaluation for cross-file references.
+
+---
+
 ### June 16, 2026 — Fixture test suite complete; gold-standard validation enforced
 
 **Completed:** Added `tests/fixtures/valid/` (7 adoption guide examples, ex01–ex09) and `tests/fixtures/invalid/` (9 error cases). Created `tests/test_fixtures.py` with 19 parametrized and targeted tests. All 31 tests pass (2 permanent XPath skips unchanged).
@@ -63,14 +85,14 @@ Both supplementary checks increment `constraints_total`/`constraints_evaluated` 
 
 ## Open Items
 
-- Create `jacal-validator` branch from `main` (next milestone)
+- **Phase 2**: Add `--include FILE` CLI flag for cross-file reference resolution (PolicyReference/SharedVariableReference to external files)
+- Create `jacal-validator` branch from `main` (next milestone after Phase 2)
 - Delete `acal-validator` branch once `jacal-validator` is verified
 - Populate root `README.md` with project description and tool index
 - File upstream bugs against the spec repo:
   1. Three YAML authoring bugs in `acal-core-yaml-v1.0-structure.schema.yaml` (properties: null, bare list in $defs, required: scalar)
   2. Missing Rule ID uniqueness constraint in `acal-core-yaml-v1.0-constraints.yaml`
   3. Wrong path for `shortidset-shortid-name-unique` in constraint catalog
-- The 2 permanently-skipped constraints (`sharedvariablereference-argument-datatype-agreement`, `policyreference-argument-datatype-agreement`) cannot be evaluated without multi-file support — document prominently in README as known limitation
 - The 2 skipped XPath example tests require `.yaml` fixture files in the spec repo; revisit when spec adds YAML examples
 - Publish to PyPI when both tools are stable
 

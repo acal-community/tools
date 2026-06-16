@@ -56,35 +56,38 @@ def _validate(path: Path, schema_paths: dict):
     "ex06-policy-nested-policies.yaml",
     "ex08-rule-quantified-expression.yaml",
     "ex09-bundle-shared-variable.yaml",
+    "ex10-bundle-parameterized-sharedvar.yaml",
 ])
 def test_valid_fixture_passes(filename, schema_paths):
-    """Adoption guide examples must pass with no errors (only 2 skip warnings allowed)."""
+    """Adoption guide examples must pass with no errors and no warnings."""
     result = _validate(VALID_DIR / filename, schema_paths)
     errors = [i for i in result.issues if i.severity.value == "error"]
     assert result.valid, f"Expected PASS for {filename}, got errors: {[e.message for e in errors]}"
     assert not errors
-    non_skip_warnings = [
-        i for i in result.issues
-        if not (i.rule_id or "").startswith("yacal-skip:")
-    ]
-    assert not non_skip_warnings, (
-        f"Unexpected non-skip warnings in {filename}: {[w.message for w in non_skip_warnings]}"
+    assert not result.issues, (
+        f"Unexpected warnings in {filename}: {[i.message for i in result.issues]}"
     )
 
 
 def test_valid_fixtures_run_full_constraint_catalog(schema_paths):
-    """Constraint catalog + supplementary checks must run for all valid fixtures."""
+    """All constraints must be evaluated (0 skipped) for all valid fixtures.
+
+    Phase 1 within-document resolution eliminates the two formerly-skipped
+    cross-document constraints for documents whose references resolve within
+    the same Bundle.
+    """
     for fixture in sorted(VALID_DIR.glob("*.yaml")):
         result = _validate(fixture, schema_paths)
         if result.valid:
             assert result.constraints_total > 0, (
                 f"No constraints ran for {fixture.name}"
             )
-            assert result.constraints_skipped == 2, (
-                f"Expected 2 skipped, got {result.constraints_skipped} for {fixture.name}"
+            assert result.constraints_skipped == 0, (
+                f"Expected 0 skipped, got {result.constraints_skipped} for {fixture.name}. "
+                f"Unexpected skip issues: {[i.message for i in result.issues if (i.rule_id or '').startswith('yacal-skip:')]}"
             )
-            assert result.constraints_evaluated == result.constraints_total - 2, (
-                f"Expected {result.constraints_total - 2} evaluated for {fixture.name}"
+            assert result.constraints_evaluated == result.constraints_total, (
+                f"Expected all {result.constraints_total} evaluated for {fixture.name}"
             )
 
 
@@ -175,3 +178,26 @@ def test_err09_duplicate_shortid_names_caught_by_supplementary_check(schema_path
     assert any(
         "shortidset-shortid-name-unique" in (i.rule_id or "") for i in constraint_errors
     ), f"Supplementary shortid check did not fire. Issues: {[i.rule_id for i in result.issues]}"
+
+
+def test_err10_sharedvar_datatype_mismatch_caught_by_phase1(schema_paths):
+    """Phase 1: SharedVariableReference DataType mismatch caught via within-Bundle resolution.
+
+    The parameter declares DataType={string}; the reference passes DataType={integer}.
+    The within-document index resolves the definition and the catalog constraint fires.
+    No skip warnings should be emitted — this is a fully evaluated constraint.
+    """
+    result = _validate(INVALID_DIR / "err10-sharedvar-datatype-mismatch.yaml", schema_paths)
+    assert not result.valid
+    constraint_errors = [
+        i for i in result.issues
+        if (i.rule_id or "").startswith("yacal:") and i.severity.value == "error"
+    ]
+    assert any(
+        "sharedvariablereference-argument-datatype-agreement" in (i.rule_id or "")
+        for i in constraint_errors
+    ), f"Phase 1 DataType check did not fire. Issues: {[i.rule_id for i in result.issues]}"
+    skip_issues = [i for i in result.issues if (i.rule_id or "").startswith("yacal-skip:")]
+    assert not skip_issues, (
+        f"Expected no skip issues when definition is in-Bundle, got: {[i.message for i in skip_issues]}"
+    )

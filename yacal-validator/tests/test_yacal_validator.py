@@ -166,9 +166,9 @@ def test_constraint_stats_tracked(yaml_schemas):
 
     assert total > 0, "Catalog must have at least one known rule"
     assert evaluated + skipped == total
-    # The two cross-document rules should always be skipped regardless of document content.
-    assert skipped == 2
-    assert evaluated == total - 2
+    # Phase 1: within-document resolution means no references to skip on an empty document.
+    assert skipped == 0
+    assert evaluated == total
 
 
 def test_constraint_summary_in_human_output(yaml_schemas, tmp_path):
@@ -224,4 +224,4 @@ def test_constraint_skips_in_json_output(yaml_schemas):
     assert data["constraints"]["total"] == total
     assert data["constraints"]["evaluated"] == evaluated
     assert data["constraints"]["skipped"] == skipped
-    assert data["constraints"]["skipped"] == 2
+    assert data["constraints"]["skipped"] == 0

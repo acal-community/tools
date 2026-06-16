@@ -246,32 +246,160 @@ def _conditional_presence(root: Any, rule: dict, out: list[ValidationIssue]) -> 
             ))
 
 
-def _property_agreement(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
+def _build_resolution_index(document: Any) -> dict:
+    """Index SharedVariableDefinition and Policy entries from a Bundle for within-document lookup.
+
+    Returns {"shared_vars": {Id: [ParameterType]}, "policies": {PolicyId: [ParameterType]}}.
+    """
+    shared_vars: dict[str, list] = {}
+    policies: dict[str, list] = {}
+    if not isinstance(document, dict):
+        return {"shared_vars": shared_vars, "policies": policies}
+    bundle = document.get("Bundle")
+    if isinstance(bundle, dict):
+        for svd in bundle.get("SharedVariableDefinition") or []:
+            if isinstance(svd, dict) and "Id" in svd:
+                shared_vars[str(svd["Id"])] = list(svd.get("Parameter") or [])
+        for policy in bundle.get("Policy") or []:
+            if isinstance(policy, dict) and "PolicyId" in policy:
+                policies[str(policy["PolicyId"])] = list(policy.get("Parameter") or [])
+    return {"shared_vars": shared_vars, "policies": policies}
+
+
+def _check_argument_datatype_agreement(
+    ref: dict,
+    params: list,
+    ref_path: str,
+    rule_id: str,
+    spec: str | None,
+    out: list[ValidationIssue],
+) -> None:
+    """Check that Value-typed arguments agree with the declared parameter DataTypes.
+
+    Handles positional arguments (matched by index) and named arguments
+    (NamedArgument.Name matched against Parameter.Name).
+    Only fires when both the parameter declares DataType AND the argument
+    supplies an explicit Value with DataType — as required by the spec.
+    """
+    if not params:
+        return
+    arguments = ref.get("Argument") or []
+    if not isinstance(arguments, list):
+        return
+
+    param_by_name = {
+        p["Name"]: p for p in params if isinstance(p, dict) and "Name" in p
+    }
+
+    for idx, arg_item in enumerate(arguments):
+        if not isinstance(arg_item, dict):
+            continue
+
+        matched_param: dict | None = None
+        arg_datatype: str | None = None
+
+        if "NamedArgument" in arg_item:
+            named = arg_item["NamedArgument"]
+            if isinstance(named, dict):
+                param_name = named.get("Name")
+                matched_param = param_by_name.get(param_name) if param_name else None
+                # NamedArgumentType.Expression contains the value expression
+                expr = named.get("Expression")
+                if isinstance(expr, dict):
+                    val = expr.get("Value")
+                    if isinstance(val, dict):
+                        arg_datatype = val.get("DataType")
+        else:
+            # Positional: argument at index idx matches parameter at index idx
+            if idx < len(params) and isinstance(params[idx], dict):
+                matched_param = params[idx]
+            val = arg_item.get("Value")
+            if isinstance(val, dict):
+                arg_datatype = val.get("DataType")
+
+        if matched_param is None or arg_datatype is None:
+            continue
+
+        param_datatype = matched_param.get("DataType")
+        if param_datatype is None:
+            continue
+
+        if str(arg_datatype) != str(param_datatype):
+            param_name = matched_param.get("Name", str(idx))
+            out.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message=(
+                    f"DataType mismatch at {ref_path}: argument {idx} "
+                    f"specifies DataType={arg_datatype!r} but parameter "
+                    f"{param_name!r} requires {param_datatype!r}"
+                ),
+                path=f"{ref_path}.Argument[{idx}]",
+                rule_id=f"yacal:{rule_id}",
+                spec_ref=spec,
+            ))
+
+
+def _property_agreement(
+    root: Any, rule: dict, out: list[ValidationIssue], context: dict | None = None
+) -> None:
     rule_id = rule["Id"]
     spec = _provenance(rule)
     resolution = rule.get("Resolution", {}) or {}
 
     if resolution.get("RequiresReferencedSharedVariableLookup"):
-        out.append(ValidationIssue(
-            severity=Severity.WARNING,
-            message=(
-                f"Constraint '{rule_id}' requires cross-document shared-variable lookup "
-                "and was not evaluated. Verify compliance manually."
-            ),
-            rule_id=f"yacal-skip:{rule_id}",
-            spec_ref=spec,
-        ))
+        applies_to = rule.get("AppliesTo", {}) or {}
+        shared_var_index = (context or {}).get("shared_vars", {})
+        for loc in applies_to.get("ContainerLocations", []) or []:
+            for ref_path, ref in eval_path(root, loc):
+                if not isinstance(ref, dict):
+                    continue
+                ref_id = str(ref.get("Id", "")) if ref.get("Id") is not None else None
+                if ref_id is None:
+                    continue
+                if ref_id not in shared_var_index:
+                    out.append(ValidationIssue(
+                        severity=Severity.WARNING,
+                        message=(
+                            f"Constraint '{rule_id}': SharedVariableReference {ref_id!r} at "
+                            f"{ref_path} resolves to an external definition; "
+                            "cross-document DataType agreement not checked. "
+                            "Use --include to provide the definition file."
+                        ),
+                        rule_id=f"yacal-skip:{rule_id}",
+                        spec_ref=spec,
+                    ))
+                else:
+                    _check_argument_datatype_agreement(
+                        ref, shared_var_index[ref_id], ref_path, rule_id, spec, out
+                    )
         return
+
     if resolution.get("RequiresReferencedPolicyLookup"):
-        out.append(ValidationIssue(
-            severity=Severity.WARNING,
-            message=(
-                f"Constraint '{rule_id}' requires cross-document policy lookup "
-                "and was not evaluated. Verify compliance manually."
-            ),
-            rule_id=f"yacal-skip:{rule_id}",
-            spec_ref=spec,
-        ))
+        applies_to = rule.get("AppliesTo", {}) or {}
+        policy_index = (context or {}).get("policies", {})
+        for loc in applies_to.get("ContainerLocations", []) or []:
+            for ref_path, ref in eval_path(root, loc):
+                if not isinstance(ref, dict):
+                    continue
+                ref_id = str(ref.get("Id", "")) if ref.get("Id") is not None else None
+                if ref_id is None:
+                    continue
+                if ref_id not in policy_index:
+                    out.append(ValidationIssue(
+                        severity=Severity.WARNING,
+                        message=(
+                            f"Constraint '{rule_id}': PolicyReference {ref_id!r} at "
+                            f"{ref_path} resolves to an external definition; "
+                            "cross-document DataType agreement not checked. "
+                            "Use --include to provide the definition file."
+                        ),
+                        rule_id=f"yacal-skip:{rule_id}",
+                        spec_ref=spec,
+                    ))
+                else:
+                    _check_argument_datatype_agreement(
+                        ref, policy_index[ref_id], ref_path, rule_id, spec, out
+                    )
         return
 
     applies_to = rule.get("AppliesTo", {}) or {}
@@ -663,6 +791,8 @@ def evaluate(
     evaluated = 0
     skipped = 0
 
+    context = _build_resolution_index(document)
+
     for rule in catalog.get("Rule", []) or []:
         kind = rule.get("Kind")
         checker = _CHECKERS.get(kind)
@@ -671,7 +801,10 @@ def evaluate(
         total += 1
         before = len(issues)
         try:
-            checker(document, rule, issues)
+            if kind == "propertyAgreement":
+                checker(document, rule, issues, context=context)
+            else:
+                checker(document, rule, issues)
         except Exception as exc:
             issues.append(ValidationIssue(
                 severity=Severity.WARNING,
