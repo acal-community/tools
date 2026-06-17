@@ -8,3 +8,10 @@ build/
 .venv/
 venv/
 .pytest_cache/
+.claude/commands/grill-me.md
+.claude/commands/session-historian.md
+.claude/commands/startup.md
+.claude/skills/bootstrap/SKILL.md
+.claude/skills/grill-me/SKILL.md
+.claude/skills/session-historian/SKILL.md
+.claude/skills/startup/SKILL.md
