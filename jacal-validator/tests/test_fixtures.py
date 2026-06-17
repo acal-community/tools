@@ -32,7 +32,7 @@ from jacal_validator.validator import validate
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 # ---------------------------------------------------------------------------
-# Valid fixtures — must PASS with 41 constraints evaluated, 0 skipped
+# Valid fixtures — must PASS with ≥38 constraints evaluated, 0 skipped
 # ---------------------------------------------------------------------------
 VALID_FIXTURES: dict[str, str] = {
     "ex01-rule-simple-permit.json": "simple Rule with Permit effect",
@@ -45,6 +45,13 @@ VALID_FIXTURES: dict[str, str] = {
     "ex08-policy-nested-policies.json": "Policy with nested Policy in CombinerInput",
     "ex09-policy-xpath-defaults.json": "Policy with XPath profile",
     "ex10-policy-jsonpath-selector.json": "Policy with JSONPath profile",
+    "ex11-request-xpath-defaults.json": "Request with XPathRequestDefaults and Content",
+    "ex12-policy-xpath-entity-attribute-selector.json": "Policy with XPathEntityAttributeSelector",
+    "ex13-policy-dual-profile.json": "Policy with XPath and JSONPath profiles active simultaneously",
+    "ex14-policy-issuer.json": "Policy with PolicyIssuer",
+    "ex15-bundle-named-argument.json": "Bundle with NamedArgument in SharedVariableReference",
+    "ex16-response-full.json": "Response with Status, Notice, ResultEntity, and ApplicablePolicyReference",
+    "ex17-bundle-user-shortids.json": "Bundle with user-defined ShortIds and multi-set reference chain",
 }
 
 # ---------------------------------------------------------------------------
@@ -90,6 +97,7 @@ CONSTRAINT_INVALID_FIXTURES: dict[str, str] = {
     "err30-result-duplicate-resultentity-categories.json": "jacal:result-resultentity-category-unique",
     "err31-result-duplicate-applicablepolicyreference-ids.json": "jacal:result-applicablepolicyreference-id-unique",
     "err32-resultentity-duplicate-attribute-ids.json": "jacal:resultentity-attribute-attributeid-unique",
+    "err37-shortidset-indirect-revisit.json": "jacal:shortidset-reference-no-repeat",
 }
 
 # JSON conformance: caught before schema or constraint evaluation

@@ -985,7 +985,6 @@ def _check_shortidset_reference_graph(document: Any, out: list[ValidationIssue])
             visited.add(ref)
             if walk(ref, visited):
                 return True
-            visited.remove(ref)
         return False
 
     for nid, (path, node) in nodes.items():

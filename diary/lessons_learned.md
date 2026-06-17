@@ -1,5 +1,17 @@
 # Lessons Learned
 
+## supplementary-shortidset-check-dead-for-bundles (June 2026)
+
+**Rule**: When adding a supplementary Python check that mirrors a catalog-level rule, verify that the path filter (`if sid_path != "ShortIdSet": continue`) actually matches real documents — otherwise the supplementary check is silently skipped on every input.
+
+**Why**: The `_check_shortidset_reference_graph` supplementary check has `if sid_path != "ShortIdSet": continue`. Since `_find_all(document, "ShortIdSet")` returns `("Bundle.ShortIdSet", ...)` for Bundle documents, the filter never matches and the check never runs. The catalog-level `_graph_no_repeat` (at `$.Bundle.ShortIdSet[]`) is the real enforcement path. The backtracking bug in the supplementary `walk()` went unnoticed for this reason. Discovering it required tracing the path string construction in `_find_all` — the mismatch between `"ShortIdSet"` and `"Bundle.ShortIdSet"` is easy to miss.
+
+## entity-attribute-selector-requires-expression (June 2026)
+
+**Rule**: `EntityAttributeSelectorType` requires BOTH `Path` (inherited from `BaseAttributeSelectorType`) AND `Expression` (added by `EntityAttributeSelectorType` itself) — unlike `AttributeSelectorType` which only needs `Path` and `Category`.
+
+**Why**: When building an `XPathEntityAttributeSelector` fixture, omitting `Expression` produces a top-level `jsonschema:anyOf` failure with no direct pointer to the missing field. The distinction from `AttributeSelector` is easy to overlook since both descend from `BaseAttributeSelectorType` and look structurally similar at the property level.
+
 ## typed-value-boolean-is-not-valid (June 2026)
 
 **Rule**: In JACAL `TypedValueType`, `Value` must be a number or string — boolean `true`/`false` are NOT valid. Use the raw boolean `true`/`false` (PrimitiveValueType) instead of `{"DataType": "{boolean}", "Value": true}`.

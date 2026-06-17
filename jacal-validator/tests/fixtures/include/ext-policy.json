@@ -1,0 +1,34 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:external",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "Parameter": [
+      {"Name": "access-role", "DataType": "{string}"}
+    ],
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "permit-by-role",
+          "Effect": "Permit",
+          "Condition": {
+            "Apply": {
+              "FunctionId": "{string-is-in}",
+              "Argument": [
+                {"Value": "admin"},
+                {
+                  "AttributeDesignator": {
+                    "Category": "{access-subject}",
+                    "AttributeId": "{role}",
+                    "DataType": "{string}",
+                    "MustBePresent": false
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

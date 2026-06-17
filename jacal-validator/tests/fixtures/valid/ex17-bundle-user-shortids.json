@@ -1,0 +1,64 @@
+{
+  "Bundle": {
+    "ShortIdSet": [
+      {
+        "Id": "urn:example:ids:base",
+        "ShortId": [
+          {"Name": "my-string-type", "Value": "urn:example:data-type:my-string"},
+          {"Name": "my-function", "Value": "urn:example:functions:my-fn"}
+        ]
+      },
+      {
+        "Id": "urn:example:ids:actions",
+        "ShortIdSetReference": ["urn:example:ids:base"],
+        "ShortId": [
+          {"Name": "my-read", "Value": "urn:example:actions:read"},
+          {"Name": "my-write", "Value": "urn:example:actions:write"}
+        ]
+      },
+      {
+        "Id": "urn:example:ids:policy",
+        "ShortIdSetReference": ["urn:example:ids:actions"],
+        "ShortId": [
+          {"Name": "my-alg", "Value": "urn:example:combining:deny-unless-permit"}
+        ]
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:user-shortids",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "ShortIdSetReference": ["urn:example:ids:policy"],
+        "CombinerInput": [
+          {
+            "Rule": {
+              "Id": "permit-readers",
+              "Effect": "Permit",
+              "Condition": {
+                "Apply": {
+                  "FunctionId": "{string-is-in}",
+                  "Argument": [
+                    {"Value": "read"},
+                    {
+                      "AttributeDesignator": {
+                        "Category": "{action}",
+                        "AttributeId": "{action-id}",
+                        "DataType": "{string}",
+                        "MustBePresent": false
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "PolicyReference": {
+      "Id": "urn:example:policy:user-shortids",
+      "Version": "1.0"
+    }
+  }
+}

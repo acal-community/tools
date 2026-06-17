@@ -4,44 +4,37 @@
 
 Two validator tools are in active development on separate branches:
 - `yacal-validator` — YACAL v1.0 (YAML) policy validator; believed complete with tests passing
-- `jacal-validator` — JACAL v1.0 (JSON) policy validator; **test suite now complete and passing (78/78)**
+- `jacal-validator` — JACAL v1.0 (JSON) policy validator; **test suite now complete and passing (90/90)**
 
 Both are in the `/tools/` directory. The `acal-validator` branch (the original XML-aware monolith) is slated for deletion once both tools are verified.
 
 ## Most Recent Session (June 2026)
 
-Completed the JACAL validator test suite. The session picked up mid-way through creating the invalid test fixtures and finished everything:
+Addressed all six items from a structured code review of the jacal-validator. The session had two goals: close known coverage gaps in the test suite, and fix a latent consistency bug in the supplementary graph checker.
 
-**Why this work matters:** Gold-standard coverage requires demonstrated constraint catalog coverage — not just that valid documents pass, but that each constraint fires on the right invalid document and the right rule ID appears in the error output.
+**Why this work matters:** The gold-standard requirement is not just that valid documents pass, but that every exercisable code path has a corresponding fixture and that checkers behave consistently with each other.
 
-**What was discovered during fixture creation:**
+**What was addressed:**
 
-JACAL's JSON Schema structurally enforces several constraints that YACAL only catches semantically. This affects which catalog rules can ever produce errors at the constraint layer:
+*Issue 6 (Low — comment accuracy):* The "41 constraints evaluated" comment in the valid fixture section was corrected to "≥38" to match the actual assertion. The `TestDataTypeConstraintsNeverFire` docstring was revised to stop claiming `request-defaults-unique-concrete-subtype` and `policy-defaults-unique-concrete-subtype` "always evaluate" without a matching fixture — they now reference ex09 and ex11 explicitly.
 
-- `AttributeType.Value[].DataType` — forbidden via `dependentSchemas` in schema
-- `SharedVariableReference.Argument.Value.DataType` — forbidden in JACAL (not in YACAL)
-- `PolicyReference.Argument.Value.DataType` — forbidden in JACAL
-- `Parameter.Expression.Value.DataType` — forbidden in JACAL
-- `BundleType.PolicyReference` requires `Policy` — enforced via `dependentRequired` in schema (not just a semantic rule)
-- `ShortIdSetReference` has `uniqueItems: true` — duplicate references caught structurally
-- `TypedValueType.Value` for boolean must be a raw `true`/`false`, not a number/string — `TypedValueType` only accepts number/string primitive values, not boolean
+*Issue 5 (Medium — diamond fixture + checker fix):* The supplementary `_check_shortidset_reference_graph`'s `walk()` was using `visited.remove(ref)` (DFS backtracking), making it unable to detect diamond patterns where a node is reached via two independent paths. The catalog-level `_graph_no_repeat` (line 659) has no backtracking and correctly detects this. Removed the `visited.remove()` call to make the supplementary checker consistent. Added `err37` with an A→[B,C], B→[D], C→[D] diamond to prove the catalog-level checker fires.
 
-As a result, these catalog rules always evaluate but never produce constraint-level errors for structurally-valid JACAL documents:
-  `attribute-valuetype-datatype-agreement`, `requestattribute-valuetype-datatype-agreement`,
-  `attributeassignment-valuetype-datatype-agreement`, `parameter-valuetype-datatype-agreement`,
-  `sharedvariablereference-argument-datatype-agreement`, `bundle-policyreference-requires-policy` (partial),
-  `shortidset-reference-no-repeat` (duplicate-ref path), `request-defaults-unique-concrete-subtype`,
-  `policy-defaults-unique-concrete-subtype`
+*Issues 2 & 3 (High/Medium — valid fixture coverage):* Added seven new valid fixtures:
+- **ex11**: Request with `XPathRequestDefaults` (exercising RequestDefaultsTypeExtensions anchor) and `Content` in a RequestEntity
+- **ex12**: Policy with `XPathEntityAttributeSelector` (exercising EntityAttributeSelectorTypeExtensions anchor; requires both `Path` and `Expression`)
+- **ex13**: Policy with both `XPathAttributeSelector` and `JSONPathAttributeSelector` active, exercising the dual-profile composition branch at `validator.py:259`
+- **ex14**: Policy with `PolicyIssuer` (EntityType with Attribute array using bare-string PrimitiveValueType values)
+- **ex15**: Bundle with `NamedArgument` in a SharedVariableReference (exercises ArgumentTypeTree's NamedArgument branch and `_check_argument_datatype_agreement` NamedArgument path)
+- **ex16**: Full valid Response with `Status`, two distinct `Notice` entries (obligation and advice), two distinct `ResultEntity` categories (each with Attribute), and two `ApplicablePolicyReference` items (each with required `Version`)
+- **ex17**: Bundle with three user-defined ShortIdSets in a 3-level reference chain (set-policy → set-actions → set-base), Policy consuming the chain via `ShortIdSetReference`
 
-`policyreference-argument-datatype-agreement` produces a skip warning (exit 2) for external policy references; never errors because the argument DataType itself is forbidden.
+*Issue 1 (High — include path resolution):* Added `tests/fixtures/include/ext-policy.json` (a Policy document for `urn:example:policy:external`) and `tests/fixtures/include/ext-sharedvar.json` (a Bundle with the SharedVariableDefinition for `urn:example:shared:defined-elsewhere`). Added `TestIncludePathResolution` class to `test_jacal_validator.py` with four tests: the two incomplete fixtures become complete (exit 0) when the include file is supplied, and remain incomplete (exit 2) when it is not.
 
-**What was built:**
-- 36 invalid test fixtures (`err01`–`err36`) covering structural, constraint, and JSON conformance errors
-- 2 incomplete fixtures (`inc01`–`inc02`) demonstrating cross-document skip warnings
-- `tests/test_fixtures.py` — parametrized fixture tests (48 test cases, 4 categories)
-- `tests/test_jacal_validator.py` — 30 unit-level tests (linting, profile detection, path evaluator, exit codes)
+*Issue 4 (Medium — full valid response):* Covered by ex16 above.
 
-**Test summary:** 78 tests, 78 pass, 0 fail.
+**Key finding — supplementary ShortIdSet check is effectively dead for Bundle documents:**
+The supplementary `_check_shortidset_reference_graph` only activates when `sid_path == "ShortIdSet"` — meaning ShortIdSet appears at the document root. In JACAL, ShortIdSet only ever appears inside Bundle (`Bundle.ShortIdSet`), so the supplementary check's path filter silently skips every real document. The catalog-level `_graph_no_repeat` covers all Bundle.ShortIdSet cases and is the actual enforcement path. The backtracking removal in the supplementary checker is a consistency fix for completeness, not a practical bug fix. (→ lessons-learned)
 
 ## Open Items for Next Session
 

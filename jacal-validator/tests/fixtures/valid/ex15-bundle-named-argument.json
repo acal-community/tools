@@ -1,0 +1,75 @@
+{
+  "Bundle": {
+    "SharedVariableDefinition": [
+      {
+        "Id": "urn:example:shared:role-check",
+        "Version": "1.0",
+        "Parameter": [
+          {"Name": "target-role", "DataType": "{string}"},
+          {"Name": "category", "DataType": "{string}"}
+        ],
+        "Expression": {
+          "Apply": {
+            "FunctionId": "{string-is-in}",
+            "Argument": [
+              {"Value": "allowed"},
+              {
+                "AttributeDesignator": {
+                  "Category": "{access-subject}",
+                  "AttributeId": "{role}",
+                  "DataType": "{string}",
+                  "MustBePresent": false
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:named-arg",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [
+          {
+            "Rule": {
+              "Id": "permit-by-named-arg",
+              "Effect": "Permit",
+              "Condition": {
+                "SharedVariableReference": {
+                  "Id": "urn:example:shared:role-check",
+                  "Argument": [
+                    {
+                      "NamedArgument": {
+                        "Name": "category",
+                        "Expression": {"Value": "clinical"}
+                      }
+                    },
+                    {
+                      "NamedArgument": {
+                        "Name": "target-role",
+                        "Expression": {
+                          "AttributeDesignator": {
+                            "Category": "{access-subject}",
+                            "AttributeId": "{role}",
+                            "DataType": "{string}",
+                            "MustBePresent": false
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "PolicyReference": {
+      "Id": "urn:example:policy:named-arg",
+      "Version": "1.0"
+    }
+  }
+}

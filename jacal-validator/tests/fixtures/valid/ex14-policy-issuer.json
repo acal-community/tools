@@ -1,0 +1,29 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:with-issuer",
+    "Version": "1.0",
+    "CombiningAlgId": "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
+    "PolicyIssuer": {
+      "Attribute": [
+        {
+          "AttributeId": "urn:example:issuer:organization",
+          "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+          "Value": ["Example Healthcare Corp"]
+        },
+        {
+          "AttributeId": "urn:example:issuer:department",
+          "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+          "Value": ["Information Security"]
+        }
+      ]
+    },
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "permit-staff",
+          "Effect": "Permit"
+        }
+      }
+    ]
+  }
+}

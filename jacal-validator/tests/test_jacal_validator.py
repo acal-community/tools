@@ -242,14 +242,17 @@ class TestDataTypeConstraintsNeverFire:
     for structurally valid JACAL documents because the schema structurally
     forbids the DataType-in-Value patterns they check.
 
-    Covered rules (always evaluate, never error):
+    Covered rules (evaluate on any valid doc, never error for valid input):
       - attribute-valuetype-datatype-agreement
       - requestattribute-valuetype-datatype-agreement
       - attributeassignment-valuetype-datatype-agreement
       - parameter-valuetype-datatype-agreement
       - sharedvariablereference-argument-datatype-agreement
-      - request-defaults-unique-concrete-subtype
-      - policy-defaults-unique-concrete-subtype
+
+    Note: request-defaults-unique-concrete-subtype and
+    policy-defaults-unique-concrete-subtype are also structurally prevented
+    from firing at constraint level, but are only exercised when the document
+    contains RequestDefaults or PolicyDefaults respectively (see ex11/ex09).
     """
 
     def _validate_valid(self, filename: str, store) -> ValidationResult:
@@ -273,3 +276,80 @@ class TestDataTypeConstraintsNeverFire:
             assert not datatype_errors, (
                 f"{filename}: unexpected DataType errors: {datatype_errors}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Cross-document reference resolution via --include
+# ---------------------------------------------------------------------------
+
+INCLUDE_DIR = Path(__file__).parent / "fixtures" / "include"
+INCOMPLETE_DIR = Path(__file__).parent / "fixtures" / "incomplete"
+
+
+class TestIncludePathResolution:
+    """Verify that supplying external definitions via include_paths resolves
+    cross-document skip warnings and produces a complete (exit 0) result."""
+
+    def _validate_with_include(self, incomplete_filename: str, include_filename: str, store) -> ValidationResult:
+        return validate(
+            json_path=INCOMPLETE_DIR / incomplete_filename,
+            core_structure_path=store.resolve(SCHEMA_FILES["core_structure"]),
+            core_constraints_path=store.resolve(SCHEMA_FILES["core_constraints"]),
+            xpath_structure_path=store.try_resolve(SCHEMA_FILES["xpath_structure"]),
+            jsonpath_structure_path=store.try_resolve(SCHEMA_FILES["jsonpath_structure"]),
+            include_paths=[INCLUDE_DIR / include_filename],
+        )
+
+    def test_policyreference_resolved_via_include(self, store) -> None:
+        result = self._validate_with_include(
+            "inc01-policyreference-external-policy.json",
+            "ext-policy.json",
+            store,
+        )
+        assert result.valid, (
+            "inc01 + ext-policy.json should be valid but got errors: "
+            + ", ".join(i.rule_id or "?" for i in result.issues if i.severity.name == "ERROR")
+        )
+        assert not result.incomplete, (
+            "inc01 + ext-policy.json should be complete (no unresolved refs) but "
+            f"got {result.constraints_skipped} skipped constraint(s): "
+            + ", ".join(i.rule_id or "?" for i in result.issues if (i.rule_id or "").startswith("jacal-skip:"))
+        )
+
+    def test_sharedvariablereference_resolved_via_include(self, store) -> None:
+        result = self._validate_with_include(
+            "inc02-sharedvariablereference-external.json",
+            "ext-sharedvar.json",
+            store,
+        )
+        assert result.valid, (
+            "inc02 + ext-sharedvar.json should be valid but got errors: "
+            + ", ".join(i.rule_id or "?" for i in result.issues if i.severity.name == "ERROR")
+        )
+        assert not result.incomplete, (
+            "inc02 + ext-sharedvar.json should be complete (no unresolved refs) but "
+            f"got {result.constraints_skipped} skipped constraint(s): "
+            + ", ".join(i.rule_id or "?" for i in result.issues if (i.rule_id or "").startswith("jacal-skip:"))
+        )
+
+    def test_without_include_policyreference_is_incomplete(self, store) -> None:
+        result = validate(
+            json_path=INCOMPLETE_DIR / "inc01-policyreference-external-policy.json",
+            core_structure_path=store.resolve(SCHEMA_FILES["core_structure"]),
+            core_constraints_path=store.resolve(SCHEMA_FILES["core_constraints"]),
+            xpath_structure_path=store.try_resolve(SCHEMA_FILES["xpath_structure"]),
+            jsonpath_structure_path=store.try_resolve(SCHEMA_FILES["jsonpath_structure"]),
+        )
+        assert result.valid
+        assert result.incomplete
+
+    def test_without_include_sharedvariablereference_is_incomplete(self, store) -> None:
+        result = validate(
+            json_path=INCOMPLETE_DIR / "inc02-sharedvariablereference-external.json",
+            core_structure_path=store.resolve(SCHEMA_FILES["core_structure"]),
+            core_constraints_path=store.resolve(SCHEMA_FILES["core_constraints"]),
+            xpath_structure_path=store.try_resolve(SCHEMA_FILES["xpath_structure"]),
+            jsonpath_structure_path=store.try_resolve(SCHEMA_FILES["jsonpath_structure"]),
+        )
+        assert result.valid
+        assert result.incomplete
