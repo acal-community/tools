@@ -1,0 +1,32 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:guide:ex07",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "NoticeExpression": [
+      {
+        "Id": "urn:example:notice:log-access",
+        "AppliesTo": "Permit",
+        "AttributeAssignmentExpression": [
+          {
+            "AttributeId": "urn:example:notice:log:action",
+            "Expression": {
+              "Value": {
+                "DataType": "{string}",
+                "Value": "access-granted"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "permit-all",
+          "Effect": "Permit"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:ext-svr",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "r1",
+          "Effect": "Permit",
+          "Condition": {
+            "SharedVariableReference": {
+              "Id": "urn:example:shared:defined-elsewhere",
+              "Argument": [
+                {"Value": "some-arg-value"}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

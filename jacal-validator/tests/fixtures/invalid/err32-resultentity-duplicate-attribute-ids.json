@@ -1,0 +1,28 @@
+{
+  "Response": {
+    "Result": [
+      {
+        "Decision": "Permit",
+        "ResultEntity": [
+          {
+            "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+            "Attribute": [
+              {
+                "AttributeId": "urn:example:role",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["clinician"],
+                "IncludeInResult": true
+              },
+              {
+                "AttributeId": "urn:example:role",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["auditor"],
+                "IncludeInResult": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

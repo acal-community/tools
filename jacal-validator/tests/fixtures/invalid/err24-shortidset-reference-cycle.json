@@ -1,0 +1,29 @@
+{
+  "Bundle": {
+    "ShortIdSet": [
+      {
+        "Id": "urn:example:ids:set-a",
+        "ShortIdSetReference": ["urn:example:ids:set-b"],
+        "ShortId": [
+          {"Name": "permit", "Value": "urn:oasis:names:tc:acal:1.0:status:ok"}
+        ]
+      },
+      {
+        "Id": "urn:example:ids:set-b",
+        "ShortIdSetReference": ["urn:example:ids:set-a"],
+        "ShortId": [
+          {"Name": "deny", "Value": "urn:oasis:names:tc:acal:1.0:status:deny"}
+        ]
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:p1",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+      }
+    ],
+    "PolicyReference": {"Id": "urn:example:policy:p1"}
+  }
+}

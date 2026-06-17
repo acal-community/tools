@@ -1,0 +1,55 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:guide:ex02",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "rule-doctor-read",
+          "Effect": "Permit",
+          "Description": "A doctor may read any resource.",
+          "Condition": {
+            "Apply": {
+              "FunctionId": "{and}",
+              "Argument": [
+                {
+                  "Apply": {
+                    "FunctionId": "{string-is-in}",
+                    "Argument": [
+                      {"Value": {"DataType": "{string}", "Value": "doctor"}},
+                      {
+                        "AttributeDesignator": {
+                          "Category": "{access-subject}",
+                          "AttributeId": "{role}",
+                          "DataType": "{string}",
+                          "MustBePresent": false
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "Apply": {
+                    "FunctionId": "{string-is-in}",
+                    "Argument": [
+                      {"Value": {"DataType": "{string}", "Value": "read"}},
+                      {
+                        "AttributeDesignator": {
+                          "Category": "{action}",
+                          "AttributeId": "{action-id}",
+                          "DataType": "{string}",
+                          "MustBePresent": false
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

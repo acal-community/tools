@@ -1,0 +1,20 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:dup-vars",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "VariableDefinition": [
+      {
+        "VariableId": "is-admin",
+        "Expression": {"Value": false}
+      },
+      {
+        "VariableId": "is-admin",
+        "Expression": {"Value": true}
+      }
+    ],
+    "CombinerInput": [
+      {"Rule": {"Id": "r1", "Effect": "Permit"}}
+    ]
+  }
+}

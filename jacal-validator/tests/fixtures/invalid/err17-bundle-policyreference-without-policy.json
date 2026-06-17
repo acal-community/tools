@@ -1,0 +1,5 @@
+{
+  "Bundle": {
+    "PolicyReference": {"Id": "urn:example:policy:undefined"}
+  }
+}

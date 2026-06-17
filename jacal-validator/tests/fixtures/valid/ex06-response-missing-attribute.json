@@ -1,0 +1,25 @@
+{
+  "Response": {
+    "Result": [
+      {
+        "Decision": "Indeterminate",
+        "Status": {
+          "StatusCode": {
+            "Value": "urn:oasis:names:tc:acal:1.0:status:missing-attribute"
+          },
+          "StatusMessage": "Required subject attribute was not supplied.",
+          "StatusDetail": {
+            "MissingAttributeDetail": [
+              {
+                "AttributeId": "urn:example:jacal:subject:clearance-level",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+                "Value": ["confidential"]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

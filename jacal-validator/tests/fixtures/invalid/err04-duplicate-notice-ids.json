@@ -1,0 +1,25 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:dup-notice",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "r1",
+          "Effect": "Permit",
+          "NoticeExpression": [
+            {
+              "Id": "urn:example:notice:log",
+              "AppliesTo": "Permit"
+            },
+            {
+              "Id": "urn:example:notice:log",
+              "AppliesTo": "Deny"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:rule-with-target",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "rule-with-illegal-target",
+          "Effect": "Permit",
+          "Target": {
+            "AnyOf": []
+          }
+        }
+      }
+    ]
+  }
+}

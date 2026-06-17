@@ -1,0 +1,19 @@
+{
+  "Bundle": {
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:duplicate",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+      },
+      {
+        "PolicyId": "urn:example:policy:duplicate",
+        "Version": "2.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Deny"}}]
+      }
+    ],
+    "PolicyReference": {"Id": "urn:example:policy:duplicate"}
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:outer",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {
+        "Policy": {
+          "PolicyId": "urn:example:policy:inner",
+          "Version": "1.0",
+          "CombiningAlgId": "{deny-unless-permit}",
+          "CombinerInput": [
+            {
+              "Rule": {
+                "Id": "permit-inner",
+                "Effect": "Permit"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Rule": {
+          "Id": "deny-outer",
+          "Effect": "Deny"
+        }
+      }
+    ]
+  }
+}

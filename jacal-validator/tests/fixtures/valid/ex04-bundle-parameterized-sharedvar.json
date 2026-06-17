@@ -1,0 +1,109 @@
+{
+  "Bundle": {
+    "SharedVariableDefinition": [
+      {
+        "Id": "urn:example:shared:business-hours-tz",
+        "Version": "1.0",
+        "Parameter": [
+          {"Name": "timezone", "DataType": "{string}"}
+        ],
+        "Expression": {
+          "Apply": {
+            "FunctionId": "{and}",
+            "Argument": [
+              {
+                "Apply": {
+                  "FunctionId": "{integer-greater-than-or-equal}",
+                  "Argument": [
+                    {
+                      "Apply": {
+                        "FunctionId": "{time-hour-from-time}",
+                        "Argument": [
+                          {
+                            "Apply": {
+                              "FunctionId": "{time-one-and-only}",
+                              "Argument": [
+                                {
+                                  "AttributeDesignator": {
+                                    "Category": "{environment}",
+                                    "AttributeId": "{current-time}",
+                                    "DataType": "{time}",
+                                    "MustBePresent": true
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {"Value": {"DataType": "{integer}", "Value": 9}}
+                  ]
+                }
+              },
+              {
+                "Apply": {
+                  "FunctionId": "{integer-less-than}",
+                  "Argument": [
+                    {
+                      "Apply": {
+                        "FunctionId": "{time-hour-from-time}",
+                        "Argument": [
+                          {
+                            "Apply": {
+                              "FunctionId": "{time-one-and-only}",
+                              "Argument": [
+                                {
+                                  "AttributeDesignator": {
+                                    "Category": "{environment}",
+                                    "AttributeId": "{current-time}",
+                                    "DataType": "{time}",
+                                    "MustBePresent": true
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {"Value": {"DataType": "{integer}", "Value": 17}}
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:office-access-tz",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [
+          {
+            "Rule": {
+              "Id": "PermitDuringBusinessHours",
+              "Effect": "Permit",
+              "Condition": {
+                "SharedVariableReference": {
+                  "Id": "urn:example:shared:business-hours-tz",
+                  "Argument": [
+                    {
+                      "Value": "America/New_York"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "PolicyReference": {
+      "Id": "urn:example:policy:office-access-tz",
+      "Version": "1.0"
+    }
+  }
+}

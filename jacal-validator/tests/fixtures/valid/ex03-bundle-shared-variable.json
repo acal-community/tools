@@ -1,0 +1,109 @@
+{
+  "Bundle": {
+    "ShortIdSet": [
+      {
+        "Id": "urn:example:ids:common",
+        "ShortIdSetReference": ["urn:oasis:names:tc:acal:1.0:core:identifiers"]
+      }
+    ],
+    "SharedVariableDefinition": [
+      {
+        "Id": "urn:example:shared:is-business-hours",
+        "Version": "1.0",
+        "Description": "True when current time is between 09:00 and 17:00.",
+        "Expression": {
+          "Apply": {
+            "FunctionId": "{and}",
+            "Argument": [
+              {
+                "Apply": {
+                  "FunctionId": "{integer-greater-than-or-equal}",
+                  "Argument": [
+                    {
+                      "Apply": {
+                        "FunctionId": "{time-hour-from-time}",
+                        "Argument": [
+                          {
+                            "Apply": {
+                              "FunctionId": "{time-one-and-only}",
+                              "Argument": [
+                                {
+                                  "AttributeDesignator": {
+                                    "Category": "{environment}",
+                                    "AttributeId": "{current-time}",
+                                    "DataType": "{time}",
+                                    "MustBePresent": true
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {"Value": {"DataType": "{integer}", "Value": 9}}
+                  ]
+                }
+              },
+              {
+                "Apply": {
+                  "FunctionId": "{integer-less-than}",
+                  "Argument": [
+                    {
+                      "Apply": {
+                        "FunctionId": "{time-hour-from-time}",
+                        "Argument": [
+                          {
+                            "Apply": {
+                              "FunctionId": "{time-one-and-only}",
+                              "Argument": [
+                                {
+                                  "AttributeDesignator": {
+                                    "Category": "{environment}",
+                                    "AttributeId": "{current-time}",
+                                    "DataType": "{time}",
+                                    "MustBePresent": true
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {"Value": {"DataType": "{integer}", "Value": 17}}
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:office-access",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "ShortIdSetReference": ["urn:example:ids:common"],
+        "CombinerInput": [
+          {
+            "Rule": {
+              "Id": "PermitDuringBusinessHours",
+              "Effect": "Permit",
+              "Condition": {
+                "SharedVariableReference": {
+                  "Id": "urn:example:shared:is-business-hours"
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "PolicyReference": {
+      "Id": "urn:example:policy:office-access",
+      "Version": "1.0"
+    }
+  }
+}

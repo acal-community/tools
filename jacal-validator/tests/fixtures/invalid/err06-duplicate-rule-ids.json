@@ -1,0 +1,11 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:dup-rule-ids",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {"Rule": {"Id": "duplicate-rule", "Effect": "Permit"}},
+      {"Rule": {"Id": "duplicate-rule", "Effect": "Deny"}}
+    ]
+  }
+}

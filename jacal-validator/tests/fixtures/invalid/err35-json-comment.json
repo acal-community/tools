@@ -1,0 +1,9 @@
+// Comments are not valid JSON
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:has-comment",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+  }
+}

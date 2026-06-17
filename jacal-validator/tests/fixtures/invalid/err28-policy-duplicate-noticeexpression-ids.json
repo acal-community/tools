@@ -1,0 +1,36 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:dup-notice-ids",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "NoticeExpression": [
+      {
+        "Id": "urn:example:notice:log",
+        "AppliesTo": "Permit",
+        "AttributeAssignmentExpression": [
+          {
+            "AttributeId": "urn:example:log:action",
+            "Expression": {
+              "Value": {"DataType": "{string}", "Value": "access-granted"}
+            }
+          }
+        ]
+      },
+      {
+        "Id": "urn:example:notice:log",
+        "AppliesTo": "Deny",
+        "AttributeAssignmentExpression": [
+          {
+            "AttributeId": "urn:example:log:action",
+            "Expression": {
+              "Value": {"DataType": "{string}", "Value": "access-denied"}
+            }
+          }
+        ]
+      }
+    ],
+    "CombinerInput": [
+      {"Rule": {"Id": "r1", "Effect": "Permit"}}
+    ]
+  }
+}

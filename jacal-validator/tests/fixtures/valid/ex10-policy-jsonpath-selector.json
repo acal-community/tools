@@ -1,0 +1,23 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:jsonpath-profile",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "permit-by-jsonpath",
+          "Effect": "Permit",
+          "Condition": {
+            "JSONPathAttributeSelector": {
+              "Category": "urn:oasis:names:tc:acal:1.0:attribute-category:resource",
+              "Path": "$.patient.ward",
+              "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+              "MustBePresent": false
+            }
+          }
+        }
+      }
+    ]
+  }
+}

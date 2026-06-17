@@ -1,0 +1,31 @@
+{
+  "Response": {
+    "Result": [
+      {
+        "Decision": "Permit",
+        "Notice": [
+          {
+            "Id": "urn:example:notice:log",
+            "AttributeAssignment": [
+              {
+                "AttributeId": "urn:example:log:action",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["access-granted"]
+              }
+            ]
+          },
+          {
+            "Id": "urn:example:notice:log",
+            "AttributeAssignment": [
+              {
+                "AttributeId": "urn:example:log:user",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["alice"]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
