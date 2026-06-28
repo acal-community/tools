@@ -1,0 +1,9 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:duplicate-policy-notices"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  NoticeExpression:
+    - Id: "urn:example:yacal:notice:audit"
+      AppliesTo: Permit
+    - Id: "urn:example:yacal:notice:audit"
+      AppliesTo: Deny

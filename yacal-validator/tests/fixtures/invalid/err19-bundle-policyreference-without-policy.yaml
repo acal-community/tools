@@ -1,0 +1,4 @@
+Bundle:
+  PolicyReference:
+    Id: "urn:example:yacal:policy:external-only"
+    Version: "1.0"

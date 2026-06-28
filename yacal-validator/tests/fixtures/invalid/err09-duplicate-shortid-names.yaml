@@ -1,0 +1,12 @@
+# ERROR FIXTURE: Duplicate ShortId Names in a standalone ShortIdSet document
+# ShortId Name values must be unique within a ShortIdSet (YACAL §5.11.2 / ACAL §7.2).
+# Detected by supplementary constraint shortidset-shortid-name-unique.
+# Note: the catalog path $.ShortIdSet[].ShortId does not match any real document form —
+# filed as a catalog bug upstream. This tool uses a recursive supplementary check instead.
+ShortIdSet:
+  Id: "urn:example:shortids:dup-names"
+  ShortId:
+    - Name: role
+      Value: "urn:example:attribute:role"
+    - Name: role
+      Value: "urn:example:attribute:another-role"

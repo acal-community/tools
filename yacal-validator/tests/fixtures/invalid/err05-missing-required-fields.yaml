@@ -1,0 +1,8 @@
+# ERROR FIXTURE: Policy missing required fields (PolicyId, Version, CombiningAlgId)
+# All three are required for a valid PolicyDocument.
+Policy:
+  Description: A policy without any required fields.
+  CombinerInput:
+    - Rule:
+        Id: permit-all
+        Effect: Permit

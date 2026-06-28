@@ -1,0 +1,38 @@
+Response:
+  Result:
+    - Decision: Permit
+      Status:
+        StatusCode:
+          Value: "urn:oasis:names:tc:acal:1.0:status:ok"
+        StatusMessage: "Request processed successfully."
+      Notice:
+        - Id: "urn:example:yacal:notice:audit-log"
+          IsObligation: true
+          AttributeAssignment:
+            - AttributeId: "urn:example:yacal:notice:action"
+              Value:
+                - read
+        - Id: "urn:example:yacal:notice:notify-user"
+          AttributeAssignment:
+            - AttributeId: "urn:example:yacal:notice:channel"
+              Value:
+                - portal
+      ResultEntity:
+        - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+          Id: subject-one
+          Attribute:
+            - AttributeId: "urn:example:yacal:subject:role"
+              DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"
+              Value:
+                - clinician
+        - Category: "urn:oasis:names:tc:acal:1.0:attribute-category:resource"
+          Id: resource-one
+          Attribute:
+            - AttributeId: "urn:example:yacal:resource:type"
+              Value:
+                - medical-record
+      ApplicablePolicyReference:
+        - Id: "urn:example:yacal:policy:content-access"
+          Version: "1.0"
+        - Id: "urn:example:yacal:policy:audit-logging"
+          Version: "2.1"

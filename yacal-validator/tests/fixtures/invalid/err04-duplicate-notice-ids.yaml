@@ -1,0 +1,33 @@
+# ERROR FIXTURE: Duplicate NoticeExpression IDs within a Rule
+# NoticeExpression Id values must be unique within the same rule
+# (constraint rule-noticeexpression-id-unique).
+Policy:
+  PolicyId: "urn:example:policy:dup-notice-ids"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: permit-with-dup-notices
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{string-is-in}"
+            Argument:
+              - Value: read
+              - AttributeDesignator:
+                  Category: "{action}"
+                  AttributeId: "{action-id}"
+        NoticeExpression:
+          - Id: "urn:example:notice:log"
+            AppliesTo: Permit
+            IsObligation: true
+            AttributeAssignmentExpression:
+              - AttributeId: "urn:example:notice:action"
+                Expression:
+                  Value: read
+          - Id: "urn:example:notice:log"
+            AppliesTo: Permit
+            AttributeAssignmentExpression:
+              - AttributeId: "urn:example:notice:timestamp"
+                Expression:
+                  Value: now

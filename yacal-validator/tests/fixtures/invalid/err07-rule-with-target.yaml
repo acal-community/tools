@@ -1,0 +1,27 @@
+# ERROR FIXTURE: Rule with a Target property
+# In ACAL 1.0, Rules have no Target. Targeting is done at the policy level.
+# This is a common XACML 3.0 migration mistake — XACML 3.0 allowed Rule/Target.
+Policy:
+  PolicyId: "urn:example:policy:rule-with-target"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: permit-readers
+        Effect: Permit
+        Target:
+          Apply:
+            FunctionId: "{string-is-in}"
+            Argument:
+              - Value: read
+              - AttributeDesignator:
+                  Category: "{action}"
+                  AttributeId: "{action-id}"
+        Condition:
+          Apply:
+            FunctionId: "{string-is-in}"
+            Argument:
+              - Value: reader
+              - AttributeDesignator:
+                  Category: "{access-subject}"
+                  AttributeId: "{role}"

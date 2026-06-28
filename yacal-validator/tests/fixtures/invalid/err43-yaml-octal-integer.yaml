@@ -1,0 +1,5 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:octal"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  MaxDelegationDepth: 0o7

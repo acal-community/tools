@@ -1,0 +1,28 @@
+# ACAL Adoption Guide Example 8: QuantifiedExpression — ForAny
+# The adoption guide shows this Rule standalone for illustration.
+# Wrapped in a minimal Policy for validation (Rule is not a valid YACAL top-level document form).
+Policy:
+  PolicyId: "urn:example:guide:ex08"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: rule-data-custodian
+        Effect: Permit
+        Description: >-
+          Permit if the subject holds any role prefixed with data-custodian.
+        Condition:
+          ForAny:
+            VariableId: currentRole
+            Domain:
+              AttributeDesignator:
+                Category: "{access-subject}"
+                AttributeId: "{role}"
+                MustBePresent: true
+            Iterant:
+              Apply:
+                FunctionId: "{string-starts-with}"
+                Argument:
+                  - Value: "data-custodian"
+                  - VariableReference:
+                      VariableId: currentRole

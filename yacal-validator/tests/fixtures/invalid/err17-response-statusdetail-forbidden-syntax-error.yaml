@@ -1,0 +1,10 @@
+Response:
+  Result:
+    - Decision: Indeterminate
+      Status:
+        StatusCode:
+          Value: "urn:oasis:names:tc:acal:1.0:status:syntax-error"
+        StatusDetail:
+          MissingAttributeDetail:
+            - AttributeId: "urn:example:yacal:request:syntax"
+              DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"

@@ -1,0 +1,9 @@
+---
+Policy:
+  PolicyId: "urn:example:yacal:policy:first"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+---
+Response:
+  Result:
+    - Decision: Permit

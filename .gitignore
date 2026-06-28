@@ -8,6 +8,14 @@ build/
 .venv/
 venv/
 .pytest_cache/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+*.egg
 .claude/commands/grill-me.md
 .claude/commands/session-historian.md
 .claude/commands/startup.md

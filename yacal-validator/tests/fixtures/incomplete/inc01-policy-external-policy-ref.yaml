@@ -1,0 +1,18 @@
+# PHASE 2 FIXTURE: Standalone Policy with a PolicyReference in CombinerInput
+# pointing to an external Policy with typed parameters.
+# The catalog checks $.Policy.CombinerInput[].PolicyReference — this matches.
+# Without --include: INCOMPLETE (exit 2), one constraint skipped.
+# With --include inc01-external-policy-matching.yaml: PASS (exit 0), 0 skipped.
+# With --include inc01-external-policy-mismatched.yaml: FAIL (exit 1), DataType error.
+Policy:
+  PolicyId: "urn:example:policy:main"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - PolicyReference:
+        Id: "urn:example:policy:external-with-params"
+        Version: "1.0"
+        Argument:
+          - Value:
+              DataType: "{string}"
+              Value: "admin"

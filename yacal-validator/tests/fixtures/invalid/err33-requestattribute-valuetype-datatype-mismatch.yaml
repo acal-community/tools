@@ -1,0 +1,9 @@
+Request:
+  RequestEntity:
+    - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+      RequestAttribute:
+        - AttributeId: "urn:example:yacal:subject:role"
+          DataType: "{string}"
+          Value:
+            - DataType: "{integer}"
+              Value: "doctor"

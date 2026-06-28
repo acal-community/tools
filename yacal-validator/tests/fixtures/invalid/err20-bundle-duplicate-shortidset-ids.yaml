@@ -1,0 +1,4 @@
+Bundle:
+  ShortIdSet:
+    - Id: "urn:example:yacal:ids:duplicate"
+    - Id: "urn:example:yacal:ids:duplicate"

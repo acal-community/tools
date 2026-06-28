@@ -1,0 +1,15 @@
+Bundle:
+  SharedVariableDefinition:
+    - Id: "urn:example:yacal:shared:duplicate-parameters"
+      Version: "1.0"
+      Parameter:
+        - Name: timezone
+          DataType: "{string}"
+          Expression:
+            Value: "America/New_York"
+        - Name: timezone
+          DataType: "{string}"
+          Expression:
+            Value: "America/Chicago"
+      Expression:
+        Value: true

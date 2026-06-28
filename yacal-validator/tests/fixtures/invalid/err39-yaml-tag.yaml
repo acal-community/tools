@@ -1,0 +1,5 @@
+!custom-tag
+Policy:
+  PolicyId: "urn:example:yacal:policy:tagged"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"

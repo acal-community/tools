@@ -1,0 +1,52 @@
+Request:
+  CombinedDecision: false
+  RequestEntity:
+    - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+      Id: subject-one
+      RequestAttribute:
+        - AttributeId: "urn:example:yacal:subject:role"
+          DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"
+          Value:
+            - clinician
+    - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+      Id: subject-two
+      RequestAttribute:
+        - AttributeId: "urn:example:yacal:subject:role"
+          DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"
+          Value:
+            - auditor
+    - Category: "urn:oasis:names:tc:acal:1.0:attribute-category:action"
+      Id: action-read
+      RequestAttribute:
+        - AttributeId: "urn:oasis:names:tc:acal:1.0:action:action-id"
+          DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"
+          Value:
+            - read
+    - Category: "urn:oasis:names:tc:acal:1.0:attribute-category:action"
+      Id: action-write
+      RequestAttribute:
+        - AttributeId: "urn:oasis:names:tc:acal:1.0:action:action-id"
+          DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"
+          Value:
+            - write
+    - Category: "urn:oasis:names:tc:acal:1.0:attribute-category:resource"
+      Id: resource-one
+      RequestAttribute:
+        - AttributeId: "urn:example:yacal:resource:type"
+          DataType: "urn:oasis:names:tc:acal:1.0:data-type:string"
+          Value:
+            - medical-record
+  MultiRequests:
+    RequestReference:
+      - RequestEntityReference:
+          - Id: subject-one
+          - Id: action-read
+          - Id: resource-one
+      - RequestEntityReference:
+          - Id: subject-one
+          - Id: action-write
+          - Id: resource-one
+      - RequestEntityReference:
+          - Id: subject-two
+          - Id: action-read
+          - Id: resource-one

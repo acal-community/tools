@@ -1,0 +1,11 @@
+Request:
+  RequestEntity:
+    - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+      Id: subject-one
+      RequestAttribute:
+        - AttributeId: "urn:example:yacal:subject:role"
+          Value:
+            - clinician
+        - AttributeId: "urn:example:yacal:subject:role"
+          Value:
+            - auditor

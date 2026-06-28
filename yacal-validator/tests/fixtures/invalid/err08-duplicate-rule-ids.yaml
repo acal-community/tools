@@ -1,0 +1,31 @@
+# ERROR FIXTURE: Duplicate Rule IDs within a Policy CombinerInput
+# Rule IDs must be unique within each policy (used as identifiers in evaluation).
+# Detected by supplementary constraint rule-id-unique-within-policy (YACAL §5.3.2 / ACAL §7.6).
+# Note: the catalog (acal-core-yaml-v1.0-constraints.yaml) is missing this constraint — filed upstream.
+Policy:
+  PolicyId: "urn:example:policy:duplicate-rules"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: permit-readers
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{string-is-in}"
+            Argument:
+              - Value: reader
+              - AttributeDesignator:
+                  Category: "{access-subject}"
+                  AttributeId: "{role}"
+    - Rule:
+        Id: permit-readers
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{string-is-in}"
+            Argument:
+              - Value: writer
+              - AttributeDesignator:
+                  Category: "{access-subject}"
+                  AttributeId: "{role}"

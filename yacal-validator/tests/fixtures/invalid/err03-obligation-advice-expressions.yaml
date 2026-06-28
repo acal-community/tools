@@ -1,0 +1,25 @@
+# ERROR FIXTURE: ObligationExpression/AdviceExpression replaced by NoticeExpression
+# XACML 3.0 used ObligationExpression and AdviceExpression under separate wrappers.
+# ACAL 1.0 uses a single NoticeExpression type with an IsObligation flag.
+Policy:
+  PolicyId: "urn:example:policy:bad-obligations"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: permit-with-obligation
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{string-is-in}"
+            Argument:
+              - Value: read
+              - AttributeDesignator:
+                  Category: "{action}"
+                  AttributeId: "{action-id}"
+        ObligationExpression:
+          - ObligationId: "urn:example:obligation:log"
+            FulfillOn: Permit
+            AttributeAssignmentExpression:
+              - AttributeId: "urn:example:action"
+                Value: read
