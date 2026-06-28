@@ -27,26 +27,7 @@ _ACAL_AND = "urn:oasis:names:tc:acal:1.0:function:and"
 
 
 # ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def convert_file(path: str) -> dict[str, Any]:
-    """Parse an XACML 3.0 or 4.0 XML file and return a YACAL dict."""
-    tree = ET.parse(path)
-    root = tree.getroot()
-    ns = _extract_ns(root)
-    if ns == XACML3_NS:
-        version = "3.0"
-    elif ns == XACML4_NS:
-        version = "4.0"
-    else:
-        raise ValueError(f"Unrecognised XACML namespace: {ns!r}")
-    return _Converter(ns, version).convert_root(root)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -87,6 +68,31 @@ def _coerce_value(text: str, data_type: str) -> Any:
         except ValueError:
             pass
     return text
+
+
+def _set_if(d: dict, key: str, value: Any) -> None:
+    """Add key→value to d only when value is not None."""
+    if value is not None:
+        d[key] = value
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def convert_file(path: str) -> dict[str, Any]:
+    """Parse an XACML 3.0 or 4.0 XML file and return a YACAL dict."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    ns = _extract_ns(root)
+    if ns == XACML3_NS:
+        version = "3.0"
+    elif ns == XACML4_NS:
+        version = "4.0"
+    else:
+        raise ValueError(f"Unrecognised XACML namespace: {ns!r}")
+    return _Converter(ns, version).convert_root(root)
 
 
 # ---------------------------------------------------------------------------
@@ -570,14 +576,3 @@ class _Converter:
             status["StatusCode"] = {"Value": self._ident(sc.get("Value"))}
         _set_if(status, "StatusMessage", self._text(elem, "StatusMessage"))
         return status
-
-
-# ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-
-
-def _set_if(d: dict, key: str, value: Any) -> None:
-    """Add key→value to d only when value is not None."""
-    if value is not None:
-        d[key] = value

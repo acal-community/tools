@@ -29,6 +29,9 @@ def main(input_file: str, output: str, validate: bool) -> None:
     except ValueError as exc:
         click.echo(f"error: {exc}", err=True)
         sys.exit(2)
+    except ET.ParseError as exc:
+        click.echo(f"error: malformed XML: {exc}", err=True)
+        sys.exit(2)
     except Exception as exc:  # noqa: BLE001
         click.echo(f"error: {exc}", err=True)
         sys.exit(2)
