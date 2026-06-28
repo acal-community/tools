@@ -50,19 +50,21 @@ The supplementary `_check_shortidset_reference_graph` only activates when `sid_p
 - (→ lessons-learned) Anti-patterns discovered during JACAL schema investigation
 # Session Context — tools
 
-**Last Updated**: June 16, 2026
+**Last Updated**: June 28, 2026
 
 ---
 
 ## Current State
 
-The tools repo has been restructured from a combined multi-format validator into per-language tools. Three branches:
+The tools repo has been restructured from a combined multi-format validator into per-language tools. Active branches:
 
-- **`main`** — base branch; diary files, CLAUDE.md, CONTRIBUTING.md, `.gitignore` only
-- **`acal-validator`** — the original combined XML+JSON+YAML validator (pre-split); kept until `jacal-validator` is ready, then to be deleted
-- **`yacal-validator`** — active development branch; self-contained YACAL v1.0 (YAML) validator, **complete with spec-driven fixture and unit tests**
+- **`main`** — base branch; diary files, CLAUDE.md, CONTRIBUTING.md, `.gitignore`; `yacal-validator/` directory (merged from PR #3)
+- **`xacml-to-yacal`** — new branch (this session); `xacml-converter/` tool, **54 tests passed, 0 skipped**
+- **`jacal-validator`** — not yet started (next milestone after xacml-converter)
+- **`yacal-validator`** — merged to main via PR #3; self-contained YACAL v1.0 (YAML) validator complete
 
-`yacal-validator` status: **88 passed, 0 skipped**.
+`xacml-converter` status: **54 passed, 0 skipped** — converts XACML 3.0 and 4.0 XML policies to YACAL v1.0 YAML.
+`yacal-validator` status: **88 passed, 0 skipped** (on main).
 
 The tool provides:
 - `yacal-validate FILE` CLI (installed via `pip install -e .`)
@@ -77,6 +79,38 @@ The tool provides:
 ---
 
 ## Most Recent Sessions
+
+### June 28, 2026 — xacml-converter code review and improvements
+
+**Changes:**
+- Reorganized `converter.py`: moved all top-level helper functions (`_extract_ns`, `_local`, `_bool_attr`, `_int_attr`, `_coerce_value`, `_set_if`) to the top of the file (before the class definition and Public API). This improves code organization and avoids forward-reference issues in the module.
+- Improved error handling in `cli.py`: added specific `except ET.ParseError` (with clearer "malformed XML" message) before the general catch-all.
+- Verified all **54 tests** still pass after changes.
+
+This addresses code review feedback from the previous session. `xacml-converter` status remains **54 passed, 0 skipped**.
+
+---
+
+### June 27, 2026 — xacml-converter: XACML 3.0 / 4.0 → YACAL v1.0 converter
+
+**Motivation:** Issue #2 in the GitHub repo (filed by Cyril Dangerville, AuthzForce author) asked for an XSLT stylesheet to convert XACML 4.0 → JACAL 1.0. We extended the scope to YACAL (YAML, not JSON) as output, handled both XACML 3.0 and 4.0 as input, and chose Python instead of XSLT/Java to stay in the project's existing ecosystem.
+
+**Key architectural choices (details in → xacml-converter-pure-python, → xacml-converter-yacal-target):**
+- Pure Python (stdlib `xml.etree.ElementTree`) for XML parsing — the Saxon/XSD licensing issue from the yacal-validator work was about XML *schema validation*, not XML *parsing*. A converter only needs to read elements, not validate them against XSD.
+- YACAL (YAML) as output rather than JACAL (JSON) — aligns with the existing validator work; the same mapping dict could trivially be serialised as JSON if JACAL is needed later.
+- Both XACML 3.0 and 4.0 handled in a single converter class, version-dispatched from the XML namespace.
+
+**What was built (`xacml-converter/`):**
+- `_identifiers.py` — regex-based remapping of XACML URNs / XSD type URIs to ACAL 1.0 URNs; safe to call on already-ACAL identifiers (passes through unchanged)
+- `converter.py` — core `_Converter` class; version-aware element walking; converts PolicySet → nested Policy, AnyOf/AllOf/Match → Apply boolean trees, ObligationExpression/AdviceExpression → NoticeExpression, RuleId → Id, AttributeValue → Value; DataType omitted when it's the ACAL default (string)
+- `cli.py` — `xacml-convert FILE [-o OUTPUT] [--validate]`; `--validate` calls yacal-validator if installed
+- `__main__.py` — `python -m xacml_converter` support
+- `xacml-convert` wrapper script at project root for convenient invocation with relative `tests/` paths
+- 4 XACML fixture files (3 XACML 3.0, 1 XACML 4.0), 4 expected YACAL outputs, 54-test pytest suite
+
+**54 tests pass, 0 skipped.**
+
+---
 
 ### June 16, 2026 — Full catalog coverage: 88 tests, 0 skipped; YAML conformance; schema shape fixes
 
@@ -244,7 +278,9 @@ Both supplementary checks increment `constraints_total`/`constraints_evaluated` 
 ## Open Items
 
 - ~~**Phase 2**: Add `--include FILE` CLI flag~~ ✓ Done
-- Create `jacal-validator` branch from `main` (next milestone after Phase 2)
+- ~~`yacal-validator` merged to main via PR #3~~ ✓ Done
+- **Submit `xacml-to-yacal` branch as a PR** for independent review
+- Create `jacal-validator` branch from `main` (next milestone)
 - Delete `acal-validator` branch once `jacal-validator` is verified
 - Populate root `README.md` with project description and tool index
 - File upstream bugs against the spec repo:

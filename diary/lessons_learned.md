@@ -42,6 +42,14 @@ Cross-references use (→ slug-name) notation.
 
 ---
 
+## xml-parsing-vs-xml-schema-validation (June 2026)
+
+**Rule:** Do not conflate "Python can't validate XML against XSD 1.1" with "Python can't parse XACML XML." They are completely separate operations. Use Python's stdlib for conversion; reserve the Saxon/Java discussion for validation.
+
+**Why:** The yacal-validator work established that Saxon EE (commercial) is required for XSD 1.1 schema validation, and `saxonche` (HE) cannot do it. When designing the XACML converter, this memory made Java/XSLT seem necessary — but it isn't. A converter parses XML element trees; it does not validate input against an XSD. `xml.etree.ElementTree` handles any well-formed XACML document, any namespace, any version, with zero licensing risk. The false generalisation "Python can't do XACML" would have added a Java runtime dependency to an otherwise pure-Python project. (→ xacml-converter-pure-python)
+
+---
+
 ## yacal-profile-and-statusdetail-hooks-need-local-normalization (June 2026)
 
 **Rule:** Treat the upstream YACAL structural schemas as close to normative intent, not as perfectly executable artifacts. Before relying on profile selectors, defaults arrays, `StatusDetail`, or exact-match ID references, normalize the schema locally in `validator.py`.
