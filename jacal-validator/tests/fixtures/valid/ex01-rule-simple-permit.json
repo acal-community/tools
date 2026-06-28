@@ -1,0 +1,15 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:simple-permit",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "permit-all",
+          "Effect": "Permit"
+        }
+      }
+    ]
+  }
+}

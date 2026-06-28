@@ -1,0 +1,13 @@
+{
+  "Response": {
+    "Result": [
+      {
+        "Decision": "Permit",
+        "ApplicablePolicyReference": [
+          {"Id": "urn:example:policy:main", "Version": "1.0"},
+          {"Id": "urn:example:policy:main", "Version": "1.0"}
+        ]
+      }
+    ]
+  }
+}

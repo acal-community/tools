@@ -1,0 +1,45 @@
+{
+  "Bundle": {
+    "ShortIdSet": [
+      {
+        "Id": "urn:example:ids:set-a",
+        "ShortIdSetReference": [
+          "urn:example:ids:set-b",
+          "urn:example:ids:set-c"
+        ],
+        "ShortId": [
+          {"Name": "permit", "Value": "urn:oasis:names:tc:acal:1.0:status:ok"}
+        ]
+      },
+      {
+        "Id": "urn:example:ids:set-b",
+        "ShortIdSetReference": ["urn:example:ids:set-d"],
+        "ShortId": [
+          {"Name": "deny", "Value": "urn:oasis:names:tc:acal:1.0:status:deny"}
+        ]
+      },
+      {
+        "Id": "urn:example:ids:set-c",
+        "ShortIdSetReference": ["urn:example:ids:set-d"],
+        "ShortId": [
+          {"Name": "na", "Value": "urn:oasis:names:tc:acal:1.0:status:not-applicable"}
+        ]
+      },
+      {
+        "Id": "urn:example:ids:set-d",
+        "ShortId": [
+          {"Name": "indet", "Value": "urn:oasis:names:tc:acal:1.0:status:indeterminate"}
+        ]
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:diamond",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+      }
+    ],
+    "PolicyReference": {"Id": "urn:example:policy:diamond", "Version": "1.0"}
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "Response": {
+    "Result": [
+      {
+        "Decision": "Permit",
+        "ResultEntity": [
+          {
+            "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+            "Attribute": [
+              {
+                "AttributeId": "urn:example:role",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["clinician"],
+                "IncludeInResult": true
+              }
+            ]
+          },
+          {
+            "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+            "Attribute": [
+              {
+                "AttributeId": "urn:example:department",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["cardiology"],
+                "IncludeInResult": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

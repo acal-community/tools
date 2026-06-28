@@ -1,0 +1,25 @@
+{
+  "Bundle": {
+    "SharedVariableDefinition": [
+      {
+        "Id": "urn:example:shared:is-weekend",
+        "Version": "1.0",
+        "Expression": {"Value": true}
+      },
+      {
+        "Id": "urn:example:shared:is-weekend",
+        "Version": "2.0",
+        "Expression": {"Value": false}
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:p1",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+      }
+    ],
+    "PolicyReference": {"Id": "urn:example:policy:p1"}
+  }
+}

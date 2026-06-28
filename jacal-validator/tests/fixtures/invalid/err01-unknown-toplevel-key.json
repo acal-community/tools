@@ -1,0 +1,7 @@
+{
+  "PolicySet": {
+    "PolicySetId": "urn:example:policyset:removed",
+    "Version": "1.0",
+    "PolicyCombiningAlgId": "urn:oasis:names:tc:xacml:1.0:policy-combining-algorithm:deny-overrides"
+  }
+}

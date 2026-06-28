@@ -1,0 +1,18 @@
+{
+  "Response": {
+    "Result": [
+      {
+        "Decision": "Indeterminate",
+        "Status": {
+          "StatusCode": {
+            "Value": "urn:oasis:names:tc:acal:1.0:status:syntax-error"
+          },
+          "StatusMessage": "Unexpected token in policy.",
+          "StatusDetail": {
+            "ParseError": "line 42"
+          }
+        }
+      }
+    ]
+  }
+}

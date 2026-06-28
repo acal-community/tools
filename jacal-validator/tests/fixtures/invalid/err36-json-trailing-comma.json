@@ -1,0 +1,8 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:trailing-comma",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}],
+  }
+}

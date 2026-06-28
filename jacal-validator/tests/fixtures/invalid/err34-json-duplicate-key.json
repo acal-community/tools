@@ -1,0 +1,1 @@
+{"Policy": {"PolicyId": "urn:example:policy:dup-key", "Version": "1.0", "PolicyId": "urn:example:policy:dup-key", "CombiningAlgId": "{deny-unless-permit}", "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]}}

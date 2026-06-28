@@ -1,0 +1,39 @@
+{
+  "Request": {
+    "RequestEntity": [
+      {
+        "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+        "Id": "subject-one",
+        "RequestAttribute": [
+          {
+            "AttributeId": "urn:example:role",
+            "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+            "Value": ["clinician"]
+          }
+        ]
+      },
+      {
+        "Category": "urn:oasis:names:tc:acal:1.0:attribute-category:action",
+        "Id": "action-one",
+        "RequestAttribute": [
+          {
+            "AttributeId": "urn:oasis:names:tc:acal:1.0:action:action-id",
+            "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+            "Value": ["read"]
+          }
+        ]
+      }
+    ],
+    "MultiRequests": {
+      "RequestReference": [
+        {
+          "RequestEntityReference": [
+            {"Id": "subject-one"},
+            {"Id": "subject-one"},
+            {"Id": "action-one"}
+          ]
+        }
+      ]
+    }
+  }
+}

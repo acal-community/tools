@@ -1,0 +1,19 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:param-datatype-mismatch",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "Parameter": [
+      {
+        "Name": "max-count",
+        "DataType": "{string}",
+        "Expression": {
+          "Value": {"DataType": "{integer}", "Value": 10}
+        }
+      }
+    ],
+    "CombinerInput": [
+      {"Rule": {"Id": "r1", "Effect": "Permit"}}
+    ]
+  }
+}

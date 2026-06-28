@@ -1,0 +1,31 @@
+{
+  "Bundle": {
+    "SharedVariableDefinition": [
+      {
+        "Id": "urn:example:shared:uses-local-var",
+        "Version": "1.0",
+        "Expression": {
+          "Apply": {
+            "FunctionId": "{boolean-one-and-only}",
+            "Argument": [
+              {
+                "VariableReference": {
+                  "VariableId": "some-local-variable"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:p1",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+      }
+    ],
+    "PolicyReference": {"Id": "urn:example:policy:p1"}
+  }
+}

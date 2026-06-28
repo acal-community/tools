@@ -1,0 +1,22 @@
+{
+  "Bundle": {
+    "ShortIdSet": [
+      {
+        "Id": "urn:example:ids:test",
+        "ShortId": [
+          {"Name": "permit", "Value": "urn:oasis:names:tc:acal:1.0:status:ok"},
+          {"Name": "permit", "Value": "urn:example:duplicate:permit"}
+        ]
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:p1",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+      }
+    ],
+    "PolicyReference": {"Id": "urn:example:policy:p1"}
+  }
+}

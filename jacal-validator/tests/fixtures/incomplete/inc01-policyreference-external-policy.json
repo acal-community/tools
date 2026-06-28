@@ -1,0 +1,17 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:local",
+    "Version": "1.0",
+    "CombiningAlgId": "{deny-unless-permit}",
+    "CombinerInput": [
+      {
+        "PolicyReference": {
+          "Id": "urn:example:policy:external",
+          "Argument": [
+            {"Value": "some-argument-value"}
+          ]
+        }
+      }
+    ]
+  }
+}

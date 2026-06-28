@@ -1,0 +1,27 @@
+{
+  "Request": {
+    "RequestEntity": [
+      {
+        "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+        "Id": "subject-one",
+        "RequestAttribute": [
+          {
+            "AttributeId": "urn:example:role",
+            "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+            "Value": ["clinician"]
+          }
+        ]
+      }
+    ],
+    "MultiRequests": {
+      "RequestReference": [
+        {
+          "RequestEntityReference": [
+            {"Id": "subject-one"},
+            {"Id": "nonexistent-entity"}
+          ]
+        }
+      ]
+    }
+  }
+}

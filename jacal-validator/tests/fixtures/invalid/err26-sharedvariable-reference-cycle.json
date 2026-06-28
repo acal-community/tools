@@ -1,0 +1,47 @@
+{
+  "Bundle": {
+    "SharedVariableDefinition": [
+      {
+        "Id": "urn:example:shared:var-a",
+        "Version": "1.0",
+        "Expression": {
+          "Apply": {
+            "FunctionId": "{string-one-and-only}",
+            "Argument": [
+              {
+                "SharedVariableReference": {
+                  "Id": "urn:example:shared:var-b"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "Id": "urn:example:shared:var-b",
+        "Version": "1.0",
+        "Expression": {
+          "Apply": {
+            "FunctionId": "{string-one-and-only}",
+            "Argument": [
+              {
+                "SharedVariableReference": {
+                  "Id": "urn:example:shared:var-a"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:p1",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+      }
+    ],
+    "PolicyReference": {"Id": "urn:example:policy:p1"}
+  }
+}

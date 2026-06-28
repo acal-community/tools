@@ -1,0 +1,68 @@
+{
+  "Response": {
+    "Result": [
+      {
+        "Decision": "Permit",
+        "Status": {
+          "StatusCode": {
+            "Value": "urn:oasis:names:tc:acal:1.0:status:ok"
+          }
+        },
+        "Notice": [
+          {
+            "Id": "urn:example:obligation:log-access",
+            "IsObligation": true,
+            "AttributeAssignment": [
+              {
+                "AttributeId": "urn:example:log:action",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["read"]
+              },
+              {
+                "AttributeId": "urn:example:log:resource",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["patient-record-42"]
+              }
+            ]
+          },
+          {
+            "Id": "urn:example:advice:audit-trail",
+            "IsObligation": false
+          }
+        ],
+        "ResultEntity": [
+          {
+            "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+            "Attribute": [
+              {
+                "AttributeId": "urn:example:subject:role",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["doctor"]
+              }
+            ]
+          },
+          {
+            "Category": "urn:oasis:names:tc:acal:1.0:attribute-category:resource",
+            "Attribute": [
+              {
+                "AttributeId": "urn:example:resource:type",
+                "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+                "Value": ["medical-record"]
+              }
+            ]
+          }
+        ],
+        "ApplicablePolicyReference": [
+          {
+            "Id": "urn:example:policy:admit-physician",
+            "Version": "1.0"
+          },
+          {
+            "Id": "urn:example:policy:data-access",
+            "Version": "2.1"
+          }
+        ]
+      }
+    ]
+  }
+}

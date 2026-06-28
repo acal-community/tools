@@ -1,0 +1,46 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:dual-profile",
+    "Version": "1.0",
+    "CombiningAlgId": "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
+    "PolicyDefaults": {
+      "XPathPolicyDefaults": {
+        "XPathVersion": "urn:example:xpath:1.0",
+        "Namespace": [
+          {"Prefix": "med", "Name": "urn:example:jacal:medical"}
+        ]
+      }
+    },
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "xpath-ward-check",
+          "Effect": "Permit",
+          "Condition": {
+            "XPathAttributeSelector": {
+              "Category": "urn:oasis:names:tc:acal:1.0:attribute-category:resource",
+              "Path": "/med:record/@ward",
+              "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+              "ContextSelectorId": "urn:example:jacal:selector:resource-content",
+              "MustBePresent": false
+            }
+          }
+        }
+      },
+      {
+        "Rule": {
+          "Id": "jsonpath-type-check",
+          "Effect": "Permit",
+          "Condition": {
+            "JSONPathAttributeSelector": {
+              "Category": "urn:oasis:names:tc:acal:1.0:attribute-category:resource",
+              "Path": "$.document.classification",
+              "DataType": "urn:oasis:names:tc:acal:1.0:data-type:string",
+              "MustBePresent": false
+            }
+          }
+        }
+      }
+    ]
+  }
+}

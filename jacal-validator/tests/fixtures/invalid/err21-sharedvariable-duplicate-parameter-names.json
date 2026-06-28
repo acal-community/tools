@@ -1,0 +1,24 @@
+{
+  "Bundle": {
+    "SharedVariableDefinition": [
+      {
+        "Id": "urn:example:shared:dup-params",
+        "Version": "1.0",
+        "Parameter": [
+          {"Name": "threshold", "DataType": "{integer}"},
+          {"Name": "threshold", "DataType": "{string}"}
+        ],
+        "Expression": {"Value": true}
+      }
+    ],
+    "Policy": [
+      {
+        "PolicyId": "urn:example:policy:p1",
+        "Version": "1.0",
+        "CombiningAlgId": "{deny-unless-permit}",
+        "CombinerInput": [{"Rule": {"Id": "r1", "Effect": "Permit"}}]
+      }
+    ],
+    "PolicyReference": {"Id": "urn:example:policy:p1"}
+  }
+}

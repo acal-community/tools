@@ -1,0 +1,15 @@
+{
+  "Response": {
+    "Result": [
+      {
+        "Decision": "Permit",
+        "Status": {
+          "StatusCode": {
+            "Value": "urn:oasis:names:tc:acal:1.0:status:ok"
+          },
+          "StatusDetail": {"ExtraInfo": "should-not-be-here"}
+        }
+      }
+    ]
+  }
+}
