@@ -8,6 +8,22 @@ Most recent decisions at top. No archiving.
 
 ---
 
+## xacml-converter-yacal-target (June 2026)
+
+The `xacml-converter` targets YACAL (YAML) output, not JACAL (JSON), even though Issue #2 specifically requested JACAL.
+
+**Why:** YACAL aligns with the `yacal-validator` tool already in the repo, giving users an immediate validate-after-convert workflow. The internal representation is a Python dict; serialising to JSON instead of YAML is a one-line change if JACAL output is needed later, so there is no technical cost to this choice.
+
+---
+
+## xacml-converter-pure-python (June 2026)
+
+The XACML → YACAL converter is implemented in pure Python using `xml.etree.ElementTree` (stdlib), with no XSLT, no Java, and no Saxon dependency.
+
+**Why:** The issue author (Cyril Dangerville) suggested XSLT because XACML is XML. The prior lesson about Saxon EE licensing made Java/XSLT seem necessary, but that concern only applies to XML *schema validation* (checking input against XSD 1.1). A *converter* only needs to *parse* XML elements and attributes, which Python's stdlib handles for any well-formed XML regardless of version. Pure Python keeps the tool in the same ecosystem as `yacal-validator`, enabling direct pipeline integration (`--validate` flag calls yacal-validator after conversion), and eliminates a Java runtime dependency. (→ saxon-he-schema-not-licensed)
+
+---
+
 ## one-test-path-per-yacal-rule-family (June 2026)
 
 The `yacal-validator` suite intentionally maintains at least one deliberate test path for every current YACAL constraint-catalog rule, plus explicit coverage of YAML-specific conformance rules and every supported root document form.

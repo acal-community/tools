@@ -1,0 +1,27 @@
+Policy:
+  PolicyId: urn:example:policy:simple-permit
+  Version: '1.0'
+  CombiningAlgId: urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit
+  Description: A doctor may read any resource.
+  Target:
+    Apply:
+      FunctionId: urn:oasis:names:tc:acal:1.0:function:string-equal
+      Argument:
+        - Value: read
+        - AttributeDesignator:
+            Category: urn:oasis:names:tc:acal:1.0:attribute-category:action
+            AttributeId: urn:oasis:names:tc:acal:1.0:action:action-id
+  CombinerInput:
+    - Rule:
+        Id: rule-doctor-permit
+        Effect: Permit
+        Description: Doctors may read.
+        Condition:
+          Apply:
+            FunctionId: urn:oasis:names:tc:acal:1.0:function:string-is-in
+            Argument:
+              - Value: doctor
+              - AttributeDesignator:
+                  Category: urn:oasis:names:tc:acal:1.0:subject-category:access-subject
+                  AttributeId: urn:oasis:names:tc:acal:1.0:subject:subject-id
+                  MustBePresent: true

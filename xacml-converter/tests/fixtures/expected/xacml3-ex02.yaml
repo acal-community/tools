@@ -1,0 +1,27 @@
+Policy:
+  PolicyId: urn:example:policy:with-notices
+  Version: '1.0'
+  CombiningAlgId: urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit
+  CombinerInput:
+    - Rule:
+        Id: rule-permit-doctors
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: urn:oasis:names:tc:acal:1.0:function:string-is-in
+            Argument:
+              - Value: doctor
+              - AttributeDesignator:
+                  Category: urn:oasis:names:tc:acal:1.0:subject-category:access-subject
+                  AttributeId: urn:oasis:names:tc:acal:1.0:subject:subject-id
+                  MustBePresent: true
+  NoticeExpression:
+    - Id: urn:example:obligation:log-access
+      IsObligation: true
+      AppliesTo: Permit
+      AttributeAssignmentExpression:
+        - AttributeId: urn:example:attribute:log-message
+          Expression:
+            Value: Access granted
+    - Id: urn:example:advice:audit
+      AppliesTo: Permit
