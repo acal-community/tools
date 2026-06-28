@@ -1,0 +1,4 @@
+ShortIdSet:
+  Id: "urn:example:yacal:ids:self-cycle"
+  ShortIdSetReference:
+    - "urn:example:yacal:ids:self-cycle"

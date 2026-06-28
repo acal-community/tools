@@ -1,0 +1,45 @@
+# ACAL Adoption Guide Example 4: NoticeExpression (Obligations and Advice)
+# The adoption guide shows this Rule standalone for illustration.
+# Wrapped in a minimal Policy for validation (Rule is not a valid YACAL top-level document form).
+Policy:
+  PolicyId: "urn:example:guide:ex04"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: rule-physician-write
+        Effect: Permit
+        Description: >-
+          A physician may write to a patient chart, with patient notification.
+        Condition:
+          Apply:
+            FunctionId: "{and}"
+            Argument:
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: physician
+                    - AttributeDesignator:
+                        Category: "{access-subject}"
+                        AttributeId: "{role}"
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: write
+                    - AttributeDesignator:
+                        Category: "{action}"
+                        AttributeId: "{action-id}"
+        NoticeExpression:
+          - Id: "urn:example:notice:notify-patient"
+            AppliesTo: Permit
+            IsObligation: true
+            AttributeAssignmentExpression:
+              - AttributeId: "urn:example:notice:mailto"
+                Expression:
+                  AttributeDesignator:
+                    Category: "{resource}"
+                    AttributeId: "{patient-email}"
+                    MustBePresent: true
+              - AttributeId: "urn:example:notice:message"
+                Expression:
+                  Value: Your medical chart was updated by your physician.

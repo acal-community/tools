@@ -1,0 +1,10 @@
+Bundle:
+  SharedVariableDefinition:
+    - Id: "urn:example:yacal:shared:duplicate"
+      Version: "1.0"
+      Expression:
+        Value: true
+    - Id: "urn:example:yacal:shared:duplicate"
+      Version: "1.0"
+      Expression:
+        Value: false

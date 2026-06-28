@@ -1,0 +1,7 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:merged"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        <<: {Id: permit-merged, Effect: Permit}

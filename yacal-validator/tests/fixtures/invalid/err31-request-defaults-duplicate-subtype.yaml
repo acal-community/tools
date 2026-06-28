@@ -1,0 +1,8 @@
+Request:
+  RequestDefaults:
+    - XPathRequestDefaults:
+        XPathVersion: "urn:example:xpath:1.0"
+    - XPathRequestDefaults:
+        XPathVersion: "urn:example:xpath:2.0"
+  RequestEntity:
+    - Category: "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"

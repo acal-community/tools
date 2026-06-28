@@ -1,0 +1,16 @@
+Bundle:
+  ShortIdSet:
+    - Id: "urn:example:yacal:ids:a"
+      ShortIdSetReference:
+        - "urn:example:yacal:ids:b"
+        - "urn:example:yacal:ids:c"
+    - Id: "urn:example:yacal:ids:b"
+      ShortIdSetReference:
+        - "urn:example:yacal:ids:d"
+    - Id: "urn:example:yacal:ids:c"
+      ShortIdSetReference:
+        - "urn:example:yacal:ids:d"
+    - Id: "urn:example:yacal:ids:d"
+      ShortId:
+        - Name: role
+          Value: "urn:example:yacal:subject:role"

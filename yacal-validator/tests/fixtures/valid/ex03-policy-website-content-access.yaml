@@ -1,0 +1,107 @@
+# ACAL Adoption Guide Example 3: A Policy with Multiple Rules and a Combining Algorithm
+Policy:
+  PolicyId: "urn:example:policy:website-content-access"
+  Version: "1.0"
+  Description: >-
+    Permit view access to website pages by content tier and account type.
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: PermitPublicContentView
+        Description: Any user may view public content.
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{and}"
+            Argument:
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: view
+                    - AttributeDesignator:
+                        Category: "{action}"
+                        AttributeId: "{action-id}"
+                        MustBePresent: true
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: public
+                    - AttributeDesignator:
+                        Category: "{resource}"
+                        AttributeId: "{content-tier}"
+                        MustBePresent: true
+    - Rule:
+        Id: PermitRegisteredContentView
+        Description: Registered and premium users may view registered content.
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{and}"
+            Argument:
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: view
+                    - AttributeDesignator:
+                        Category: "{action}"
+                        AttributeId: "{action-id}"
+                        MustBePresent: true
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: registered
+                    - AttributeDesignator:
+                        Category: "{resource}"
+                        AttributeId: "{content-tier}"
+                        MustBePresent: true
+              - Apply:
+                  FunctionId: "{or}"
+                  Argument:
+                    - Apply:
+                        FunctionId: "{string-is-in}"
+                        Argument:
+                          - Value: registered
+                          - AttributeDesignator:
+                              Category: "{access-subject}"
+                              AttributeId: "{account-type}"
+                              MustBePresent: true
+                    - Apply:
+                        FunctionId: "{string-is-in}"
+                        Argument:
+                          - Value: premium
+                          - AttributeDesignator:
+                              Category: "{access-subject}"
+                              AttributeId: "{account-type}"
+                              MustBePresent: true
+    - Rule:
+        Id: PermitPremiumContentView
+        Description: Only premium users may view premium content.
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{and}"
+            Argument:
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: view
+                    - AttributeDesignator:
+                        Category: "{action}"
+                        AttributeId: "{action-id}"
+                        MustBePresent: true
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: premium
+                    - AttributeDesignator:
+                        Category: "{resource}"
+                        AttributeId: "{content-tier}"
+                        MustBePresent: true
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: premium
+                    - AttributeDesignator:
+                        Category: "{access-subject}"
+                        AttributeId: "{account-type}"
+                        MustBePresent: true

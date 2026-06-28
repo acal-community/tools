@@ -1,0 +1,7 @@
+Bundle:
+  SharedVariableDefinition:
+    - Id: "urn:example:yacal:shared:uses-local-variable"
+      Version: "1.0"
+      Expression:
+        VariableReference:
+          VariableId: current_timezone

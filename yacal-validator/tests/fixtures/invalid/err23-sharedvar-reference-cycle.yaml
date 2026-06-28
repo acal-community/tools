@@ -1,0 +1,12 @@
+Bundle:
+  SharedVariableDefinition:
+    - Id: "urn:example:yacal:shared:first"
+      Version: "1.0"
+      Expression:
+        SharedVariableReference:
+          Id: "urn:example:yacal:shared:second"
+    - Id: "urn:example:yacal:shared:second"
+      Version: "1.0"
+      Expression:
+        SharedVariableReference:
+          Id: "urn:example:yacal:shared:first"

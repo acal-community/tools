@@ -1,0 +1,6 @@
+Response:
+  Result:
+    - Decision: Permit
+      Notice:
+        - Id: "urn:example:yacal:notice:log"
+        - Id: "urn:example:yacal:notice:log"

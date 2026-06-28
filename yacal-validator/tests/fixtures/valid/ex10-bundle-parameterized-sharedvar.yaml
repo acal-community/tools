@@ -1,0 +1,66 @@
+# VALID FIXTURE: Bundle with a parameterized SharedVariableDefinition
+# Exercises Phase 1 within-document resolution for:
+#   sharedvariablereference-argument-datatype-agreement (catalog)
+#   policyreference-argument-datatype-agreement (catalog)
+# The SharedVariableReference passes a positional Value argument whose DataType
+# matches the declared parameter DataType — must pass with 0 skipped constraints.
+Bundle:
+  SharedVariableDefinition:
+    - Id: "urn:example:shared:business-hours-tz"
+      Version: "1.0"
+      Description: "True when current time is between 09:00 and 17:00 (timezone-aware)."
+      Parameter:
+        - Name: timezone
+          DataType: "{string}"
+      Expression:
+        Apply:
+          FunctionId: "{and}"
+          Argument:
+            - Apply:
+                FunctionId: "{integer-greater-than-or-equal}"
+                Argument:
+                  - Apply:
+                      FunctionId: "{time-hour-from-time}"
+                      Argument:
+                        - Apply:
+                            FunctionId: "{time-one-and-only}"
+                            Argument:
+                              - AttributeDesignator:
+                                  Category: "{environment}"
+                                  AttributeId: "{current-time}"
+                                  MustBePresent: true
+                  - Value: 9
+            - Apply:
+                FunctionId: "{integer-less-than}"
+                Argument:
+                  - Apply:
+                      FunctionId: "{time-hour-from-time}"
+                      Argument:
+                        - Apply:
+                            FunctionId: "{time-one-and-only}"
+                            Argument:
+                              - AttributeDesignator:
+                                  Category: "{environment}"
+                                  AttributeId: "{current-time}"
+                                  MustBePresent: true
+                  - Value: 17
+
+  Policy:
+    - PolicyId: "urn:example:policy:office-access-tz"
+      Version: "1.0"
+      CombiningAlgId: "{deny-unless-permit}"
+      CombinerInput:
+        - Rule:
+            Id: PermitDuringBusinessHours
+            Effect: Permit
+            Condition:
+              SharedVariableReference:
+                Id: "urn:example:shared:business-hours-tz"
+                Argument:
+                  - Value:
+                      DataType: "{string}"
+                      Value: "America/New_York"
+
+  PolicyReference:
+    Id: "urn:example:policy:office-access-tz"
+    Version: "1.0"

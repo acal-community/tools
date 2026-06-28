@@ -1,0 +1,15 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:duplicate-rule-variables"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: duplicate_rule_vars
+        Effect: Permit
+        VariableDefinition:
+          - VariableId: current_role
+            Expression:
+              Value: doctor
+          - VariableId: current_role
+            Expression:
+              Value: nurse

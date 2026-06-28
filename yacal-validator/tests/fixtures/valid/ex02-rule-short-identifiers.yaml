@@ -1,0 +1,30 @@
+# ACAL Adoption Guide Example 2: Short Identifiers
+# Example 1 repeated using short identifier notation.
+# Wrapped in a minimal Policy for validation (Rule is not a valid YACAL top-level document form).
+Policy:
+  PolicyId: "urn:example:guide:ex02"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: rule-doctor-read
+        Effect: Permit
+        Description: A doctor may read any resource.
+        Condition:
+          Apply:
+            FunctionId: "{and}"
+            Argument:
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: doctor
+                    - AttributeDesignator:
+                        Category: "{access-subject}"
+                        AttributeId: "{role}"
+              - Apply:
+                  FunctionId: "{string-is-in}"
+                  Argument:
+                    - Value: read
+                    - AttributeDesignator:
+                        Category: "{action}"
+                        AttributeId: "{action-id}"

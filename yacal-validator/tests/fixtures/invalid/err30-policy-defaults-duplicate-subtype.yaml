@@ -1,0 +1,9 @@
+Policy:
+  PolicyId: "urn:example:yacal:policy:duplicate-defaults"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  PolicyDefaults:
+    - XPathPolicyDefaults:
+        XPathVersion: "urn:example:xpath:1.0"
+    - XPathPolicyDefaults:
+        XPathVersion: "urn:example:xpath:2.0"

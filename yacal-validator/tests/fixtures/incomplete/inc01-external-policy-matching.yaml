@@ -1,0 +1,14 @@
+# PHASE 2 FIXTURE: External Policy with Parameter.DataType={string}.
+# Matches the Argument.DataType={string} in inc01-policy-external-policy-ref.yaml.
+# Providing this via --include produces exit 0 with 38/38 evaluated.
+Policy:
+  PolicyId: "urn:example:policy:external-with-params"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  Parameter:
+    - Name: role
+      DataType: "{string}"
+  CombinerInput:
+    - Rule:
+        Id: permit-all
+        Effect: Permit
