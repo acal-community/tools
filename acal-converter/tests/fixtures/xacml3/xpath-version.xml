@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Policy xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
+        PolicyId="urn:example:acal-convert:xacml3:xpath-ver"
+        Version="1.0"
+        RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-unless-permit">
+  <PolicyDefaults>
+    <XPathVersion>http://www.w3.org/TR/1999/REC-xpath-19991116</XPathVersion>
+  </PolicyDefaults>
+  <Target/>
+  <Rule RuleId="permit-all" Effect="Permit"/>
+</Policy>

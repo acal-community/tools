@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Policy xmlns="urn:oasis:names:tc:xacml:2.0:core:schema:os"
+        PolicyId="urn:example:acal-convert:xacml2:simple"
+        Version="1.0"
+        RuleCombiningAlgId="urn:oasis:names:tc:xacml:1.0:rule-combining-algorithm:deny-overrides">
+  <Target>
+    <Subjects>
+      <Subject>
+        <SubjectMatch MatchId="urn:oasis:names:tc:xacml:1.0:function:string-equal">
+          <AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string">doctor</AttributeValue>
+          <SubjectAttributeDesignator AttributeId="urn:example:attribute:role"
+                                      DataType="http://www.w3.org/2001/XMLSchema#string"/>
+        </SubjectMatch>
+      </Subject>
+    </Subjects>
+  </Target>
+  <Rule RuleId="permit-doctors" Effect="Permit">
+    <Condition FunctionId="urn:oasis:names:tc:xacml:1.0:function:string-equal">
+      <AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string">read</AttributeValue>
+      <ActionAttributeDesignator AttributeId="urn:oasis:names:tc:xacml:1.0:action:action-id"
+                                  DataType="http://www.w3.org/2001/XMLSchema#string"/>
+    </Condition>
+  </Rule>
+  <Obligations>
+    <Obligation ObligationId="urn:example:obligation:log" FulfillOn="Permit">
+      <AttributeAssignment AttributeId="urn:example:attribute:decision"
+                            DataType="http://www.w3.org/2001/XMLSchema#string">permitted</AttributeAssignment>
+    </Obligation>
+  </Obligations>
+</Policy>
