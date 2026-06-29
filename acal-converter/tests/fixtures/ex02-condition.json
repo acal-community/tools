@@ -1,0 +1,55 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:acal-convert:ex02",
+    "Version": "1.0",
+    "CombiningAlgId": "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "rule-doctor-read",
+          "Effect": "Permit",
+          "Description": "A doctor may read any resource.",
+          "Condition": {
+            "Apply": {
+              "FunctionId": "urn:oasis:names:tc:acal:1.0:function:and",
+              "Argument": [
+                {
+                  "Apply": {
+                    "FunctionId": "urn:oasis:names:tc:acal:1.0:function:string-is-in",
+                    "Argument": [
+                      {
+                        "Value": "doctor"
+                      },
+                      {
+                        "AttributeDesignator": {
+                          "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+                          "AttributeId": "urn:example:attribute:role"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "Apply": {
+                    "FunctionId": "urn:oasis:names:tc:acal:1.0:function:string-is-in",
+                    "Argument": [
+                      {
+                        "Value": "read"
+                      },
+                      {
+                        "AttributeDesignator": {
+                          "Category": "urn:oasis:names:tc:acal:1.0:attribute-category:action",
+                          "AttributeId": "urn:oasis:names:tc:acal:1.0:action:action-id"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

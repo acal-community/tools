@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fixture: a Policy whose Rule Condition contains an element tag that
+     acal-convert does not recognise.  This must raise XACMLUnsupportedFeatureError. -->
+<Policy xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
+        PolicyId="urn:example:acal-convert:xacml3:unknown-expr"
+        Version="1.0"
+        RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-overrides">
+  <Target/>
+  <Rule RuleId="r1" Effect="Permit">
+    <Condition>
+      <!-- UnknownFuturElement is not a recognised XACML expression element -->
+      <UnknownFutureElement xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
+                            SomeAttr="value"/>
+    </Condition>
+  </Rule>
+</Policy>
