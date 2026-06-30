@@ -1,0 +1,10 @@
+namespace com.example {
+    import com.example
+
+    policy ShorthandPolicy apply firstApplicable {
+        rule AllowEditors {
+            permit
+            condition user == "editor" && resourceType == "document"
+        }
+    }
+}

@@ -1,5 +1,85 @@
 # Architectural Decisions
 
+## alfa-policyset-as-policy (June 2026)
+
+A `policyset_decl` that appears at the namespace level is surfaced in the ACAL neutral dict as a `"Policy"` key, not a `"PolicySet"` key.
+
+**WHY**: The neutral dict top-level schema only has `{"Policy": ...}` and `{"Bundle": {"Policy": [...]}}` forms. A `policyset` in ALFA is structurally equivalent to a `policy` in ACAL — both have `PolicyId`, `CombiningAlgId`, `Target`, and `CombinerInput`. Emitting a `"PolicySet"` wrapper that no writer or downstream consumer handles would cause silent data loss. The writers (YACAL, JACAL) treat the neutral dict as pass-through, so the key name matters at the output level, not the ALFA source level.
+
+---
+
+## alfa-system-decl-discard (June 2026)
+
+System.alfa-style declarations (`ruleCombinator`, `policyCombinator`, `type`, `category`, `function`, `infix`) are parsed by the grammar and silently discarded by the transformer — they are not collected into the symbol table.
+
+**WHY**: These declarations are PDP runtime configuration (mapping short names to XACML URNs for combining algorithms, types, and operators). They have no ACAL equivalent — ACAL uses fixed combining algorithm URNs and does not need type or operator declarations. The grammar must accept them so `system.alfa` can be passed as an `--include` file without parse errors; the transformer discards them because they contribute nothing to the ACAL output. The `infix` body grammar uses `INFIX_BODY: /[^}]+/` (a single regex terminal matching everything except `}`) to avoid writing a full type-signature sub-grammar that will never be used.
+
+---
+
+## alfa-target-clause-keyword (June 2026)
+
+The `target_clause` rule accepts an optional `_CLAUSE_KW` ("clause") after the `target` keyword, matching the full Axiomatics ALFA syntax `target clause <expr>`.
+
+**WHY**: Axiomatics ALFA consistently uses `target clause <expr>`. The ALFA spec grammar uses the two-word form. Our synthetic test fixtures were written without `clause` and happened to work (because `clause` was parsed as a DOTTED_ID attr_path, leaving the expression to follow — which happened to parse correctly for simple fixtures). Real-world policy files expose the gap immediately. Adding `_CLAUSE_KW?` preserves backward compatibility with either form.
+
+---
+
+## alfa-apply-in-body (June 2026)
+
+The `applying_kw` alternative is allowed both before `{` (ACAL convention) and inside `policy_body` / `policyset_body` (Axiomatics convention). The transformer checks for `str` items in the body list when no combining algorithm was provided in the pre-body position.
+
+**WHY**: Axiomatics ALFA consistently puts `apply <algo>` inside the braces alongside `target clause` and rules. ACAL synthetic fixtures used the pre-brace form. Neither form is wrong — the ALFA spec is ambiguous on this point. Supporting both means the converter accepts real-world files without preprocessing.
+
+---
+
+## alfa-keyword-exclusion-in-dotted-id (June 2026)
+
+The ALFA grammar excludes all ALFA reserved words from matching the `DOTTED_ID` terminal via a negative lookahead regex, rather than relying on terminal priority to resolve the ambiguity.
+
+**WHY**: Lark's earley parser with `ambiguity="resolve"` picks the first valid alternative in a rule regardless of terminal priority. When `func_call: DOTTED_ID "("` appeared before `var_ref: VAR_REF_KW "("` in the `primary_expr` alternation, `variable(name)` was always parsed as a `func_call` (with `variable` tokenized as DOTTED_ID), because earley explores all options and then picks by order, not by specificity. Preventing DOTTED_ID from ever matching reserved words makes the grammar unambiguous by construction rather than by resolution policy. The pattern is: `DOTTED_ID: /(?!(namespace|policy|...|variable)[^a-zA-Z0-9_])[a-zA-Z_].../`.
+
+---
+
+## lark-keyword-discard-prefix (June 2026)
+
+All ALFA grammar keyword terminals whose string value is not needed by the transformer use the `_` prefix (e.g., `_POLICY_KW`, `_CONDITION_KW`) so Lark auto-discards them from the transformer's item lists.
+
+**WHY**: Without `_` prefix, Lark includes named keyword terminals as `Token` objects in the children list passed to each transformer method. This makes position-based access to actual content unreliable — `policy_decl` receives `[Token('_POLICY_KW','policy'), Token('IDENTIFIER','DocAccess'), ...]` instead of `[Token('IDENTIFIER','DocAccess'), ...]`. Every method needs to filter or skip tokens, which is error-prone and verbose. The `_` prefix is idiomatic Lark for "structural glue — don't pass to transformer." Value-carrying terminals that the transformer needs (PERMIT_KW, DENY_KW, CMP_OP, etc.) keep their names.
+
+---
+
+## alfa-separate-error-types (June 2026)
+
+The ALFA reader defines two distinct exception classes: `ALFASyntaxError(ValueError)` for parse failures and `ALFAUnsupportedFeatureError(ValueError)` for semantic conversion failures. Both inherit `ValueError`, matching `XACMLUnsupportedFeatureError`.
+
+**WHY**: Callers need to distinguish "this file is not valid ALFA syntax" (user supplied wrong input) from "this ALFA construct has no ACAL equivalent" (language gap, user needs to redesign). These require different user actions and different error messages. Inheriting `ValueError` rather than stdlib `SyntaxError` keeps the exceptions in application-error territory rather than interpreter-error territory, avoiding the need to populate interpreter-specific attributes (`lineno`, `filename`, `offset`) that `SyntaxError` carries.
+
+---
+
+## alfa-two-pass-symbol-table (June 2026)
+
+The ALFA reader operates in two passes: a pre-pass (`_collect_symbols(tree)`) that walks the raw Lark `Tree` to populate a `_SymbolTable` (attribute declarations, obligation/advice URNs, namespace hierarchy), then a `AlfaTransformer(symbols, strict)` pass that resolves all paths and identifiers against the table.
+
+**WHY**: ALFA allows shorthand attribute paths (`user.role`) where `user` is bound to a category via an `attribute { category = subjectCat }` declaration elsewhere in the file. A single-pass Lark Transformer visits nodes bottom-up and cannot resolve a shorthand path without first knowing all declarations. Policy-scoped variables are the one exception — they are tracked in `self._current_vars` inside the Transformer (reset per policy block) rather than in the symbol table, because they are short-lived and not referenced across blocks.
+
+---
+
+## import-model-skill-documents-before-code (June 2026)
+
+The `import-model` skill requires Phase 3 (writing the expressiveness doc section with all gap dispositions) to be confirmed by the user before Phase 4 (implementation) begins.
+
+**WHY**: Gap decisions made during analysis are easy to silently reverse during implementation — a construct that was agreed to raise an error gets quietly mapped instead, and the documentation is updated after the fact to match the code. Requiring written documentation and explicit user confirmation before any code is written makes the decisions reviewable and reversible. It also produces a paper trail for why each gap was handled the way it was, which matters for security-critical policy conversion tools where silent semantic changes can be dangerous.
+
+---
+
+## alfa-reader-uses-lark-not-antlr (June 2026)
+
+The ALFA reader uses the `lark` Python parsing library with a custom ALFA grammar, not the ANTLR4 runtime with the official OASIS/Axiomatics ALFA grammar.
+
+**WHY**: ANTLR4 requires a Java runtime for grammar compilation and adds `antlr4-python3-runtime` as a package dependency. ACAL's design philosophy is to shed the legacy XACML toolchain — carrying ANTLR into a modern JSON/YAML-profile converter runs counter to that goal. `lark` is pure Python, requires no compilation step, and the grammar risk is mitigated by test-driven development against real-world ALFA documents. If the grammar proves insufficient for a specific ALFA construct, it can be extended without changing the runtime dependency.
+
+---
+
 ## jacal-never-errors-datatype-constraints (June 2026)
 
 JACAL constraint fixtures for DataType agreement rules are categorized as "structurally prevented" rather than "constraint-level errors."

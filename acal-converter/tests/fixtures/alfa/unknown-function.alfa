@@ -1,0 +1,10 @@
+// myCustomFunc is not a known ALFA function.
+// The reader should emit a UserWarning and map it to urn:custom:function:myCustomFunc.
+namespace com.example {
+  policy UnknownFuncPolicy apply denyOverrides {
+    rule TestRule {
+      permit
+      condition myCustomFunc(Attributes.subject.role, "editor")
+    }
+  }
+}

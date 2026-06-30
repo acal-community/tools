@@ -1,0 +1,53 @@
+namespace axiomatics.demo{
+	import System
+		
+	/*Access to MEDICAL RECORDS (ADAF) */
+	policy healthcare{
+		target clause table_name == "MEDICALRECORDS" and
+		action_id == "SELECT"
+		
+		apply denyOverrides
+		
+		/*Customers can view their own records */
+		rule members{
+			target clause user.role == "customer"
+			
+			condition stringOneAndOnly(medicalrecord.patientId) == stringOneAndOnly(user.userId)
+			
+			permit
+			
+			on permit{
+				advice decision_reason  {
+					reason = "Customers can view their own records"
+				}
+			}
+		}
+	
+		/* Doctors can view their patients records */
+		rule Doctors{
+			target clause user.role == "doctor"
+			
+			condition stringOneAndOnly(medicalrecord.assignedDoctor) == stringOneAndOnly(user.userId)
+			permit
+			
+			on permit{
+				advice decision_reason  {
+					reason = "Doctors can view their patients records"
+				}
+			}
+		}
+		
+		/*Mask Social Security number */
+		rule mask_ssn{
+			target clause column_name == "SSN" and
+			user.role == "doctor"
+				 
+			deny
+			on deny{
+				advice decision_reason  {
+					reason = "Mask Social Security number"
+				}
+			}
+		}
+	}
+}

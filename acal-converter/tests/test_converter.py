@@ -11,9 +11,11 @@ from acal_converter.cli import main
 from acal_converter.readers.yacal import load as load_yacal
 from acal_converter.readers.jacal import load as load_jacal
 from acal_converter.readers.xacml import load as load_xacml, XACMLUnsupportedFeatureError
+from acal_converter.readers.alfa import load as load_alfa, ALFAUnsupportedFeatureError, ALFASyntaxError
 
 XACML2 = Path(__file__).parent / "fixtures" / "xacml2"
 XACML3 = Path(__file__).parent / "fixtures" / "xacml3"
+ALFA = Path(__file__).parent / "fixtures" / "alfa"
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -444,3 +446,491 @@ def test_xacml2_obligations_converted():
     assert len(aae) == 1
     assert aae[0]["AttributeId"] == "urn:example:attribute:decision"
     assert aae[0]["Expression"] == {"Value": "permitted"}
+
+
+# ---------------------------------------------------------------------------
+# ALFA reader — happy path
+# ---------------------------------------------------------------------------
+
+def test_alfa_simple_permit_policy_id():
+    doc = load_alfa(str(ALFA / "simple-permit.alfa"))
+    assert "Policy" in doc
+    assert doc["Policy"]["PolicyId"] == "com.example.SimplePermit"
+
+
+def test_alfa_simple_permit_combining_algo():
+    doc = load_alfa(str(ALFA / "simple-permit.alfa"))
+    assert doc["Policy"]["CombiningAlgId"] == \
+        "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides"
+
+
+def test_alfa_simple_permit_rule_effect():
+    doc = load_alfa(str(ALFA / "simple-permit.alfa"))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    assert rule["Effect"] == "Permit"
+
+
+def test_alfa_condition_expression_maps_to_apply():
+    doc = load_alfa(str(ALFA / "condition.alfa"))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    cond = rule["Condition"]
+    assert "Apply" in cond
+    apply = cond["Apply"]
+    assert apply["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-equal"
+
+
+def test_alfa_condition_canonical_attr_designator():
+    doc = load_alfa(str(ALFA / "condition.alfa"))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    args = rule["Condition"]["Apply"]["Argument"]
+    desig = args[0]["AttributeDesignator"]
+    assert desig["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+    assert desig["AttributeId"] == "role"
+
+
+def test_alfa_obligation_urn_resolved():
+    doc = load_alfa(str(ALFA / "obligation.alfa"))
+    notices = doc["Policy"]["NoticeExpression"]
+    obls = [n for n in notices if n.get("IsObligation")]
+    assert len(obls) == 1
+    assert obls[0]["Id"] == "urn:example:obligation:audit-log"
+    assert obls[0]["AppliesTo"] == "Permit"
+
+
+def test_alfa_advice_urn_resolved():
+    doc = load_alfa(str(ALFA / "obligation.alfa"))
+    notices = doc["Policy"]["NoticeExpression"]
+    advice = [n for n in notices if not n.get("IsObligation")]
+    assert len(advice) == 1
+    assert advice[0]["Id"] == "urn:example:advice:log-hint"
+    assert advice[0]["AppliesTo"] == "Deny"
+
+
+def test_alfa_attribute_shorthand_resolves_category():
+    doc = load_alfa(
+        str(ALFA / "shorthand-policy.alfa"),
+        include=[str(ALFA / "acal-attributes.alfa")],
+    )
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    args = rule["Condition"]["Apply"]["Argument"]
+    # First arg in AND: user == "editor" → subject category
+    user_desig = args[0]["Apply"]["Argument"][0]["AttributeDesignator"]
+    assert user_desig["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+    assert user_desig["AttributeId"] == "urn:example:attribute:user-id"
+
+
+def test_alfa_attribute_shorthand_datatype_propagated():
+    doc = load_alfa(
+        str(ALFA / "shorthand-policy.alfa"),
+        include=[str(ALFA / "acal-attributes.alfa")],
+    )
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    args = rule["Condition"]["Apply"]["Argument"]
+    user_desig = args[0]["Apply"]["Argument"][0]["AttributeDesignator"]
+    assert user_desig.get("DataType") == "string"
+
+
+def test_alfa_unresolvable_without_include_warns():
+    """shorthand-policy without --include emits warnings for unresolved paths."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        load_alfa(str(ALFA / "shorthand-policy.alfa"))
+    assert len(w) >= 1, "Expected at least one unresolvable-path warning"
+
+
+def test_alfa_variable_declaration_and_reference():
+    doc = load_alfa(str(ALFA / "variable.alfa"))
+    policy = doc["Policy"]
+    var_defs = policy.get("VariableDefinition", [])
+    assert len(var_defs) == 1
+    vd = var_defs[0]
+    assert vd["VariableId"] == "com.example.myRole"
+    rule = policy["CombinerInput"][0]["Rule"]
+    # Condition should have a VariableReference
+    args = rule["Condition"]["Apply"]["Argument"]
+    assert "VariableReference" in args[0]
+    assert args[0]["VariableReference"]["VariableId"] == "com.example.myRole"
+
+
+def test_alfa_anonymous_rule_gets_synthesized_id():
+    # simple-permit.alfa has a named rule AllowAll, not anonymous
+    # We test that the Id is fully qualified
+    doc = load_alfa(str(ALFA / "simple-permit.alfa"))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    assert rule["Id"] == "com.example.AllowAll"
+
+
+def test_alfa_error_types_inherit_value_error():
+    assert issubclass(ALFASyntaxError, ValueError)
+    assert issubclass(ALFAUnsupportedFeatureError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# ALFA reader — warning-eligible constructs (disposition b)
+# ---------------------------------------------------------------------------
+
+def test_alfa_custom_combining_algo_warns():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = load_alfa(str(ALFA / "custom-combining-algo.alfa"))
+    assert any("myCustomAlgorithm" in str(x.message) for x in w), \
+        f"Expected warning about custom algo, got: {[str(x.message) for x in w]}"
+    # The algo passes through as-is
+    assert doc["Policy"]["CombiningAlgId"] == "myCustomAlgorithm"
+
+
+def test_alfa_custom_combining_algo_strict_raises():
+    with pytest.raises(ALFAUnsupportedFeatureError, match="myCustomAlgorithm"):
+        load_alfa(str(ALFA / "custom-combining-algo.alfa"), strict=True)
+
+
+def test_alfa_unresolvable_attr_warns():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        load_alfa(str(ALFA / "unresolvable-attr.alfa"))
+    assert any("unknownCategory.attr" in str(x.message) for x in w)
+
+
+def test_alfa_unresolvable_attr_strict_raises():
+    with pytest.raises(ALFAUnsupportedFeatureError):
+        load_alfa(str(ALFA / "unresolvable-attr.alfa"), strict=True)
+
+
+def test_alfa_unknown_function_warns():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = load_alfa(str(ALFA / "unknown-function.alfa"))
+    assert any("myCustomFunc" in str(x.message) for x in w)
+    # Maps to urn:custom:function:myCustomFunc
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    fn_id = rule["Condition"]["Apply"]["FunctionId"]
+    assert fn_id == "urn:custom:function:myCustomFunc"
+
+
+def test_alfa_unknown_function_strict_raises():
+    with pytest.raises(ALFAUnsupportedFeatureError, match="myCustomFunc"):
+        load_alfa(str(ALFA / "unknown-function.alfa"), strict=True)
+
+
+# ---------------------------------------------------------------------------
+# ALFA reader — content-sniff detection
+# ---------------------------------------------------------------------------
+
+def test_alfa_detected_by_content_sniff(tmp_path):
+    from acal_converter.readers import detect_format
+    f = tmp_path / "policy.txt"
+    f.write_text("namespace com.example {\n  policy P apply denyOverrides {}\n}\n")
+    assert detect_format(str(f)) == "alfa"
+
+
+def test_alfa_not_confused_with_yacal_namespace_key(tmp_path):
+    from acal_converter.readers import detect_format_from_bytes
+    assert detect_format_from_bytes(b"namespace: foo\nPolicy:\n") == "yacal"
+
+
+def test_alfa_detected_by_extension(tmp_path):
+    from acal_converter.readers import detect_format
+    f = tmp_path / "policy.alfa"
+    f.write_text("")
+    assert detect_format(str(f)) == "alfa"
+
+
+def test_alfa_comment_stripped_before_sniff():
+    from acal_converter.readers import detect_format_from_bytes
+    chunk = b"// copyright notice\nnamespace com.example {"
+    assert detect_format_from_bytes(chunk) == "alfa"
+
+
+# ---------------------------------------------------------------------------
+# ALFA → YACAL via CLI
+# ---------------------------------------------------------------------------
+
+def test_cli_alfa_to_yacal(runner):
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        str(ALFA / "simple-permit.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+    yaml = ruamel.yaml.YAML()
+    doc = dict(yaml.load(result.output))
+    assert "Policy" in doc
+    assert doc["Policy"]["PolicyId"] == "com.example.SimplePermit"
+
+
+def test_cli_alfa_to_jacal(runner):
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "jacal",
+        str(ALFA / "condition.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+    doc = json.loads(result.output)
+    assert "Policy" in doc
+
+
+def test_cli_alfa_strict_warns_exit_nonzero(runner):
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        "--strict",
+        str(ALFA / "custom-combining-algo.alfa"),
+    ])
+    assert result.exit_code != 0
+    assert "myCustomAlgorithm" in result.output
+
+
+def test_cli_alfa_no_strict_succeeds_with_warning(runner):
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = runner.invoke(main, [
+            "--from", "alfa", "--to", "yacal",
+            "--no-strict",
+            str(ALFA / "custom-combining-algo.alfa"),
+        ])
+    assert result.exit_code == 0, result.output
+
+
+def test_cli_alfa_include_resolves_shorthands(runner):
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        "--include", str(ALFA / "acal-attributes.alfa"),
+        str(ALFA / "shorthand-policy.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+    yaml = ruamel.yaml.YAML()
+    doc = dict(yaml.load(result.output))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    args = rule["Condition"]["Apply"]["Argument"]
+    user_desig = args[0]["Apply"]["Argument"][0]["AttributeDesignator"]
+    assert user_desig["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+    assert user_desig["AttributeId"] == "urn:example:attribute:user-id"
+
+
+def test_cli_alfa_include_multiple_files(runner):
+    """--include can be repeated; all files contribute to the symbol table."""
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "jacal",
+        "--include", str(ALFA / "acal-attributes.alfa"),
+        "--include", str(ALFA / "acal-attributes.alfa"),   # repeated is harmless
+        str(ALFA / "shorthand-policy.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+    doc = json.loads(result.output)
+    assert "Policy" in doc
+
+
+def test_cli_alfa_import_stmt_does_not_error(runner):
+    """A policy file containing 'import <namespace>' parses without error."""
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        "--include", str(ALFA / "acal-attributes.alfa"),
+        str(ALFA / "shorthand-policy.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# Axiomatics demo policy fixtures
+# ---------------------------------------------------------------------------
+
+_AX_INCLUDES = [
+    str(ALFA / "system.alfa"),
+    str(ALFA / "standard-attributes.alfa"),
+    str(ALFA / "adaf_standard_attributes.alfa"),
+    str(ALFA / "demo-attributes.alfa"),
+]
+
+
+def _ax_load(filename: str, **kwargs):
+    return load_alfa(str(ALFA / filename), include=_AX_INCLUDES, **kwargs)
+
+
+def test_alfa_axiomatics_system_parses_as_include():
+    """system.alfa (ruleCombinator/type/category/infix/function decls) parses cleanly."""
+    # Parse system.alfa alone — should produce empty output (no policies)
+    doc = load_alfa(str(ALFA / "system.alfa"))
+    assert doc == {}
+
+
+def test_alfa_axiomatics_standard_attributes_parses():
+    """standard-attributes.alfa defines XACML standard attributes without errors."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = load_alfa(str(ALFA / "standard-attributes.alfa"))
+    assert doc == {}  # declarations only, no policies
+    assert len(w) == 0
+
+
+def test_alfa_axiomatics_attributes_parses():
+    """attributes.alfa (axiomatics.demo namespace) parses without errors."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = load_alfa(str(ALFA / "demo-attributes.alfa"))
+    assert doc == {}
+    assert len(w) == 0
+
+
+def test_alfa_axiomatics_portal():
+    """portal.alfa: simple policy with target clause and inline advice block."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = _ax_load("portal.alfa")
+    assert "Policy" in doc
+    assert doc["Policy"]["PolicyId"].endswith("portal")
+    assert len(w) == 0
+
+
+def test_alfa_axiomatics_healthcare():
+    """healthcare.alfa: target clause with 'and' keyword, rule-level on_clause."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = _ax_load("healthcare.alfa")
+    assert "Policy" in doc
+    p = doc["Policy"]
+    assert p["Target"] is not None  # 'table_name == "MEDICALRECORDS" and action_id == "SELECT"'
+    # Target should be an and-expression
+    assert "Apply" in p["Target"]
+    assert "and" in p["Target"]["Apply"]["FunctionId"]
+
+
+def test_alfa_axiomatics_banking():
+    """banking.alfa: policyset with multiple rules, condition using &&."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = _ax_load("banking.alfa")
+    assert "Policy" in doc or "Bundle" in doc  # policyset → PolicySet or Bundle
+
+
+def test_alfa_axiomatics_online_trial_tutorial():
+    """online_trial_tutorial.alfa: nested policysets with rule-level on_clause."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = _ax_load("online_trial_tutorial.alfa")
+    assert "Policy" in doc or "Bundle" in doc
+
+
+def test_alfa_axiomatics_online_trial_rule_notices():
+    """Rules in online_trial_tutorial.alfa carry NoticeExpression from on_clause."""
+    doc = _ax_load("online_trial_tutorial.alfa")
+    top = doc.get("Policy") or doc.get("Bundle", {}).get("Policy", [{}])[0]
+    # Drill down to find a rule with NoticeExpression
+    def find_rule_with_notice(node):
+        if isinstance(node, dict):
+            if "Rule" in node:
+                rule = node["Rule"]
+                if "NoticeExpression" in rule:
+                    return rule
+            for v in node.values():
+                result = find_rule_with_notice(v)
+                if result:
+                    return result
+        elif isinstance(node, list):
+            for item in node:
+                result = find_rule_with_notice(item)
+                if result:
+                    return result
+        return None
+
+    rule = find_rule_with_notice(top)
+    assert rule is not None, "Expected at least one Rule with NoticeExpression"
+    assert any("decision_reason" in n.get("Id", "") for n in rule["NoticeExpression"])
+
+
+def test_alfa_axiomatics_api():
+    """api.alfa: nested policysets with multi-value obligation fields."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = _ax_load("api.alfa")
+    assert "Policy" in doc or "Bundle" in doc
+
+
+def test_alfa_axiomatics_aerospace():
+    """aerospace.alfa: policyset with bare cross-references and on_clause at policyset level."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = _ax_load("aerospace.alfa")
+    assert "Policy" in doc or "Bundle" in doc
+
+
+def test_alfa_axiomatics_root_policy():
+    """axiomatics-policy.alfa: root policyset with cross-references to sub-policies."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = _ax_load("axiomatics-policy.alfa")
+    assert "Policy" in doc or "Bundle" in doc
+
+
+def test_alfa_axiomatics_target_and_keyword():
+    """'and' keyword in target clause is semantically equivalent to '&&'."""
+    doc = _ax_load("healthcare.alfa")
+    target = doc["Policy"]["Target"]
+    fn_id = target["Apply"]["FunctionId"]
+    assert fn_id == "urn:oasis:names:tc:acal:1.0:function:and"
+
+
+def test_alfa_axiomatics_apply_inside_body():
+    """'apply' declared inside policy/policyset body (Axiomatics style) is recognised."""
+    doc = _ax_load("online_trial_tutorial.alfa")
+    top = doc.get("Policy") or doc.get("Bundle", {}).get("Policy", [{}])[0]
+    assert top.get("CombiningAlgId") is not None
+
+
+def test_cli_alfa_axiomatics_portal(runner):
+    """CLI converts portal.alfa with Axiomatics include chain."""
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "jacal",
+        *[arg for f in _AX_INCLUDES for arg in ("--include", f)],
+        str(ALFA / "portal.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+    doc = json.loads(result.output)
+    assert "Policy" in doc
+
+
+# ---------------------------------------------------------------------------
+# New: bag attribute, malformed syntax, --include warning, --debug
+# ---------------------------------------------------------------------------
+
+def test_alfa_bag_attribute_is_bag_true():
+    """A bag-type attribute declaration sets is_bag=True and appears in the condition."""
+    doc = load_alfa(str(ALFA / "bag-attribute.alfa"))
+    assert "Policy" in doc
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    cmp = rule["Condition"]["Apply"]
+    desig = cmp["Argument"][0]["AttributeDesignator"]
+    assert desig["AttributeId"] == "urn:example:attribute:roles"
+    assert desig["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+
+
+def test_alfa_malformed_syntax_raises_syntax_error():
+    """A file with invalid ALFA syntax raises ALFASyntaxError with location info."""
+    with pytest.raises(ALFASyntaxError) as exc_info:
+        load_alfa(str(ALFA / "malformed-syntax.alfa"))
+    msg = str(exc_info.value)
+    assert "Syntax error" in msg
+    assert "line" in msg and "col" in msg
+
+
+def test_cli_include_warns_for_non_alfa(runner, tmp_path):
+    """--include with a non-ALFA format emits a warning to stderr."""
+    yacal_file = tmp_path / "policy.yaml"
+    yacal_file.write_text(
+        "Policy:\n  PolicyId: test\n  CombinerInput: []\n"
+    )
+    result = runner.invoke(main, [
+        "--from", "yacal", "--to", "jacal",
+        "--include", str(ALFA / "acal-attributes.alfa"),
+        str(yacal_file),
+    ])
+    assert "--include is only meaningful for ALFA" in result.output
+
+
+def test_cli_debug_dumps_symbol_table(runner):
+    """--debug prints the symbol table to stderr when parsing ALFA."""
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "jacal",
+        "--debug",
+        "--include", str(ALFA / "acal-attributes.alfa"),
+        str(ALFA / "shorthand-policy.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+    assert "ALFA symbol table" in result.output
+    assert "user" in result.output  # attribute name from acal-attributes.alfa

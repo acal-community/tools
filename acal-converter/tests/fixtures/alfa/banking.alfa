@@ -1,0 +1,118 @@
+namespace axiomatics.demo{
+	import System
+	
+	/*Access to TRANSACTIONS (ADAF) */
+
+	policyset transactions{
+		target clause table_name == "TRANSACTIONS"
+		
+		apply denyOverrides
+		
+		/*Policy for viewing transactions */
+		policy select{
+			target clause action_id == "SELECT"
+			apply denyOverrides
+				
+			/*Deny if the transaction is approved */
+			rule denyApproved{
+				target clause transaction.status == "approved"
+				deny
+				
+				on deny{
+					advice decision_reason  {
+						reason = "Deny if the transaction is approved"
+					}
+				}
+			}
+			
+			/*Deny access to the amount field if the user is not the owner */
+			rule denyAmount{
+				target clause column_name == "AMOUNT"
+				
+				condition not(stringOneAndOnly(transaction.owner) == stringOneAndOnly(user.userId))
+				deny
+				
+				on deny{
+					advice decision_reason  {
+						reason = "Deny access to the amount field if the user is not the owner"
+					}
+				}
+			}
+			
+			/*Mask the credit card number */
+			rule maskCC{
+				target clause column_name == "CREDITCARD"
+				deny
+				
+				on deny{
+					advice decision_reason  {
+						reason = "Mask the credit card number"
+					}
+				}
+			}
+			
+			/*Managers can view all transactions */
+			rule Managers{
+				target clause user.role == "manager"
+				permit
+				
+				on permit{
+					advice decision_reason  {
+						reason = "Managers can view all transactions"
+					}
+				}
+			}
+			
+			/*Tellers can access transactions in their own region */
+			rule Tellers{
+				target clause user.role == "teller"
+				
+				condition stringOneAndOnly(transaction.region) == stringOneAndOnly(user.region)
+				permit
+				
+				on permit{
+					advice decision_reason  {
+						reason = "Tellers can access transactions in their own region"
+					}
+				}
+			}
+			
+			/*Users can view their own transactions */
+			rule users{
+				condition stringOneAndOnly(transaction.owner) == stringOneAndOnly(user.userId)
+				permit
+				
+				on permit{
+					advice decision_reason  {
+						reason = "Users can view their own transactions"
+					}
+				}
+			}
+		}
+		
+		/* Policy for approving transactions */
+		policy approve{
+			target clause action_id == "approve"
+			apply firstApplicable
+			
+			/*Tellers can approve transactions in their own region for transactions they do not own and
+			 * where the Tellers approval limit is greater than or equal to the amount of the transaction */
+			rule approveTransaction{
+				target clause user.role == "teller"
+				
+				condition stringOneAndOnly(transaction.region) == stringOneAndOnly(user.region) &&
+				not(user.userId==transaction.owner) &&
+				user.approvalLimit >= transaction.amount
+				
+				permit
+				
+				on permit{
+					advice decision_reason  {
+						reason = "Tellers can approve transactions in their own region for transactions they do not own and where the Tellers approval limit is greater than or equal to the amount of the transaction"
+					}
+				}
+			} 
+		}
+	}
+	
+}

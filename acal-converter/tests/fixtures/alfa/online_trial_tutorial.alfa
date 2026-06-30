@@ -1,0 +1,131 @@
+namespace axiomatics.demo{
+	import System
+
+	/*Online Trial Tutorial policy */
+
+	/*Policy for records */
+	policyset records{
+		target clause  resourceType == "record"
+
+		apply denyOverrides
+
+		/*Global records policies... */
+		policyset global{
+			apply firstApplicable
+
+			/*Clearance check */
+			policy clearance{
+				apply firstApplicable
+
+				/*R5 - Deny all access if user clearance < record classification */
+				rule denyAccess{
+					condition user.clearance < record.classification
+					deny
+
+					on deny{
+						advice decision_reason  {
+							reason = "Deny all access if user clearance < record classification"
+						}
+					}
+				}
+			}
+		}
+
+		/*View records...*/
+		policyset view{
+			target clause actionId == "view"
+			apply firstApplicable
+
+			/*Manager can view records*/
+			policy manager{
+				target clause user.role == "manager"
+				apply denyUnlessPermit
+
+				/*R1 - A manager can view any record*/
+				rule manager{
+					permit
+
+					on permit{
+						advice decision_reason  {
+							reason = "A manager can view any record"
+						}
+					}
+				}
+			}
+
+			/*Employee can view records*/
+			policy employee{
+				target clause user.role == "employee"
+				apply denyUnlessPermit
+
+				/*R2 - An employee can view a record in their own department */
+				rule employeeView{
+					condition record.department == user.department
+
+					permit
+
+					on permit{
+						advice decision_reason  {
+							reason = "An employee can view a record in their own department"
+						}
+					}
+				}
+			}
+		}
+
+		/*Edit records...*/
+		policyset edit{
+			target clause actionId == "edit"
+			apply firstApplicable
+
+			/*Employee can edit records*/
+			policy employee{
+				target clause user.role == "employee"
+				apply denyUnlessPermit
+
+
+				/*R3 - An employee can edit a record they own, if it is in draft mode */
+				rule employeeEdit{
+					target clause record.status == "draft"
+					condition record.owner == user.userId
+
+					permit
+
+					on permit{
+						advice decision_reason  {
+							reason = "An employee can edit a record they own, if it is in draft mode"
+						}
+					}
+				}
+			}
+		}
+
+		/*Publish records...*/
+		policyset publish{
+			target clause actionId == "publish"
+			apply firstApplicable
+
+			/*Managers can publish records */
+			policy manager{
+				target clause user.role == "manager"
+				apply denyUnlessPermit
+
+
+				/*R4 - A manager can publish a record if the record is in final mode and
+				 * it belongs to a employee below that manager.
+				 */
+				rule managersPublish{
+					target clause record.status == "final"
+					condition stringIsIn(stringOneAndOnly(record.owner), user.subordinate)
+					permit
+
+					on permit{
+						advice decision_reason  {
+							reason = "A manager can publish a record if the record is in final mode and it belongs to a employee below that manager"
+						}
+					}
+				}
+			}
+		}
+	}
+}

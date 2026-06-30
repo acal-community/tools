@@ -155,6 +155,140 @@ whether to re-express the intent using `ResultEntity` in their ACAL policy.
 
 ---
 
+## ALFA (Abbreviated Language for Authorization)
+
+*Reader: implemented in acal-converter v0.1 (June 2026).*
+
+ALFA is a DSL developed within the OASIS XACML ecosystem as a human-readable alternative to XACML 3.0 XML. It uses a C/Java-like syntax with braces, keywords, and dot-notation attribute access. ALFA compiles conceptually to XACML 3.0 — meaning its semantic model aligns closely with XACML 3.0, not ACAL 1.0 directly. The ALFA reader translates the ALFA tree into the ACAL neutral dict, with remapping handled by the same patterns used in the XACML 3.0 reader where applicable.
+
+### Why ALFA is input-only
+
+ALFA output would require generating valid ALFA syntax from the ACAL neutral dict. Several ACAL 1.0 features introduced after XACML 3.0 — most notably `SharedVariableDefinition` in a `Bundle`, combining algorithm URNs not in ALFA's keyword set, and arbitrary `RequestEntity`/`ResultEntity` structures — have no ALFA syntax equivalent. Round-tripping is lossless in principle only for the subset of ACAL expressible in ALFA. Because that subset is not the full ACAL model, ALFA output is not implemented; the conversion is one-way.
+
+### The no-silent-drops requirement
+
+As with all readers, every ALFA construct encountered must be explicitly handled. Unrecognised tokens or constructs that the reader does not know how to map must raise `ALFAUnsupportedFeatureError`, not silently pass. The two-pass architecture (symbol table collection → expression resolution) must not allow any path or identifier to fall through unresolved without a warning or error.
+
+### Parser and error types
+
+ALFA is a DSL, not a structured data format. The reader uses the `lark` parsing library with a custom ALFA grammar. Two exception types are defined, both inheriting from `ValueError` (matching the `XACMLUnsupportedFeatureError` precedent):
+
+- `ALFASyntaxError(ValueError)` — raised when the input is not valid ALFA syntax (parse failure). Raised in pass 1 (symbol collection) for structurally malformed declarations. Inherits `ValueError` rather than stdlib `SyntaxError` because it is application-level input validation, not an interpreter error.
+- `ALFAUnsupportedFeatureError(ValueError)` — raised when a syntactically valid ALFA construct has no ACAL equivalent, or when a warning-eligible construct is encountered under `--strict`. Re-exported from `readers/__init__.py` so callers can catch it by name without importing the reader module directly.
+
+### Gap table
+
+| ALFA Construct | ACAL Mapping | Disposition | Strict behavior |
+|---|---|---|---|
+| `namespace` + element name | `PolicyId` synthesized as dot-joined namespace hierarchy + element name | (d) Supplementary | N/A |
+| No version field | `Version` absent in output (ACAL field is optional) | — no gap | N/A |
+| Standard `apply` keywords | `CombiningAlgId` URN via static keyword lookup table | (a) Direct | N/A |
+| Custom `apply` identifier | Bare string in `CombiningAlgId` + `UserWarning` | (b) Lossy/warn | Error under `--strict` |
+| Anonymous rule | `Id` synthesized as `{parent-policy-id}:rule_{n}` | (d) Supplementary | N/A |
+| `permit` / `deny` | `Effect: Permit` / `Effect: Deny` | (a) Direct | N/A |
+| `target` and `condition` coexist | Both translated independently | (a) Direct | N/A |
+| `Attributes.subject.*` etc. canonical paths | `AttributeDesignator` via reserved category URN lookup | (a) Direct | N/A |
+| Shorthand attribute paths | Resolved via symbol table from `attribute { category=... }` blocks | (d) Supplementary | N/A |
+| Unresolvable attribute paths | `UserWarning` naming the path | (b) Lossy/warn | Error under `--strict` |
+| Infix operators (`==`, `!=`, `>`, `<`, `&&`, `\|\|`, `!`) | `Apply` with `FunctionId` URN from operator map | (d) Supplementary | N/A |
+| Named function calls (`stringContains(...)` etc.) | `Apply` with `FunctionId` URN from function name map | (d) Supplementary | N/A |
+| Unknown function names | `Apply` with `urn:custom:function:{name}` + `UserWarning` | (b) Lossy/warn | Error under `--strict` |
+| Bag overloading (type-dependent `==` expansion) | Implementable within the Apply tree (V1 emits scalar function + `UserWarning` when attribute bag-ness is unknown; V2 adds full type tracking) | (b) Lossy/warn | Error under `--strict` |
+| `obligation` in `on permit` / `on deny` | `NoticeExpression { IsObligation: true, AppliesTo: Permit/Deny }` | (a) Direct | N/A |
+| `advice` in `on permit` / `on deny` | `NoticeExpression { IsObligation: false, AppliesTo: Permit/Deny }` | (a) Direct | N/A |
+| Obligation/advice URN (from namespace declaration) | Resolved from symbol table | (d) Supplementary | N/A |
+| `variable` declaration (policy-scoped) | `VariableDefinition` within enclosing policy | (a) Direct | N/A |
+| `variable(name)` reference | `VariableReference` | (a) Direct | N/A |
+| `SharedVariableDefinition` | No ALFA equivalent in V1 — deferred | — future | N/A |
+| Request / response structures | Not part of ALFA — reader produces policy side only | — N/A | N/A |
+
+### Two-pass architecture and symbol table
+
+ALFA attribute access uses both a canonical form (`Attributes.subject.role`) and a shorthand form (`user.role` where `user` is bound to `category = subjectCat` in an `attribute` block). A single-pass translator cannot resolve shorthand paths without first knowing the declarations.
+
+The reader operates in two passes over the Lark parse tree:
+
+1. **Symbol table pass** — `_collect_symbols(tree)` walks the raw Lark `Tree` before any `Transformer` runs. It populates a `_SymbolTable` with:
+   - `namespace_parts: list[str]` — the nested namespace hierarchy, used to synthesize `PolicyId`
+   - `attributes: dict[str, _AttributeDecl]` — local alias → `{ id, category, type, is_bag }`; used to resolve shorthand paths and determine bag-ness for `==` expansion
+   - `obligations: dict[str, str]` — local name → URN; declared at namespace level
+   - `advice: dict[str, str]` — local name → URN; declared at namespace level
+   - Malformed declarations raise `ALFASyntaxError` immediately.
+2. **Resolution pass** — `AlfaTransformer(symbols, strict)` runs as a standard Lark `Transformer`. It holds the `_SymbolTable` as `self._symbols` and resolves paths, names, and type-dependent operator expansions during tree transformation. Policy-scoped variables are tracked in `self._current_vars` (a `dict` reset at each `policy_declaration` entry).
+
+**Unresolvable references:** attribute paths or obligation/advice names not found in the symbol table emit `warnings.warn(..., UserWarning)` in non-strict mode and `raise ALFAUnsupportedFeatureError(...)` in strict mode.
+
+**Bag overloading (V2):** when `is_bag=True` is stored in the `_AttributeDecl`, the transformer expands `lhs == rhs` to `any-of` or `string-at-least-one-member-of` instead of `string-equal`. In V1, attributes without explicit type declarations default to `is_bag=False` and emit a `UserWarning` if the infix `==` is applied to a path whose bag-ness cannot be confirmed.
+
+Paths that remain unresolvable after both passes write the raw path string into the output and emit a `UserWarning` (or raise under `--strict`).
+
+### Combining algorithm keyword map
+
+```python
+ACAL_COMBINING_ALGO_MAP = {
+    "denyOverrides":    "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides",
+    "permitOverrides":  "urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-overrides",
+    "firstApplicable":  "urn:oasis:names:tc:acal:1.0:combining-algorithm:first-applicable",
+    "denyUnlessPermit": "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
+    "permitUnlessDeny": "urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-unless-deny",
+    "onlyOneApplicable":"urn:oasis:names:tc:acal:1.0:combining-algorithm:only-one-applicable",
+}
+```
+
+### Category URN map
+
+```python
+ACAL_CATEGORY_MAP = {
+    "subject":     "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+    "resource":    "urn:oasis:names:tc:acal:1.0:attribute-category:resource",
+    "action":      "urn:oasis:names:tc:acal:1.0:attribute-category:action",
+    "environment": "urn:oasis:names:tc:acal:1.0:attribute-category:environment",
+}
+```
+
+### Auto-detection
+
+- **Content sniff:** reads up to 256 bytes, skips leading UTF-8 BOM and whitespace, skips leading C-style comments (`// ...` lines and `/* ... */` blocks), then inspects the first keyword token. If the token is `namespace` or `import` **and** the character immediately following it (after optional whitespace) is `{` or a letter (not `:`), the file is identified as ALFA. The two-token check (`namespace {` vs `namespace:`) prevents misidentification of YAML files that use `namespace` as a key. Valid ACAL YACAL documents are further distinguished because their root keys are a closed capitalized set (`Policy`, `Bundle`, `Request`, `Response`, `ShortIdSet`) — none of which collide with ALFA keywords.
+- **Extension fallback:** `.alfa` → `alfa`.
+- **Explicit override:** `--from alfa` / `from_fmt="alfa"` always takes precedence over both.
+
+### Example: an ACAL policy that cannot round-trip back to ALFA
+
+```yaml
+Bundle:
+  BundleId: urn:example:bundle:shared
+  SharedVariableDefinition:
+    - Id: urn:example:shared:editor-check
+      Expression:
+        Apply:
+          FunctionId: urn:oasis:names:tc:acal:1.0:function:string-contains
+          Argument:
+            - AttributeDesignator:
+                Category: urn:oasis:names:tc:acal:1.0:subject-category:access-subject
+                AttributeId: urn:example:attribute:role
+            - Value: editor
+  Policy:
+    - PolicyId: urn:example:policy:doc-access
+      CombiningAlgId: urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-unless-deny
+      CombinerInput:
+        - Rule:
+            Id: permit-editors
+            Effect: Permit
+            Condition:
+              SharedVariableReference:
+                VariableId: urn:example:shared:editor-check
+```
+
+This ACAL policy cannot be expressed in ALFA because:
+
+1. `SharedVariableDefinition` in a `Bundle` — ALFA has no cross-policy variable sharing. Variables are strictly scoped to the enclosing `policy` block. A shared variable accessible to multiple policies requires either duplicating the `variable` declaration in each policy or restructuring the policy set.
+
+2. `urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-unless-deny` — this is an ACAL 1.0 combining algorithm. While `permitUnlessDeny` is in ALFA's keyword set and maps to the same URN, the reverse is only true for the exact standard set. Any ACAL policy that uses a combining algorithm URN without a matching ALFA keyword cannot round-trip.
+
+**Verdict:** ALFA is input-only. The ALFA semantic model is a proper subset of ACAL 1.0: every policy expressible in ALFA can be converted to ACAL, but not every ACAL policy can be expressed in ALFA.
+
+---
+
 ## Future languages
 
 Each section below follows this template:

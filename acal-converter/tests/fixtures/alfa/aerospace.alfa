@@ -1,0 +1,215 @@
+namespace aerospace{  
+    /**
+     * ITAR / EC Policies
+     */
+    policyset aerospace{
+        apply firstApplicable
+        /**
+         * Global checks
+         */
+        globalchecks
+        /**
+         * Portal Access
+         */
+        portal
+        /**
+         * Department-specific access
+         */
+        departmentAccess
+        /**
+         * Data access based on export control
+         */
+        blueprint
+        on deny{
+            advice axiomatics.demo.message{
+                axiomatics.demo.user.geo.isp = axiomatics.demo.user.geo.isp
+                axiomatics.demo.user.geo.latitude = axiomatics.demo.user.geo.latitude
+                axiomatics.demo.user.geo.longitude = axiomatics.demo.user.geo.longitude
+                axiomatics.demo.user.geo.region = axiomatics.demo.user.geo.region
+                axiomatics.demo.user.country = axiomatics.demo.user.country
+            }
+        }
+        on permit{
+            	advice axiomatics.demo.message{
+            }
+        }
+    }
+    
+    /**
+     * Global security checks (Policy Library)
+     */
+    policyset globalchecks {
+        apply firstApplicable
+        /**
+         * Enforce country checks
+         */
+        policy countryChecks{
+            apply firstApplicable
+            /**
+             * Deny access from a blacklisted location
+             */
+            rule enforceBlacklist{
+                deny
+                condition stringAtLeastOneMemberOf(axiomatics.demo.user.country, axiomatics.demo.blacklist)
+                on deny{
+                    advice axiomatics.demo.message{
+                        axiomatics.demo.message = "Access denied because the user is from a blacklisted citizenship."
+                        axiomatics.demo.user.country = axiomatics.demo.user.country
+                    }
+                }
+            }
+            /**
+             * Deny access if user has 2 citizenships
+             */
+            rule blockDualCitizens{
+                deny
+                condition stringBagSize(axiomatics.demo.user.country)>1
+                on deny{
+                    advice axiomatics.demo.message{
+                        axiomatics.demo.message = "Access denied because the user has more than one citizenship."
+                        axiomatics.demo.user.country = stringFromInteger(stringBagSize(axiomatics.demo.user.country))
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Business unit policies
+     */
+    policyset departmentAccess{
+        apply firstApplicable
+        /**
+         * Control access to Sales Applications
+         */
+        sales
+        /**
+         * Control access to engineering apps
+         */
+        engineering
+    }
+    
+
+
+
+/**
+     * Sales Policies
+     */
+    policyset sales{
+        target clause axiomatics.demo.application.department == "Sales"
+        apply firstApplicable
+        /**
+         * Salesforce
+         */
+        policyset salesforce{
+            target clause axiomatics.demo.application.name == "Salesforce"
+            apply firstApplicable
+            /**
+             * Allow Salesforce
+             */
+            policy allowApplication{
+                apply firstApplicable
+                /**
+                 * Allow Salesforce
+                 */
+                rule allowApplication{
+                    target clause axiomatics.demo.application.resource.Function == "Salesforce" and axiomatics.demo.actionId == "Access"
+                    permit
+                }
+            }
+        }
+    }
+    
+
+/**
+     * Control access to the portal
+     */
+    policy portal {
+        target clause axiomatics.demo.actionId == "Access" 
+        apply firstApplicable
+
+        rule allowSalesforceFunction{
+            target clause axiomatics.demo.application.resource.Function == "Salesforce"
+            permit
+        }
+        rule allowBlueprint{
+            target clause axiomatics.demo.application.resource.Function == "Browse aircraft parts"
+            permit
+        }
+    }
+    
+    
+    
+    /**
+     * Engineering Applications
+     */
+    policyset engineering{
+        // Split policies per dept
+        target clause axiomatics.demo.application.department == "Engineering"
+        apply firstApplicable
+        /**
+         *  Dassault Systemes MES
+         */
+        policyset dassaultmes{
+            target clause axiomatics.demo.application.name == "Dassault Systemes MES"
+            apply firstApplicable
+        }
+    }
+    
+   
+	/**
+     * Export-controlled parts
+     */
+    policyset blueprint {
+        target clause table_name == "BLUEPRINT"
+        apply firstApplicable
+        /**
+         * View export controlled parts
+         */
+        policy viewECParts{
+            target clause action_id == "SELECT"
+            apply denyOverrides
+            /**
+             * Anyone can view parts
+             */
+            rule allowAllAccess{
+                permit
+            }
+            /**
+             * Deny all access to ML parts
+             */
+            rule denyMLParts{
+                target clause axiomatics.demo.part.usage == "ML"
+                deny
+                on deny{
+                    advice axiomatics.demo.message{
+                        axiomatics.demo.message = "Sorry, you do not have access to this part because it is ML"
+                    }
+                }
+            }
+            /**
+             * Mask ECCN Data if different country
+             */
+            rule maskECCN{
+                target clause column_name == "ECCN"
+                deny
+                condition not(axiomatics.demo.part.country == axiomatics.demo.user.country)
+            }
+            /**
+             * Mask manufacturer
+             */
+            rule maskManucturer{
+                target clause column_name == "MANUFACTURER"
+                deny
+            }
+            /**
+             * Enforce ITAR - block items outside the user's country
+             */
+//             rule filterForeignUsers{
+//                 deny
+//                 condition not(user.country==part.country)
+//             }
+        }
+    }    
+}
+    

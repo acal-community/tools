@@ -1,0 +1,15 @@
+namespace com.example {
+
+    attribute roles {
+        category = subjectCat
+        id = "urn:example:attribute:roles"
+        type = bag
+    }
+
+    policy BagPolicy apply firstApplicable {
+        rule AllowAdmin {
+            permit
+            condition roles == "admin"
+        }
+    }
+}

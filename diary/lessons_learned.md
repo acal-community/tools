@@ -1,5 +1,45 @@
 # Lessons Learned
 
+## real-world-files-expose-synthetic-fixture-blind-spots (June 2026)
+
+**Rule**: Import real-world source files as test fixtures as early as possible — synthetic fixtures cover only the grammar paths the writer thought of, not the ones a real tool vendor chose.
+
+**Why**: The ALFA grammar built against synthetic fixtures had six gaps that would have failed on any real Axiomatics policy file: missing `target clause` keyword, `apply` inside body rather than before `{`, `and`/`or` as keyword operators, inline `{ }` advice blocks, bare policyset cross-references, and system.alfa-style declarations. None of these were invented by Axiomatics — they are all in the ALFA spec or common tooling conventions. Discovering them only requires running the converter on a real file. The cost of not importing real files early was building and debugging a grammar that was functionally useless on real input.
+
+---
+
+## lark-visit-error-wrapping (June 2026)
+
+**Rule**: In Lark Transformers, any exception raised inside a transformer method is caught by Lark and re-raised wrapped in `lark.exceptions.VisitError`. Catch `VisitError` in the `load()` entry point and unwrap the inner exception before propagating.
+
+**Why**: `ALFAUnsupportedFeatureError` raised inside `applying_kw()` surfaced to callers as `VisitError`, not as the expected exception type. The `strict=True` test that called `pytest.raises(ALFAUnsupportedFeatureError)` would have failed silently — the exception IS raised but under a different type. The fix is a single try/except around `transformer.transform(tree)` that checks `exc.__context__` for known application exception types and re-raises them directly. Without this unwrap, every downstream caller (CLI, tests, external code) would need to know about `VisitError` — a Lark implementation detail that should not leak.
+
+---
+
+## lark-rule-alias-passthrough-trap (June 2026)
+
+**Rule**: In a Lark rule with alternation aliases (`rule: A -> alias_a | B`), the alternative WITHOUT an alias (`| B`) still invokes the method named after the RULE, not after B. Check for the distinguishing token in the items list rather than assuming the method is only called for the primary alternative.
+
+**Why**: `not_expr: NOT_OP not_expr -> not_expr | cmp_expr` — when `| cmp_expr` matches (no `NOT_OP`), Lark still calls the `not_expr()` transformer method with `items = [cmp_expr_result]`. The method was unconditionally wrapping the result in `{"Apply": {"FunctionId": "not", ...}}`, producing `not(not(string-equal(...)))` for any comparison expression. The bug was invisible until inspecting the full output dict because parse and transform both completed without error. Fix: `has_not = any(isinstance(i, Token) and i.type == "NOT_OP" for i in items)`.
+
+---
+
+## lark-symbol-collection-use-token-type-not-position (June 2026)
+
+**Rule**: When walking a raw Lark parse tree (before a Transformer runs), find Token children by `.type` attribute rather than by index position.
+
+**Why**: In the symbol collection pre-pass (`_collect_symbols`), the initial code used `node.children[0]` to get the namespace name, expecting the first child to be DOTTED_ID. But grammar terminals appear in children in definition order — `namespace_decl: _NAMESPACE_KW DOTTED_ID "{" ...` — so with `_NAMESPACE_KW` NOT yet discarded (the raw tree includes all tokens regardless of `_` prefix), `children[0]` was the keyword token `Token('_NAMESPACE_KW', 'namespace')` and `children[1]` was the DOTTED_ID. Position-based access breaks whenever the grammar is reordered. Using `next(c for c in node.children if isinstance(c, Token) and c.type == 'DOTTED_ID')` is robust to grammar changes.
+
+---
+
+## dsl-vs-format-is-the-first-fork-for-new-readers (June 2026)
+
+**Rule**: When adding a new source language to `acal-converter`, the first question must be "is this a structured data format or a DSL?" — this determines the entire dependency and parsing strategy before any semantic analysis is useful.
+
+**Why**: Structured formats (XML, JSON, YAML) delegate parsing to a standard library and the reader's job is purely semantic mapping. DSLs require an actual parser (tokenizer + grammar), which introduces a new dependency, a new error type, and a fundamentally different implementation shape (grammar file + Transformer class vs. a few library calls). Starting the gap analysis with semantic coverage questions before settling this produces a detailed mapping that then needs to be rebuilt around whichever parser is chosen. The `import-model` skill now explicitly surfaces this as Phase 2's first question and branches the interview accordingly.
+
+---
+
 ## supplementary-shortidset-check-dead-for-bundles (June 2026)
 
 **Rule**: When adding a supplementary Python check that mirrors a catalog-level rule, verify that the path filter (`if sid_path != "ShortIdSet": continue`) actually matches real documents — otherwise the supplementary check is silently skipped on every input.

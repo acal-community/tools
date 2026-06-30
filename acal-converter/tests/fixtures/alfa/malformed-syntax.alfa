@@ -1,0 +1,8 @@
+namespace com.example {
+    policy Broken apply firstApplicable {
+        rule {
+            permit
+            condition ===  /* double-equals is valid; triple is not */
+        }
+    }
+}

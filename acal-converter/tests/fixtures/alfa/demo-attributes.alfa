@@ -1,0 +1,269 @@
+namespace axiomatics.demo{
+	
+	obligation fields = "axiomatics.demo.fields"
+	advice decision_reason = "axiomatics.demo.decision_reason"
+	advice message = "axiomatics.demo.message"
+	
+	attribute message {
+        category = resourceCat
+        id = "axiomatics.demo.message"
+        type = string
+    }
+    
+	attribute blacklist {
+        category = resourceCat
+        id = "axiomatics.demo.blacklist"
+        type = string
+    }
+    
+	attribute mask_fields {
+        category = resourceCat
+        id = "axiomatics.demo.mask_fields"
+        type = string
+    }
+    
+    attribute reason {
+        category = resourceCat
+        id = "axiomatics.demo.reason"
+        type = string
+    }
+    
+	attribute resourceType {
+        category = resourceCat
+        id = "axiomatics.demo.resourceType"
+        type = string
+    }
+    
+	attribute actionId {
+        category = actionCat
+        id = "axiomatics.demo.actionId"
+        type = string
+    }
+    
+	namespace record{
+		attribute recordId {
+	        category = resourceCat
+	        id = "axiomatics.demo.record.recordId"
+	        type = string
+	    }
+
+		attribute department {
+	        category = resourceCat
+	        id = "axiomatics.demo.record.department"
+	        type = string
+	    }
+
+		attribute status {
+	        category = resourceCat
+	        id = "axiomatics.demo.record.status"
+	        type = string
+	    }
+
+		attribute owner {
+	        category = resourceCat
+	        id = "axiomatics.demo.record.owner"
+	        type = string
+	    }
+	    
+	    attribute payload {
+	        category = resourceCat
+	        id = "axiomatics.demo.record.payload"
+	        type = string
+	    }
+	   
+	   	attribute classification {
+	        category = resourceCat
+	        id = "axiomatics.demo.record.classification"
+	        type = integer
+	    }
+	}
+	
+	namespace transaction{
+		attribute status {
+	        category = resourceCat
+	        id = "axiomatics.demo.transaction.status"
+	        type = string
+	    }
+	    
+	    attribute owner {
+	        category = resourceCat
+	        id = "axiomatics.demo.transaction.owner"
+	        type = string
+	    }
+	    
+	   	attribute region {
+	        category = resourceCat
+	        id = "axiomatics.demo.transaction.region"
+	        type = string
+	    }
+	    
+	   	attribute amount {
+	        category = resourceCat
+	        id = "axiomatics.demo.transaction.amount"
+	        type = double
+	    }
+	    
+		attribute transactionId {
+	        category = resourceCat
+	        id = "axiomatics.demo.transaction.transactionId"
+	        type = string
+	    }
+    }
+    
+    namespace user{
+    	attribute role {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.role"
+	        type = string
+	    }
+	    
+	    attribute region {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.region"
+	        type = string
+	    }
+
+	    attribute department {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.department"
+	        type = string
+	    }
+	   
+	   attribute payload {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.payload"
+	        type = string
+	   }
+	   
+	   attribute approvalLimit {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.approvalLimit"
+	        type = double
+	   }
+	   
+	   attribute subordinate {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.subordinate"
+	        type = string
+	   }
+	   
+	   attribute clearance {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.clearance"
+	        type = integer
+	   }
+	   
+		attribute userId {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.userId"
+	        type = string
+	   }
+	   
+		attribute country {
+	        category = subjectCat
+	        id = "axiomatics.demo.user.country"
+	        type = string
+		}
+		
+		namespace geo{
+			attribute isp {
+		        category = subjectCat
+		        id = "axiomatics.demo.user.geo.isp"
+		        type = string
+	   		}
+	   		
+	   		attribute latitude {
+		        category = subjectCat
+		        id = "axiomatics.demo.user.geo.latitude"
+		        type = string
+	   		}
+	   		
+	   		attribute longitude {
+		        category = subjectCat
+		        id = "axiomatics.demo.user.geo.longitude"
+		        type = string
+	   		}
+
+	   		attribute region {
+		        category = subjectCat
+		        id = "axiomatics.demo.user.geo.region"
+		        type = string
+	   		}
+		}
+    }
+    
+    namespace medicalrecord{
+       	attribute patientId {
+	        category = resourceCat
+	        id = "axiomatics.demo.medicalrecord.patientId"
+	        type = string
+	    }
+	    
+	    attribute assignedDoctor{
+	    	category = resourceCat
+	    	id = "axiomatics.demo.medicalrecord.assignedDoctor"
+	    	type = string
+	    } 	
+    } 
+    
+    namespace part{
+       	attribute partId {
+	        category = resourceCat
+	        id = "axiomatics.demo.part.partId"
+	        type = string
+	    }
+	    
+	    attribute country{
+	    	category = resourceCat
+	    	id = "axiomatics.demo.part.country"
+	    	type = string
+	    } 
+
+	    attribute usage{
+	    	category = resourceCat
+	    	id = "axiomatics.demo.part.usage"
+	    	type = string
+	    }	
+	    
+	    attribute eccn{
+	    	category = resourceCat
+	    	id = "axiomatics.demo.part.eccn"
+	    	type = string
+	    }
+	    
+	    attribute manufacturer{
+	    	category = resourceCat
+	    	id = "axiomatics.demo.part.manufacturer"
+	    	type = string
+	    }
+	    
+	    attribute partName{
+	    	category = resourceCat
+	    	id = "axiomatics.demo.part.partName"
+	    	type = string
+	    }
+    } 
+    
+    namespace application{
+       	attribute name {
+	        category = resourceCat
+	        id = "axiomatics.demo.application.name"
+	        type = string
+	    }
+	    
+	    attribute department{
+	    	category = resourceCat
+	    	id = "axiomatics.demo.application.department"
+	    	type = string
+	    } 
+	    
+	    namespace resource{
+	    	attribute Function{
+		    	category = resourceCat
+		    	id = "axiomatics.demo.application.resource.Function"
+		    	type = string
+	    }
+	    }
+	
+    } 
+}
