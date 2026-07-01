@@ -4,8 +4,8 @@ from pathlib import Path
 
 import click
 
-from .readers import detect_format, load
-from .writers import write
+from acal_core.readers import detect_format, load
+from acal_core.writers import write
 
 
 @click.command()

@@ -2,48 +2,37 @@
 
 ## Current State (June 2026)
 
-The `acal-converter` branch is in active development. The tool converts ACAL policy documents between formats (XACML → YACAL/JACAL, YACAL ↔ JACAL). Four readers now exist: `xacml.py`, `yacal.py`, `jacal.py`, and `alfa.py`.
+The `acal-core` branch is in active development, branched from `acal-converter`. It introduces a new shared library package `acal-core/` containing all format readers and writers, and rewires `acal-converter` as a thin CLI wrapper that imports from it. 81 tests pass in `acal-core/tests/`, 20 CLI plumbing tests pass in `acal-converter/tests/`. `acal-explain` tooling has not yet been started.
 
-**ALFA import: Multi-file support, Axiomatics real-world fixtures, debug tooling complete. 101 tests passing.**
-
-The ALFA reader handles the full Axiomatics demo policy suite (9 policy files, 4 include files). Grammar extensions cover: `target clause` keyword, `apply` inside body, `and`/`or` keyword operators, inline `{ }` advice/obligation blocks, bare cross-references in policyset bodies, and system.alfa-style runtime config declarations (`ruleCombinator`, `policyCombinator`, `type`, `category`, `function`, `infix`).
+**ALFA import: Multi-file support, Axiomatics real-world fixtures, debug tooling complete. 101 tests passing across both packages.**
 
 ## Most Recent Session (June 2026)
 
-### ALFA grammar hardening against real-world Axiomatics policies
+### acal-core extraction
 
-**Why this work:** The previous session's grammar was built against synthetic fixtures. The Axiomatics demo policy suite revealed six grammar gaps that would prevent real-world ALFA from parsing at all. Importing these files as the canonical test source (rather than continuing with synthetic fixtures) produces a test suite that actually validates the converter against policies users will encounter.
+**Why this work:** The `/grill-me` interview for the new `acal-explain` tool surfaced that both `acal-converter` and `acal-explain` need the same readers and format detection logic. Rather than duplicating, we extracted everything into a shared `acal-core/` library. This is the first time the per-tool-directory pattern has a shared dependency — and the decision included writers as well, because future bidirectional conversion work (ACAL → source language) will need shared writers too. (→ acal-core-as-shared-library)
 
-**Fixture renaming discipline established**: The test fixture directory now distinguishes:
-- `acal-attributes.alfa` — our ACAL-specific example attribute declarations
-- `demo-attributes.alfa` — Axiomatics demo-namespace attributes (source-of-record from `/opt/temp/policies-master/attributes.alfa`)
-- `standard-attributes.alfa` / `adaf_standard_attributes.alfa` / `system.alfa` — Axiomatics standard include files
+**What was moved:**
+- All readers (`xacml`, `yacal`, `jacal`, `alfa`) → `acal-core/src/acal_core/readers/`
+- All writers (`yacal`, `jacal`) → `acal-core/src/acal_core/writers/`
+- All test fixtures (alfa, xacml2, xacml3, yacal, jacal) → `acal-core/tests/fixtures/`
+- `policy-language-expressiveness.md` → `acal-core/docs/`
+- The `convert()` convenience function → `acal_core/__init__.py`
 
-**Grammar gaps found and fixed:**
+**Test split:** Deep reader/writer/format-detection tests moved to `acal-core/tests/test_core.py`. `acal-converter` now has `tests/test_cli.py` with only CLI plumbing tests (argument handling, --strict/--debug/--include wiring, output-to-file). CLI tests reference fixtures via a cross-package relative path (`../../../acal-core/tests/fixtures/`) — intentional monorepo coupling since acal-converter is explicitly a thin wrapper.
 
-1. **`target clause` keyword**: The ALFA spec uses `target clause <expr>` but our grammar had `target <expr>`. Added `_CLAUSE_KW: "clause"` (discarded) and `_CLAUSE_KW?` in `target_clause`. Added `clause` to DOTTED_ID exclusion list. (→ alfa-target-clause-keyword)
-
-2. **`apply` inside body**: Axiomatics files put `apply firstApplicable` INSIDE the `{ }` body rather than before it. Grammar updated to allow `applying_kw` in `policy_body` and `policyset_body`; transformers extract it when not present in the pre-body position. (→ alfa-apply-in-body)
-
-3. **`and`/`or` keyword operators**: Healthcare and aerospace policies use `target clause A and B` (not `&&`). Added `AND_WORD_OP` and `OR_WORD_OP` regex terminals and updated `and_expr`/`or_expr` to accept either form. (→ alfa-keyword-exclusion-in-dotted-id)
-
-4. **Inline `{ }` advice/obligation blocks**: Axiomatics uses `advice name { field = value }` instead of `advice name (field = value)`. Added `aae_block: aae_entry*` rule and alternative brace syntax to `advice_ref`/`obligation_ref`.
-
-5. **Bare cross-references in policyset body**: `aerospace.alfa` references other policysets by bare name (`globalchecks`, `portal`) without a `policy`/`policyset` keyword. Added `ref_stmt: DOTTED_ID` to `policyset_body`. (→ alfa-policyset-cross-references)
-
-6. **system.alfa declarations**: The Axiomatics runtime config file uses `ruleCombinator`, `policyCombinator`, `type`, `category`, `function`, `infix` declarations. Added grammar rules for all six; all return `None` from the transformer (purely metadata for the PDP runtime, not policy constructs). The `infix` body uses a `INFIX_BODY: /[^}]+/` terminal to avoid requiring a full type-signature grammar. (→ alfa-system-decl-discard)
-
-7. **`obligation_decl`/`advice_decl` with `=` form**: The Axiomatics `attributes.alfa` uses `obligation fields = "..."` (with `=`) where our grammar expected `obligation fields "..."` (bare). Extended both to `("=" STRING | STRING)?`.
-
-8. **`on_clause` in rule bodies**: All Axiomatics policy files attach `on permit`/`on deny` blocks to individual rules, not to the enclosing policy. Added `on_clause` to `rule_body` and updated `rule_decl` to collect `NoticeExpression` from the rule body.
-
-9. **`PolicySet` at namespace level**: `namespace_decl` and `start` previously only collected `"Policy"` items, silently dropping `"PolicySet"` results from `policyset_decl`. Fixed by treating `"PolicySet"` as equivalent to `"Policy"` at the top-level neutral dict — the ACAL neutral dict always uses `{"Policy": ...}` regardless. (→ alfa-policyset-as-policy)
-
-**UX polish added this session**: `--include` now warns when used with non-ALFA formats; `--debug` dumps the resolved symbol table to stderr; `ALFASyntaxError` includes line/column from Lark's `UnexpectedInput`.
+**acal-converter after extraction:** `pyproject.toml` depends on `acal-core` + `click` only (no more lark/ruamel.yaml). `cli.py` imports from `acal_core.readers` and `acal_core.writers`. `__init__.py` re-exports `convert`, `detect_format`, `load` from `acal_core` for backward compatibility.
 
 ## Open Items for Next Session
 
-- **Nested attribute resolution for dotted paths**: `user.clearance`, `record.department`, etc. in Axiomatics policies resolve to unresolved attr warnings because the attributes are declared in nested namespaces (`namespace user { attribute clearance ... }`). The current resolver looks up only the first path segment in the flat symbol table. Extending to resolve nested namespace paths (e.g., `user.clearance` → `axiomatics.demo.user.clearance`) would eliminate these warnings.
+- **Build `acal-explain`** (branch `acal-explain` from `acal-core`):
+  1. `acal-explain/` directory with own `pyproject.toml` depending on `acal-core` + `litellm` + `click`
+  2. Structured policy analyzer: default-deny gap detection, shadowed rule detection, obligation completeness, attribute assumption gaps
+  3. `litellm`-based LLM abstraction with config file (`~/.config/acal-explain/config.toml` + env var overrides)
+  4. Two-call prompting strategy: (1) structural summary, (2) observations/nuances
+  5. CLI: `acal-explain <file> [--format text|markdown|json] [--output file]`
+  6. Input restricted to XACML/YACAL/JACAL (ALFA must be converted first via acal-convert)
+- **Nested attribute resolution for dotted paths**: `user.clearance`, `record.department` etc. still produce unresolved-attribute warnings because the resolver doesn't walk nested namespace declarations. Known limitation, not blocking.
 - **Phase 7**: Run `/code-review` on the ALFA reader diff
 - **Phase 8**: Refine `import-model` skill with lessons from ALFA implementation
 - **Existing open items** (pre-this-session):

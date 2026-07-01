@@ -1,5 +1,13 @@
 # Architectural Decisions
 
+## acal-core-as-shared-library (June 2026)
+
+All format readers and writers live in a dedicated `acal-core/` package. The `acal-converter` tool is a thin CLI wrapper that imports from it. Future tools (`acal-explain`, and any others) depend on `acal-core` directly.
+
+**WHY**: The `acal-explain` tool needs the same readers and format-detection logic as `acal-converter`. The original per-tool-directory pattern (one self-contained `pyproject.toml` per tool, no shared libraries) was chosen to avoid build-system coupling — but it only holds when tools share no logic. Once a second tool needs the same readers, the only options are duplication or a shared library. Duplication is worse: two copies of the ALFA grammar and Lark transformer would diverge. The shared library breaks the pattern intentionally and only for logic that genuinely belongs at the core: parsing and serialization of ACAL formats. CLI entrypoints, configuration, and output formatting remain per-tool. Writers were included alongside readers because future bidirectional conversion (ACAL → source language) will also need shared serializers. (→ per-language-tools-no-xml)
+
+---
+
 ## alfa-policyset-as-policy (June 2026)
 
 A `policyset_decl` that appears at the namespace level is surfaced in the ACAL neutral dict as a `"Policy"` key, not a `"PolicySet"` key.

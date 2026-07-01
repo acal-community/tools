@@ -1,21 +1,17 @@
 [project]
-name = "acal-converter"
-version = "0.2.0"
-description = "Convert between ACAL policy formats (YACAL, JACAL) and from XACML 2.0–4.0"
+name = "acal-core"
+version = "0.1.0"
+description = "Core readers and writers for ACAL policy formats (XACML, YACAL, JACAL, ALFA)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 dependencies = [
-    "acal-core",
-    "click>=8.1",
+    "lark>=1.1",
+    "ruamel.yaml>=0.18",
 ]
 
 [project.optional-dependencies]
-validate = ["yacal-validator", "jacal-validator"]
 dev = ["pytest>=8.0"]
-
-[project.scripts]
-acal-convert = "acal_converter.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
