@@ -223,16 +223,3 @@ The test suite (`tests/test_converter.py`) covers:
 - `XACMLUnsupportedFeatureError` is catchable as `ValueError`
 - CLI: auto-detection, `--from` override, `-o` output, error exit codes
 
----
-
-## Publishing to PyPI
-
-From the `acal-converter/` directory:
-
-```bash
-pip install build twine
-python -m build
-twine upload dist/*
-```
-
-Update `version` in `pyproject.toml` before each release.
