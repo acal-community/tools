@@ -9,10 +9,11 @@ Converts policy documents between ACAL serialization formats, and reads legacy X
 | YACAL (`.yaml`) | JACAL (`.json`) | ↔ bidirectional | Lossless round-trip |
 | JACAL (`.json`) | YACAL (`.yaml`) | ↔ bidirectional | Lossless round-trip |
 | XACML 2.0–4.0 (`.xml`) | YACAL or JACAL | → input only | Version detected from namespace (`XACMLVersion` enum); V2.0/V3.0 require identifier remapping |
+| Axiomatics PDP 7.x ALFA dialect (`.alfa`) | YACAL or JACAL | → input only | See [ALFA input](#alfa-input) |
 
 YACAL and JACAL represent the same ACAL data model — one in YAML, one in JSON. Conversion between them is always lossless.
 
-XACML is input-only. See [docs/policy-language-expressiveness.md](docs/policy-language-expressiveness.md) for the rationale.
+XACML and ALFA are input-only. See [docs/policy-language-expressiveness.md](docs/policy-language-expressiveness.md) for the gap analysis and rationale.
 
 ---
 
@@ -138,6 +139,27 @@ acal-convert --to jacal -o out.json legacy-policy.xml --validate
 ```
 
 `--validate` requires `-o` (output file) because it invokes `jacal-validate` or `yacal-validate` on the written file. Validation is skipped with a warning if the output goes to stdout.
+
+---
+
+## ALFA input
+
+ALFA (Abbreviated Language for Authorization) is a concise DSL for authoring XACML/ACAL policies, used by the Axiomatics PDP toolchain. `acal-convert` reads the **Axiomatics PDP 7.x ALFA dialect** as documented on [alfa.guide](https://alfa.guide/).
+
+```bash
+# Simple conversion
+acal-convert --from alfa --to yacal my-policy.alfa
+
+# With attribute registries (resolves shorthand attribute names)
+acal-convert --from alfa --to yacal \
+    --include standard-attributes.alfa \
+    --include attributes.alfa \
+    my-policy.alfa
+```
+
+The `--include` flag loads additional ALFA files (attribute registries, standard namespace declarations like `system.alfa`) for symbol resolution. These files are not converted — they only contribute to the attribute, obligation, and advice symbol table used by the main policy file.
+
+See [docs/policy-language-expressiveness.md](docs/policy-language-expressiveness.md) for full coverage details: all 9 combining algorithms, complete function map, bag overloading semantics, and gap dispositions.
 
 ---
 

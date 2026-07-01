@@ -1,0 +1,26 @@
+namespace com.example {
+    attribute roles {
+        category = subjectCat
+        id = "urn:example:attribute:roles"
+        type = bag
+        datatype = string
+    }
+
+    attribute intBag {
+        category = subjectCat
+        id = "urn:example:attribute:int-bag"
+        type = bag
+        datatype = integer
+    }
+
+    policy BagComparisonPolicy apply denyOverrides {
+        rule AllowAdmin {
+            permit
+            condition roles == "admin"
+        }
+        rule DenyGroup {
+            deny
+            condition intBag == 99
+        }
+    }
+}

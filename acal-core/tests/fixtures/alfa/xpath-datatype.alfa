@@ -1,0 +1,13 @@
+namespace com.example {
+    attribute docPath {
+        category = resourceCat
+        id = "urn:example:attribute:doc-path"
+        type = xpath
+    }
+
+    policy XPathTypePolicy apply denyOverrides {
+        rule AllowAll {
+            permit
+        }
+    }
+}

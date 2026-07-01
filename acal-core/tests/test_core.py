@@ -635,14 +635,94 @@ def test_alfa_axiomatics_apply_inside_body():
 # Bag attribute, malformed syntax
 # ---------------------------------------------------------------------------
 
-def test_alfa_bag_attribute_is_bag_true():
+def test_alfa_bag_attribute_untyped_expands_to_string_is_in():
+    # type=bag (no datatype) → defaults to string-is-in(scalar, bag)
     doc = load_alfa(str(ALFA / "bag-attribute.alfa"))
     assert "Policy" in doc
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]
     cmp = rule["Condition"]["Apply"]
-    desig = cmp["Argument"][0]["AttributeDesignator"]
+    assert cmp["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-is-in"
+    # string-is-in(scalar, bag): scalar first, bag second
+    assert cmp["Argument"][0] == {"Value": "admin"}
+    desig = cmp["Argument"][1]["AttributeDesignator"]
     assert desig["AttributeId"] == "urn:example:attribute:roles"
     assert desig["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+
+
+def test_alfa_bag_comparison_string_is_in():
+    doc = load_alfa(str(ALFA / "bag-comparison.alfa"))
+    assert "Policy" in doc
+    rule0 = doc["Policy"]["CombinerInput"][0]["Rule"]
+    cmp0 = rule0["Condition"]["Apply"]
+    assert cmp0["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-is-in"
+    assert cmp0["Argument"][0] == {"Value": "admin"}
+    assert cmp0["Argument"][1]["AttributeDesignator"]["AttributeId"] == "urn:example:attribute:roles"
+
+
+def test_alfa_bag_comparison_integer_is_in():
+    doc = load_alfa(str(ALFA / "bag-comparison.alfa"))
+    assert "Policy" in doc
+    rule1 = doc["Policy"]["CombinerInput"][1]["Rule"]
+    cmp1 = rule1["Condition"]["Apply"]
+    assert cmp1["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:integer-is-in"
+    assert cmp1["Argument"][0] == {"Value": 99}
+    assert cmp1["Argument"][1]["AttributeDesignator"]["AttributeId"] == "urn:example:attribute:int-bag"
+
+
+def test_alfa_ordered_deny_overrides():
+    doc = load_alfa(str(ALFA / "ordered-deny-overrides.alfa"))
+    assert "Policy" in doc
+    assert doc["Policy"]["CombiningAlgId"] == (
+        "urn:oasis:names:tc:acal:1.0:combining-algorithm:ordered-deny-overrides"
+    )
+
+
+def test_alfa_ordered_permit_overrides():
+    doc = load_alfa(str(ALFA / "ordered-permit-overrides.alfa"))
+    assert "Policy" in doc
+    assert doc["Policy"]["CombiningAlgId"] == (
+        "urn:oasis:names:tc:acal:1.0:combining-algorithm:ordered-permit-overrides"
+    )
+
+
+def test_alfa_date_comparison_functions():
+    doc = load_alfa(str(ALFA / "date-comparison.alfa"))
+    assert "Policy" in doc
+    rule0 = doc["Policy"]["CombinerInput"][0]["Rule"]
+    cmp0 = rule0["Condition"]["Apply"]
+    assert cmp0["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:date-greater-than"
+    # Verify dateFromString nested call
+    date_arg = cmp0["Argument"][1]["Apply"]
+    assert date_arg["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:date-from-string"
+    assert date_arg["Argument"][0] == {"Value": "2020-01-01"}
+
+
+def test_alfa_portal_zero_unknown_function_warnings():
+    """portal.alfa with its include chain should produce no unknown-function warnings
+    after the expanded _NAMED_FUNCTION_MAP covers all system.alfa entries."""
+    includes = [
+        str(ALFA / "system.alfa"),
+        str(ALFA / "standard-attributes.alfa"),
+        str(ALFA / "adaf_standard_attributes.alfa"),
+        str(ALFA / "demo-attributes.alfa"),
+    ]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_alfa(str(ALFA / "portal.alfa"), include=includes)
+    assert "Policy" in doc or "Bundle" in doc
+    unknown = [str(w.message) for w in caught if "Unknown ALFA function" in str(w.message)]
+    assert unknown == [], f"Unexpected unknown-function warnings:\n" + "\n".join(unknown)
+
+
+def test_alfa_xpath_datatype_warns():
+    """Declaring type = xpath should emit a UserWarning (no ACAL 1.0 equivalent)."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_alfa(str(ALFA / "xpath-datatype.alfa"))
+    assert "Policy" in doc
+    xpath_warns = [w for w in caught if "xpath" in str(w.message).lower()]
+    assert xpath_warns, "Expected a UserWarning about xpath datatype with no ACAL 1.0 equivalent"
+    assert "ACAL 1.0" in str(xpath_warns[0].message)
 
 
 def test_alfa_malformed_syntax_raises_syntax_error():

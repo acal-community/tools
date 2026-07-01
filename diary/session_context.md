@@ -1,45 +1,52 @@
 # Session Context
 
-## Current State (June 2026)
+## Current State (July 2026)
 
-Three packages are now in active development on the `acal-explain` branch (which includes all `acal-core` work):
+Three packages on the `acal-converter` branch (includes all `acal-core` and `acal-explain` work):
 
-- **`acal-core/`** — shared library with all format readers, writers, and detection logic. 81 tests.
+- **`acal-core/`** — shared library with all format readers, writers, and detection logic. 87 tests.
 - **`acal-converter/`** — thin CLI wrapper (`acal-convert`) over `acal-core`. 20 tests.
-- **`acal-explain/`** — new standalone tool (`acal-explain`) that loads an ACAL policy, runs structural analysis, and calls an LLM (via litellm) to produce a plain-English explanation. 30 tests.
+- **`acal-explain/`** — standalone policy explanation tool. 30 tests.
 
-All 131 tests pass. Each package runs its own pytest suite in isolation from its own directory (per-tool-directory pattern). The cross-package run from the tools root has a conftest naming collision due to multiple packages sharing the same test file names — each tool is intended to be tested independently.
+All 107 tests pass (acal-core: 87, acal-converter: 20). The ALFA reader is now fully aligned with the Axiomatics PDP 7.x dialect as documented on alfa.guide.
 
-## Most Recent Session (June 2026)
+## Most Recent Session (July 2026)
 
-### acal-explain implementation
+### alfa.guide audit + ALFA reader alignment
 
-**Why this work:** The grill-me interview from the previous session established that explaining ACAL policies in plain English would be a standalone tool, not a flag on `acal-convert`. It needs the same readers as `acal-converter` (now shared via `acal-core`), an LLM abstraction, and a structured analysis pass that gives the LLM factual grounding rather than asking it to reason cold from raw JSON.
+**Why this work:** The user discovered https://alfa.guide/ and asked for a read-only audit of the ALFA reader against it. The audit identified three categories of gaps: missing combining algorithms, incomplete named function map, and unused bag-attribute metadata (`is_bag` tracked but not acted on). After the audit was presented, the user directed a full implementation pass to close all five gap priorities.
 
-**Structured analyzer (`analyzer.py`):** Computes deterministic, LLM-free observations from the loaded neutral dict: default effect given the combining algorithm, shadowed/unreachable rules (firstApplicable with unconditional Permit before Deny; denyOverrides with unconditional dominant rule), obligation/advice gaps (effects with rules but no associated notices), and unresolved attribute designators (no Category declared). These facts feed both LLM calls as grounding context. (→ acal-explain-two-call-llm)
+**Combining algorithms:** We implemented 6 of 9 documented algorithms. Added `orderedDenyOverrides`, `orderedPermitOverrides`, and `onPermitApplySecond` to `ACAL_COMBINING_ALGO_MAP`. All 9 are now covered — custom/unknown names still warn (or error under `--strict`) and pass through. (→ acal-combining-algo-map-complete)
 
-**LLM layer (`llm.py`):** Two separate `litellm.completion` calls — call 1 (structural summary) receives the full neutral dict serialized as JSON alongside metadata; call 2 (observations) receives only the structured analysis findings. Keeping them separate means the first call can focus on "what does this policy do" while the second focuses on "what should a reviewer care about." litellm is imported at module level (not inside the function) so tests can mock it cleanly. (→ litellm-module-level-import-for-mocking)
+**Function map expansion:** The previous `_NAMED_FUNCTION_MAP` covered ~20 functions (basic string, integer, boolean). Expanded to all entries from `system.alfa` — the canonical Axiomatics reference. This adds ~150 entries covering: typed equality, arithmetic, string manipulation, date/time comparisons and arithmetic, type conversion, bag one-and-only/bag-size/is-in/constructor, bag set operations, higher-order bag functions (any-of, all-of, map), match functions, and XPath introspection. The Axiomatics XACML version prefix (`xacml:1.0/2.0/3.0`) is always mapped to `acal:1.0`. Unknown functions still warn + pass through. (→ alfa-function-map-sources-from-system-alfa)
 
-**Config (`config.py`):** Reads `~/.config/acal-explain/config.toml` for `[llm]` (model, api_key, api_base) and `[output]` (format). Environment variables `ACAL_EXPLAIN_MODEL`, `ACAL_EXPLAIN_API_KEY`, `ACAL_EXPLAIN_API_BASE` take precedence. Model strings follow litellm's `provider/model` convention (e.g. `anthropic/claude-sonnet-4-6`, `ollama/llama3`). No model versions are hardcoded — the config file is the source of truth. (→ acal-explain-config-file)
+**Bag overloading (V2):** The `is_bag` flag was collected in the symbol table but never used during expression generation. Infix `==` on a bag attribute like `roles == "admin"` was incorrectly producing `string-equal(bag, "admin")`. Now it expands to `string-is-in("admin", bag)` (scalar first, bag second). Type-aware: `datatype = integer` → `integer-is-in`, etc. Uses a private `_bag: True` marker on the attribute designator wrapper dict that is consumed and stripped by `cmp_expr`. `!=` expands to `not(string-is-in(...))`. (→ alfa-bag-overloading-private-marker)
 
-**CLI (`cli.py`):** `acal-explain <file> [--from xacml|yacal|jacal] [--format text|markdown|json] [--output file] [--model string]`. ALFA input is explicitly rejected with a clear error message directing the user to convert first — ALFA is a source format, not an ACAL policy language, so the tool only explains what the ACAL family is expressing. (→ acal-explain-acal-only-input)
+**`type = bag` is a cardinality modifier, not a data type:** When an attribute declares `type = bag`, the string "bag" is a cardinality flag — it should not become the `DataType` in the AttributeDesignator. Fixed: `attr_type` is cleared to `""` when `"bag"` is detected, keeping only `is_bag = True`. A separate `datatype = integer` clause (processed only when `attr_type` is empty) then sets the element type correctly. (→ alfa-bag-type-is-cardinality-not-datatype)
 
-**Tests:** Analyzer tests cover combining-algorithm semantics, shadow detection, obligation gaps, unresolved attrs, and bundle documents — all without LLM calls. CLI tests mock `litellm.completion` using `unittest.mock.patch` against the module-level import.
+**xpath datatype warning:** Attributes declaring `type = xpath` now emit `UserWarning` at symbol-collection time. The `xpath` datatype has no ACAL 1.0 equivalent; the xpathExpression type was not carried into ACAL 1.0.
+
+**Documentation:** Created `acal-converter/docs/policy-language-expressiveness.md` (was missing despite being referenced in the README). Covers both XACML and ALFA with full gap tables, disposition explanations, alfa.guide link, and the bag overloading V2 semantics. Updated `acal-converter/README.md` to add ALFA to the supported conversions table and add a dedicated ALFA input section referencing alfa.guide.
+
+**New fixtures and tests:** `ordered-deny-overrides.alfa`, `ordered-permit-overrides.alfa`, `bag-comparison.alfa` (string-is-in + integer-is-in), `date-comparison.alfa` (dateGreaterThan + dateLessThanOrEqual + dateFromString). Updated the existing `test_alfa_bag_attribute_is_bag_true` test — it now correctly asserts `string-is-in` and argument order, rather than the old (wrong) `string-equal` output.
+
+**portal.alfa zero-warning smoke test:** Added `test_alfa_portal_zero_unknown_function_warnings` — loads portal.alfa with its full include chain and asserts zero "Unknown ALFA function" warnings. This is the regression gate ensuring the expanded function map stays complete.
 
 ## Open Items for Next Session
 
-- **README files**: `acal-core/README.md` and `acal-explain/README.md` are empty placeholders. Populate once the feature set is stable enough to document.
-- **Nested attribute resolution for dotted paths**: `user.clearance`, `record.department` etc. still produce unresolved-attribute warnings in the ALFA reader because nested namespace declarations aren't walked. Known limitation, tracked in analyzer output as `unresolved_attrs`.
-- **Streaming output**: Large policies produce slow LLM responses with no feedback. A `--stream` flag or streaming litellm calls would improve UX for interactive use.
-- **`acal-explain` end-to-end smoke test** with a real LLM (CI-gated behind an env var check).
+- **README files**: `acal-core/README.md` is still an empty placeholder. `acal-explain/README.md` was populated in a prior session.
+- **Nested attribute resolution**: `user.clearance`, `record.department`, `medicalrecord.patientId` etc. still produce unresolved-attribute warnings (22 in current suite) because nested namespace paths aren't walked. Known limitation; tracked in analyzer output as `unresolved_attrs`.
+- **Infix comparison type dispatch**: The `>`, `<`, `>=`, `<=` operators default to `integer-*` functions regardless of attribute type. For double/date/time attributes they should dispatch to typed comparisons. The `==` operator similarly defaults to `string-equal` for non-bag scalar attributes; should dispatch to typed equality. Deferred to a follow-on pass.
+- **Streaming output for acal-explain**: `--stream` flag or streaming litellm calls.
+- **`acal-explain` end-to-end smoke test** with a real LLM (CI-gated).
 - **Phase 7**: Run `/code-review` on the ALFA reader diff.
-- **Phase 8**: Refine `import-model` skill with lessons from ALFA implementation.
-- **Cross-package pytest**: Running all tests from the tools root fails due to conftest naming collision. Consider adding a root `conftest.py` or `pytest.ini` that namespaces test discovery per package.
-- **Existing open items** (pre-this-session):
+- **Phase 8**: Refine `import-model` skill with lessons from ALFA implementation and this session.
+- **Cross-package pytest fix**: Root conftest.py or pytest.ini for tools-root test discovery.
+- **Pre-existing open items**:
   - Create PRs for `yacal-validator` and `jacal-validator` branches
-  - Delete `acal-validator` branch once `jacal-validator` PR is merged
+  - Delete `acal-validator` branch once merged
   - Populate root `README.md`
-  - File upstream spec bugs (5 items from prior sessions)
+  - File upstream spec bugs (5 items)
   - Publish to PyPI when stable
 
 ## Key Diary Files

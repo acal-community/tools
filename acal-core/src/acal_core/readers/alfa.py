@@ -1,5 +1,10 @@
 """
-ALFA (Abbreviated Language for Authorization) reader.
+Axiomatics PDP 7.x ALFA dialect reader.
+
+ALFA (Abbreviated Language for Authorization) was submitted to OASIS in March 2014
+but was never published as a formally versioned standard. This reader targets the
+Axiomatics PDP 7.x dialect, which is the de-facto reference implementation.
+See https://alfa.guide/ for the canonical syntax and function reference.
 
 Two-pass conversion:
   Pass 1: _collect_symbols(tree) — walk raw Lark Tree, build _SymbolTable
@@ -8,6 +13,11 @@ Two-pass conversion:
 Grammar uses _ prefix on keyword terminals so they are auto-discarded from
 transformer item lists; only value-carrying terminals (PERMIT_KW, CMP_OP, etc.)
 remain visible to the transformer.
+
+The grammar is defined inline as _ALFA_GRAMMAR below. It is maintained here
+(not as a separate .lark file) to avoid packaging complexity — add the extract
+to pyproject.toml package_data only if the grammar grows large enough to warrant
+standalone diffing.
 """
 
 from __future__ import annotations
@@ -39,12 +49,16 @@ class ALFAUnsupportedFeatureError(ValueError):
 # ---------------------------------------------------------------------------
 
 ACAL_COMBINING_ALGO_MAP: dict[str, str] = {
-    "denyOverrides":     "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides",
-    "permitOverrides":   "urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-overrides",
-    "firstApplicable":   "urn:oasis:names:tc:acal:1.0:combining-algorithm:first-applicable",
-    "denyUnlessPermit":  "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
-    "permitUnlessDeny":  "urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-unless-deny",
-    "onlyOneApplicable": "urn:oasis:names:tc:acal:1.0:combining-algorithm:only-one-applicable",
+    "denyOverrides":          "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides",
+    "permitOverrides":        "urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-overrides",
+    "firstApplicable":        "urn:oasis:names:tc:acal:1.0:combining-algorithm:first-applicable",
+    "denyUnlessPermit":       "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
+    "permitUnlessDeny":       "urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-unless-deny",
+    "onlyOneApplicable":      "urn:oasis:names:tc:acal:1.0:combining-algorithm:only-one-applicable",
+    # Ordered variants and onPermitApplySecond — documented on alfa.guide
+    "orderedDenyOverrides":   "urn:oasis:names:tc:acal:1.0:combining-algorithm:ordered-deny-overrides",
+    "orderedPermitOverrides": "urn:oasis:names:tc:acal:1.0:combining-algorithm:ordered-permit-overrides",
+    "onPermitApplySecond":    "urn:oasis:names:tc:acal:1.0:combining-algorithm:on-permit-apply-second",
 }
 
 ACAL_CATEGORY_MAP: dict[str, str] = {
@@ -74,29 +88,295 @@ _INFIX_FUNCTION_MAP: dict[str, str] = {
     "!":   "urn:oasis:names:tc:acal:1.0:function:not",
 }
 
+# All named functions from system.alfa, converted to ACAL 1.0 URNs.
+# See https://alfa.guide/ for the canonical Axiomatics PDP 7.x dialect reference.
 _NAMED_FUNCTION_MAP: dict[str, str] = {
-    "stringEqual":               "urn:oasis:names:tc:acal:1.0:function:string-equal",
-    "stringContains":            "urn:oasis:names:tc:acal:1.0:function:string-contains",
-    "stringStartsWith":          "urn:oasis:names:tc:acal:1.0:function:string-starts-with",
-    "stringEndsWith":            "urn:oasis:names:tc:acal:1.0:function:string-ends-with",
-    "integerEqual":              "urn:oasis:names:tc:acal:1.0:function:integer-equal",
-    "integerGreaterThan":        "urn:oasis:names:tc:acal:1.0:function:integer-greater-than",
-    "integerLessThan":           "urn:oasis:names:tc:acal:1.0:function:integer-less-than",
-    "integerGreaterThanOrEqual": "urn:oasis:names:tc:acal:1.0:function:integer-greater-than-or-equal",
-    "integerLessThanOrEqual":    "urn:oasis:names:tc:acal:1.0:function:integer-less-than-or-equal",
-    "booleanEqual":              "urn:oasis:names:tc:acal:1.0:function:boolean-equal",
-    "dateEqual":                 "urn:oasis:names:tc:acal:1.0:function:date-equal",
-    "timeEqual":                 "urn:oasis:names:tc:acal:1.0:function:time-equal",
-    "dateTimeEqual":             "urn:oasis:names:tc:acal:1.0:function:dateTime-equal",
-    "stringAtLeastOneMemberOf":  "urn:oasis:names:tc:acal:1.0:function:string-at-least-one-member-of",
-    "stringIsIn":                "urn:oasis:names:tc:acal:1.0:function:string-is-in",
-    "stringSubset":              "urn:oasis:names:tc:acal:1.0:function:string-subset",
-    "stringSetEquals":           "urn:oasis:names:tc:acal:1.0:function:string-set-equals",
-    "integerAtLeastOneMemberOf": "urn:oasis:names:tc:acal:1.0:function:integer-at-least-one-member-of",
-    "integerIsIn":               "urn:oasis:names:tc:acal:1.0:function:integer-is-in",
-    "not":                       "urn:oasis:names:tc:acal:1.0:function:not",
-    "and":                       "urn:oasis:names:tc:acal:1.0:function:and",
-    "or":                        "urn:oasis:names:tc:acal:1.0:function:or",
+    # --- Equality ---
+    "stringEqual":                   "urn:oasis:names:tc:acal:1.0:function:string-equal",
+    "booleanEqual":                  "urn:oasis:names:tc:acal:1.0:function:boolean-equal",
+    "integerEqual":                  "urn:oasis:names:tc:acal:1.0:function:integer-equal",
+    "doubleEqual":                   "urn:oasis:names:tc:acal:1.0:function:double-equal",
+    "dateEqual":                     "urn:oasis:names:tc:acal:1.0:function:date-equal",
+    "timeEqual":                     "urn:oasis:names:tc:acal:1.0:function:time-equal",
+    "dateTimeEqual":                 "urn:oasis:names:tc:acal:1.0:function:dateTime-equal",
+    "dayTimeDurationEqual":          "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-equal",
+    "yearMonthDurationEqual":        "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-equal",
+    "stringEqualIgnoreCase":         "urn:oasis:names:tc:acal:1.0:function:string-equal-ignore-case",
+    "anyURIEqual":                   "urn:oasis:names:tc:acal:1.0:function:anyURI-equal",
+    "x500NameEqual":                 "urn:oasis:names:tc:acal:1.0:function:x500Name-equal",
+    "rfc822NameEqual":               "urn:oasis:names:tc:acal:1.0:function:rfc822Name-equal",
+    "hexBinaryEqual":                "urn:oasis:names:tc:acal:1.0:function:hexBinary-equal",
+    "base64BinaryEqual":             "urn:oasis:names:tc:acal:1.0:function:base64Binary-equal",
+    # --- Arithmetic ---
+    "integerAdd":                    "urn:oasis:names:tc:acal:1.0:function:integer-add",
+    "doubleAdd":                     "urn:oasis:names:tc:acal:1.0:function:double-add",
+    "integerSubtract":               "urn:oasis:names:tc:acal:1.0:function:integer-subtract",
+    "doubleSubtract":                "urn:oasis:names:tc:acal:1.0:function:double-subtract",
+    "integerMultiply":               "urn:oasis:names:tc:acal:1.0:function:integer-multiply",
+    "doubleMultiply":                "urn:oasis:names:tc:acal:1.0:function:double-multiply",
+    "integerDivide":                 "urn:oasis:names:tc:acal:1.0:function:integer-divide",
+    "doubleDivide":                  "urn:oasis:names:tc:acal:1.0:function:double-divide",
+    "integerMod":                    "urn:oasis:names:tc:acal:1.0:function:integer-mod",
+    "integerAbs":                    "urn:oasis:names:tc:acal:1.0:function:integer-abs",
+    "doubleAbs":                     "urn:oasis:names:tc:acal:1.0:function:double-abs",
+    "round":                         "urn:oasis:names:tc:acal:1.0:function:round",
+    "floor":                         "urn:oasis:names:tc:acal:1.0:function:floor",
+    # --- String manipulation ---
+    "stringNormalizeSpace":          "urn:oasis:names:tc:acal:1.0:function:string-normalize-space",
+    "stringNormalizeToLowerCase":    "urn:oasis:names:tc:acal:1.0:function:string-normalize-to-lower-case",
+    "stringConcatenate":             "urn:oasis:names:tc:acal:1.0:function:string-concatenate",
+    "stringContains":                "urn:oasis:names:tc:acal:1.0:function:string-contains",
+    "stringStartsWith":              "urn:oasis:names:tc:acal:1.0:function:string-starts-with",
+    "stringEndsWith":                "urn:oasis:names:tc:acal:1.0:function:string-ends-with",
+    "stringSubString":               "urn:oasis:names:tc:acal:1.0:function:string-substring",
+    "anyURIStartsWith":              "urn:oasis:names:tc:acal:1.0:function:anyURI-starts-with",
+    "anyURIEndsWith":                "urn:oasis:names:tc:acal:1.0:function:anyURI-ends-with",
+    "anyURIContains":                "urn:oasis:names:tc:acal:1.0:function:anyURI-contains",
+    "anyURISubString":               "urn:oasis:names:tc:acal:1.0:function:anyURI-substring",
+    # --- Type conversion ---
+    "doubleToInteger":               "urn:oasis:names:tc:acal:1.0:function:double-to-integer",
+    "integerToDouble":               "urn:oasis:names:tc:acal:1.0:function:integer-to-double",
+    "booleanFromString":             "urn:oasis:names:tc:acal:1.0:function:boolean-from-string",
+    "stringFromBoolean":             "urn:oasis:names:tc:acal:1.0:function:string-from-boolean",
+    "integerFromString":             "urn:oasis:names:tc:acal:1.0:function:integer-from-string",
+    "stringFromInteger":             "urn:oasis:names:tc:acal:1.0:function:string-from-integer",
+    "doubleFromString":              "urn:oasis:names:tc:acal:1.0:function:double-from-string",
+    "stringFromDouble":              "urn:oasis:names:tc:acal:1.0:function:string-from-double",
+    "timeFromString":                "urn:oasis:names:tc:acal:1.0:function:time-from-string",
+    "stringFromTime":                "urn:oasis:names:tc:acal:1.0:function:string-from-time",
+    "dateFromString":                "urn:oasis:names:tc:acal:1.0:function:date-from-string",
+    "stringFromDate":                "urn:oasis:names:tc:acal:1.0:function:string-from-date",
+    "dateTimeFromString":            "urn:oasis:names:tc:acal:1.0:function:dateTime-from-string",
+    "stringFromDateTime":            "urn:oasis:names:tc:acal:1.0:function:string-from-dateTime",
+    "anyURIFromString":              "urn:oasis:names:tc:acal:1.0:function:anyURI-from-string",
+    "stringFromAnyURI":              "urn:oasis:names:tc:acal:1.0:function:string-from-anyURI",
+    "dayTimeDurationFromString":     "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-from-string",
+    "stringFromDayTimeDuration":     "urn:oasis:names:tc:acal:1.0:function:string-from-dayTimeDuration",
+    "yearMonthDurationFromString":   "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-from-string",
+    "stringFromYearMonthDuration":   "urn:oasis:names:tc:acal:1.0:function:string-from-yearMonthDuration",
+    "x500NameFromString":            "urn:oasis:names:tc:acal:1.0:function:x500Name-from-string",
+    "stringFromX500Name":            "urn:oasis:names:tc:acal:1.0:function:string-from-x500Name",
+    "rfc822NameFromString":          "urn:oasis:names:tc:acal:1.0:function:rfc822Name-from-string",
+    "stringFromRfc822Name":          "urn:oasis:names:tc:acal:1.0:function:string-from-rfc822Name",
+    "ipAddressFromString":           "urn:oasis:names:tc:acal:1.0:function:ipAddress-from-string",
+    "stringFromIpAddress":           "urn:oasis:names:tc:acal:1.0:function:string-from-ipAddress",
+    "dnsNameFromString":             "urn:oasis:names:tc:acal:1.0:function:dnsName-from-string",
+    "stringFromDnsName":             "urn:oasis:names:tc:acal:1.0:function:string-from-dnsName",
+    # --- Logical ---
+    "not":                           "urn:oasis:names:tc:acal:1.0:function:not",
+    "and":                           "urn:oasis:names:tc:acal:1.0:function:and",
+    "or":                            "urn:oasis:names:tc:acal:1.0:function:or",
+    "orFunction":                    "urn:oasis:names:tc:acal:1.0:function:or",
+    "andFunction":                   "urn:oasis:names:tc:acal:1.0:function:and",
+    "nOf":                           "urn:oasis:names:tc:acal:1.0:function:n-of",
+    # --- Comparison (typed) ---
+    "integerGreaterThan":            "urn:oasis:names:tc:acal:1.0:function:integer-greater-than",
+    "integerGreaterThanOrEqual":     "urn:oasis:names:tc:acal:1.0:function:integer-greater-than-or-equal",
+    "integerLessThan":               "urn:oasis:names:tc:acal:1.0:function:integer-less-than",
+    "integerLessThanOrEqual":        "urn:oasis:names:tc:acal:1.0:function:integer-less-than-or-equal",
+    "doubleGreaterThan":             "urn:oasis:names:tc:acal:1.0:function:double-greater-than",
+    "doubleGreaterThanOrEqual":      "urn:oasis:names:tc:acal:1.0:function:double-greater-than-or-equal",
+    "doubleLessThan":                "urn:oasis:names:tc:acal:1.0:function:double-less-than",
+    "doubleLessThanOrEqual":         "urn:oasis:names:tc:acal:1.0:function:double-less-than-or-equal",
+    "stringGreaterThan":             "urn:oasis:names:tc:acal:1.0:function:string-greater-than",
+    "stringGreaterThanOrEqual":      "urn:oasis:names:tc:acal:1.0:function:string-greater-than-or-equal",
+    "stringLessThan":                "urn:oasis:names:tc:acal:1.0:function:string-less-than",
+    "stringLessThanOrEqual":         "urn:oasis:names:tc:acal:1.0:function:string-less-than-or-equal",
+    "timeGreaterThan":               "urn:oasis:names:tc:acal:1.0:function:time-greater-than",
+    "timeGreaterThanOrEqual":        "urn:oasis:names:tc:acal:1.0:function:time-greater-than-or-equal",
+    "timeLessThan":                  "urn:oasis:names:tc:acal:1.0:function:time-less-than",
+    "timeLessThanOrEqual":           "urn:oasis:names:tc:acal:1.0:function:time-less-than-or-equal",
+    "timeInRange":                   "urn:oasis:names:tc:acal:1.0:function:time-in-range",
+    "dateTimeGreaterThan":           "urn:oasis:names:tc:acal:1.0:function:dateTime-greater-than",
+    "dateTimeGreaterThanOrEqual":    "urn:oasis:names:tc:acal:1.0:function:dateTime-greater-than-or-equal",
+    "dateTimeLessThan":              "urn:oasis:names:tc:acal:1.0:function:dateTime-less-than",
+    "dateTimeLessThanOrEqual":       "urn:oasis:names:tc:acal:1.0:function:dateTime-less-than-or-equal",
+    "dateGreaterThan":               "urn:oasis:names:tc:acal:1.0:function:date-greater-than",
+    "dateGreaterThanOrEqual":        "urn:oasis:names:tc:acal:1.0:function:date-greater-than-or-equal",
+    "dateLessThan":                  "urn:oasis:names:tc:acal:1.0:function:date-less-than",
+    "dateLessThanOrEqual":           "urn:oasis:names:tc:acal:1.0:function:date-less-than-or-equal",
+    # --- Date/time arithmetic ---
+    "dateTimeAddDayTimeDuration":    "urn:oasis:names:tc:acal:1.0:function:dateTime-add-dayTimeDuration",
+    "dateTimeAddYearMonthDuration":  "urn:oasis:names:tc:acal:1.0:function:dateTime-add-yearMonthDuration",
+    "dateTimeSubtractDayTimeDuration":   "urn:oasis:names:tc:acal:1.0:function:dateTime-subtract-dayTimeDuration",
+    "dateTimeSubtractYearMonthDuration": "urn:oasis:names:tc:acal:1.0:function:dateTime-subtract-yearMonthDuration",
+    "dateAddYearMonthDuration":      "urn:oasis:names:tc:acal:1.0:function:date-add-yearMonthDuration",
+    "dateSubtractYearMonthDuration": "urn:oasis:names:tc:acal:1.0:function:date-subtract-yearMonthDuration",
+    # --- Bag: one-and-only, bag-size, is-in, bag constructor ---
+    "stringOneAndOnly":              "urn:oasis:names:tc:acal:1.0:function:string-one-and-only",
+    "stringBagSize":                 "urn:oasis:names:tc:acal:1.0:function:string-bag-size",
+    "stringIsIn":                    "urn:oasis:names:tc:acal:1.0:function:string-is-in",
+    "stringBag":                     "urn:oasis:names:tc:acal:1.0:function:string-bag",
+    "booleanOneAndOnly":             "urn:oasis:names:tc:acal:1.0:function:boolean-one-and-only",
+    "booleanBagSize":                "urn:oasis:names:tc:acal:1.0:function:boolean-bag-size",
+    "booleanIsIn":                   "urn:oasis:names:tc:acal:1.0:function:boolean-is-in",
+    "booleanBag":                    "urn:oasis:names:tc:acal:1.0:function:boolean-bag",
+    "integerOneAndOnly":             "urn:oasis:names:tc:acal:1.0:function:integer-one-and-only",
+    "integerBagSize":                "urn:oasis:names:tc:acal:1.0:function:integer-bag-size",
+    "integerIsIn":                   "urn:oasis:names:tc:acal:1.0:function:integer-is-in",
+    "integerBag":                    "urn:oasis:names:tc:acal:1.0:function:integer-bag",
+    "doubleOneAndOnly":              "urn:oasis:names:tc:acal:1.0:function:double-one-and-only",
+    "doubleBagSize":                 "urn:oasis:names:tc:acal:1.0:function:double-bag-size",
+    "doubleIsIn":                    "urn:oasis:names:tc:acal:1.0:function:double-is-in",
+    "doubleBag":                     "urn:oasis:names:tc:acal:1.0:function:double-bag",
+    "timeOneAndOnly":                "urn:oasis:names:tc:acal:1.0:function:time-one-and-only",
+    "timeBagSize":                   "urn:oasis:names:tc:acal:1.0:function:time-bag-size",
+    "timeIsIn":                      "urn:oasis:names:tc:acal:1.0:function:time-is-in",
+    "timeBag":                       "urn:oasis:names:tc:acal:1.0:function:time-bag",
+    "dateOneAndOnly":                "urn:oasis:names:tc:acal:1.0:function:date-one-and-only",
+    "dateBagSize":                   "urn:oasis:names:tc:acal:1.0:function:date-bag-size",
+    "dateIsIn":                      "urn:oasis:names:tc:acal:1.0:function:date-is-in",
+    "dateBag":                       "urn:oasis:names:tc:acal:1.0:function:date-bag",
+    "dateTimeOneAndOnly":            "urn:oasis:names:tc:acal:1.0:function:dateTime-one-and-only",
+    "dateTimeBagSize":               "urn:oasis:names:tc:acal:1.0:function:dateTime-bag-size",
+    "dateTimeIsIn":                  "urn:oasis:names:tc:acal:1.0:function:dateTime-is-in",
+    "dateTimeBag":                   "urn:oasis:names:tc:acal:1.0:function:dateTime-bag",
+    "anyURIOneAndOnly":              "urn:oasis:names:tc:acal:1.0:function:anyURI-one-and-only",
+    "anyURIBagSize":                 "urn:oasis:names:tc:acal:1.0:function:anyURI-bag-size",
+    "anyURIIsIn":                    "urn:oasis:names:tc:acal:1.0:function:anyURI-is-in",
+    "anyURIBag":                     "urn:oasis:names:tc:acal:1.0:function:anyURI-bag",
+    "hexBinaryOneAndOnly":           "urn:oasis:names:tc:acal:1.0:function:hexBinary-one-and-only",
+    "hexBinaryBagSize":              "urn:oasis:names:tc:acal:1.0:function:hexBinary-bag-size",
+    "hexBinaryIsIn":                 "urn:oasis:names:tc:acal:1.0:function:hexBinary-is-in",
+    "hexBinaryBag":                  "urn:oasis:names:tc:acal:1.0:function:hexBinary-bag",
+    "base64BinaryOneAndOnly":        "urn:oasis:names:tc:acal:1.0:function:base64Binary-one-and-only",
+    "base64BinaryBagSize":           "urn:oasis:names:tc:acal:1.0:function:base64Binary-bag-size",
+    "base64BinaryIsIn":              "urn:oasis:names:tc:acal:1.0:function:base64Binary-is-in",
+    "base64BinaryBag":               "urn:oasis:names:tc:acal:1.0:function:base64Binary-bag",
+    "dayTimeDurationOneAndOnly":     "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-one-and-only",
+    "dayTimeDurationBagSize":        "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-bag-size",
+    "dayTimeDurationIsIn":           "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-is-in",
+    "dayTimeDurationBag":            "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-bag",
+    "yearMonthDurationOneAndOnly":   "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-one-and-only",
+    "yearMonthDurationBagSize":      "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-bag-size",
+    "yearMonthDurationIsIn":         "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-is-in",
+    "yearMonthDurationBag":          "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-bag",
+    "x500NameOneAndOnly":            "urn:oasis:names:tc:acal:1.0:function:x500Name-one-and-only",
+    "x500NameBagSize":               "urn:oasis:names:tc:acal:1.0:function:x500Name-bag-size",
+    "x500NameIsIn":                  "urn:oasis:names:tc:acal:1.0:function:x500Name-is-in",
+    "x500NameBag":                   "urn:oasis:names:tc:acal:1.0:function:x500Name-bag",
+    "rfc822NameOneAndOnly":          "urn:oasis:names:tc:acal:1.0:function:rfc822Name-one-and-only",
+    "rfc822NameBagSize":             "urn:oasis:names:tc:acal:1.0:function:rfc822Name-bag-size",
+    "rfc822NameIsIn":                "urn:oasis:names:tc:acal:1.0:function:rfc822Name-is-in",
+    "rfc822NameBag":                 "urn:oasis:names:tc:acal:1.0:function:rfc822Name-bag",
+    "ipAddressOneAndOnly":           "urn:oasis:names:tc:acal:1.0:function:ipAddress-one-and-only",
+    "ipAddressBagSize":              "urn:oasis:names:tc:acal:1.0:function:ipAddress-bag-size",
+    "ipAddressBag":                  "urn:oasis:names:tc:acal:1.0:function:ipAddress-bag",
+    "dnsNameOneAndOnly":             "urn:oasis:names:tc:acal:1.0:function:dnsName-one-and-only",
+    "dnsNameBagSize":                "urn:oasis:names:tc:acal:1.0:function:dnsName-bag-size",
+    "dnsNameBag":                    "urn:oasis:names:tc:acal:1.0:function:dnsName-bag",
+    # --- Bag set operations ---
+    "stringAtLeastOneMemberOf":      "urn:oasis:names:tc:acal:1.0:function:string-at-least-one-member-of",
+    "stringSubset":                  "urn:oasis:names:tc:acal:1.0:function:string-subset",
+    "stringSubSet":                  "urn:oasis:names:tc:acal:1.0:function:string-subset",
+    "stringSetEquals":               "urn:oasis:names:tc:acal:1.0:function:string-set-equals",
+    "stringIntersection":            "urn:oasis:names:tc:acal:1.0:function:string-intersection",
+    "stringUnion":                   "urn:oasis:names:tc:acal:1.0:function:string-union",
+    "booleanAtLeastOneMemberOf":     "urn:oasis:names:tc:acal:1.0:function:boolean-at-least-one-member-of",
+    "booleanSubSet":                 "urn:oasis:names:tc:acal:1.0:function:boolean-subset",
+    "booleanSetEquals":              "urn:oasis:names:tc:acal:1.0:function:boolean-set-equals",
+    "booleanIntersection":           "urn:oasis:names:tc:acal:1.0:function:boolean-intersection",
+    "booleanUnion":                  "urn:oasis:names:tc:acal:1.0:function:boolean-union",
+    "integerAtLeastOneMemberOf":     "urn:oasis:names:tc:acal:1.0:function:integer-at-least-one-member-of",
+    "integerSubSet":                 "urn:oasis:names:tc:acal:1.0:function:integer-subset",
+    "integerSetEquals":              "urn:oasis:names:tc:acal:1.0:function:integer-set-equals",
+    "integerIntersection":           "urn:oasis:names:tc:acal:1.0:function:integer-intersection",
+    "integerUnion":                  "urn:oasis:names:tc:acal:1.0:function:integer-union",
+    "doubleAtLeastOneMemberOf":      "urn:oasis:names:tc:acal:1.0:function:double-at-least-one-member-of",
+    "doubleSubSet":                  "urn:oasis:names:tc:acal:1.0:function:double-subset",
+    "doubleSetEquals":               "urn:oasis:names:tc:acal:1.0:function:double-set-equals",
+    "doubleIntersection":            "urn:oasis:names:tc:acal:1.0:function:double-intersection",
+    "doubleUnion":                   "urn:oasis:names:tc:acal:1.0:function:double-union",
+    "timeAtLeastOneMemberOf":        "urn:oasis:names:tc:acal:1.0:function:time-at-least-one-member-of",
+    "timeSubSet":                    "urn:oasis:names:tc:acal:1.0:function:time-subset",
+    "timeSetEquals":                 "urn:oasis:names:tc:acal:1.0:function:time-set-equals",
+    "timeIntersection":              "urn:oasis:names:tc:acal:1.0:function:time-intersection",
+    "timeUnion":                     "urn:oasis:names:tc:acal:1.0:function:time-union",
+    "dateAtLeastOneMemberOf":        "urn:oasis:names:tc:acal:1.0:function:date-at-least-one-member-of",
+    "dateSubSet":                    "urn:oasis:names:tc:acal:1.0:function:date-subset",
+    "dateSetEquals":                 "urn:oasis:names:tc:acal:1.0:function:date-set-equals",
+    "dateIntersection":              "urn:oasis:names:tc:acal:1.0:function:date-intersection",
+    "dateUnion":                     "urn:oasis:names:tc:acal:1.0:function:date-union",
+    "dateTimeAtLeastOneMemberOf":    "urn:oasis:names:tc:acal:1.0:function:dateTime-at-least-one-member-of",
+    "dateTimeSubSet":                "urn:oasis:names:tc:acal:1.0:function:dateTime-subset",
+    "dateTimeSetEquals":             "urn:oasis:names:tc:acal:1.0:function:dateTime-set-equals",
+    "dateTimeIntersection":          "urn:oasis:names:tc:acal:1.0:function:dateTime-intersection",
+    "dateTimeUnion":                 "urn:oasis:names:tc:acal:1.0:function:dateTime-union",
+    "anyURIAtLeastOneMemberOf":      "urn:oasis:names:tc:acal:1.0:function:anyURI-at-least-one-member-of",
+    "anyURISubSet":                  "urn:oasis:names:tc:acal:1.0:function:anyURI-subset",
+    "anyURISetEquals":               "urn:oasis:names:tc:acal:1.0:function:anyURI-set-equals",
+    "anyURIIntersection":            "urn:oasis:names:tc:acal:1.0:function:anyURI-intersection",
+    "anyURIUnion":                   "urn:oasis:names:tc:acal:1.0:function:anyURI-union",
+    "hexBinaryAtLeastOneMemberOf":   "urn:oasis:names:tc:acal:1.0:function:hexBinary-at-least-one-member-of",
+    "hexBinarySubSet":               "urn:oasis:names:tc:acal:1.0:function:hexBinary-subset",
+    "hexBinarySetEquals":            "urn:oasis:names:tc:acal:1.0:function:hexBinary-set-equals",
+    "hexBinaryIntersection":         "urn:oasis:names:tc:acal:1.0:function:hexBinary-intersection",
+    "hexBinaryUnion":                "urn:oasis:names:tc:acal:1.0:function:hexBinary-union",
+    "base64BinaryAtLeastOneMemberOf": "urn:oasis:names:tc:acal:1.0:function:base64Binary-at-least-one-member-of",
+    "base64BinarySubSet":            "urn:oasis:names:tc:acal:1.0:function:base64Binary-subset",
+    "base64BinarySetEquals":         "urn:oasis:names:tc:acal:1.0:function:base64Binary-set-equals",
+    "base64BinaryIntersection":      "urn:oasis:names:tc:acal:1.0:function:base64Binary-intersection",
+    "base64BinaryUnion":             "urn:oasis:names:tc:acal:1.0:function:base64Binary-union",
+    "dayTimeDurationAtLeastOneMemberOf": "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-at-least-one-member-of",
+    "dayTimeDurationSubSet":         "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-subset",
+    "dayTimeDurationSetEquals":      "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-set-equals",
+    "dayTimeDurationIntersection":   "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-intersection",
+    "dayTimeDurationUnion":          "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-union",
+    "yearMonthDurationAtLeastOneMemberOf": "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-at-least-one-member-of",
+    "yearMonthDurationSubSet":       "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-subset",
+    "yearMonthDurationSetEquals":    "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-set-equals",
+    "yearMonthDurationIntersection": "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-intersection",
+    "yearMonthDurationUnion":        "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-union",
+    "x500NameAtLeastOneMemberOf":    "urn:oasis:names:tc:acal:1.0:function:x500Name-at-least-one-member-of",
+    "x500NameSubSet":                "urn:oasis:names:tc:acal:1.0:function:x500Name-subset",
+    "x500NameSetEquals":             "urn:oasis:names:tc:acal:1.0:function:x500Name-set-equals",
+    "x500NameIntersection":          "urn:oasis:names:tc:acal:1.0:function:x500Name-intersection",
+    "x500NameUnion":                 "urn:oasis:names:tc:acal:1.0:function:x500Name-union",
+    "rfc822NameAtLeastOneMemberOf":  "urn:oasis:names:tc:acal:1.0:function:rfc822Name-at-least-one-member-of",
+    "rfc822NameSubSet":              "urn:oasis:names:tc:acal:1.0:function:rfc822Name-subset",
+    "rfc822NameSetEquals":           "urn:oasis:names:tc:acal:1.0:function:rfc822Name-set-equals",
+    "rfc822NameIntersection":        "urn:oasis:names:tc:acal:1.0:function:rfc822Name-intersection",
+    "rfc822NameUnion":               "urn:oasis:names:tc:acal:1.0:function:rfc822Name-union",
+    # --- Higher-order bag functions ---
+    "anyOf":                         "urn:oasis:names:tc:acal:1.0:function:any-of",
+    "allOf":                         "urn:oasis:names:tc:acal:1.0:function:all-of",
+    "anyOfAny":                      "urn:oasis:names:tc:acal:1.0:function:any-of-any",
+    "allOfAny":                      "urn:oasis:names:tc:acal:1.0:function:all-of-any",
+    "anyOfAll":                      "urn:oasis:names:tc:acal:1.0:function:any-of-all",
+    "allOfAll":                      "urn:oasis:names:tc:acal:1.0:function:all-of-all",
+    "map":                           "urn:oasis:names:tc:acal:1.0:function:map",
+    # --- Match functions ---
+    "x500NameMatch":                 "urn:oasis:names:tc:acal:1.0:function:x500Name-match",
+    "rfc822NameMatch":               "urn:oasis:names:tc:acal:1.0:function:rfc822Name-match",
+    "stringRegexpMatch":             "urn:oasis:names:tc:acal:1.0:function:string-regexp-match",
+    "anyURIRegexpMatch":             "urn:oasis:names:tc:acal:1.0:function:anyURI-regexp-match",
+    "ipAddressRegexpMatch":          "urn:oasis:names:tc:acal:1.0:function:ipAddress-regexp-match",
+    "dnsNameRegexpMatch":            "urn:oasis:names:tc:acal:1.0:function:dnsName-regexp-match",
+    "rfc822NameRegexpMatch":         "urn:oasis:names:tc:acal:1.0:function:rfc822Name-regexp-match",
+    "x500NameRegexpMatch":           "urn:oasis:names:tc:acal:1.0:function:x500Name-regexp-match",
+    # --- XPath functions (noted: xpath type has no ACAL 1.0 equivalent) ---
+    "xpathNodeCount":                "urn:oasis:names:tc:acal:1.0:function:xpath-node-count",
+    "xpathNodeEqual":                "urn:oasis:names:tc:acal:1.0:function:xpath-node-equal",
+    "xpathNodeMatch":                "urn:oasis:names:tc:acal:1.0:function:xpath-node-match",
+}
+
+# Map from ALFA type name to the ACAL is-in function for bag membership tests.
+# Used in cmp_expr when is_bag=True and operator is == or !=.
+_TYPE_IS_IN_MAP: dict[str, str] = {
+    "string":              "urn:oasis:names:tc:acal:1.0:function:string-is-in",
+    "integer":             "urn:oasis:names:tc:acal:1.0:function:integer-is-in",
+    "boolean":             "urn:oasis:names:tc:acal:1.0:function:boolean-is-in",
+    "double":              "urn:oasis:names:tc:acal:1.0:function:double-is-in",
+    "date":                "urn:oasis:names:tc:acal:1.0:function:date-is-in",
+    "time":                "urn:oasis:names:tc:acal:1.0:function:time-is-in",
+    "dateTime":            "urn:oasis:names:tc:acal:1.0:function:dateTime-is-in",
+    "anyURI":              "urn:oasis:names:tc:acal:1.0:function:anyURI-is-in",
+    "hexBinary":           "urn:oasis:names:tc:acal:1.0:function:hexBinary-is-in",
+    "base64Binary":        "urn:oasis:names:tc:acal:1.0:function:base64Binary-is-in",
+    "x500Name":            "urn:oasis:names:tc:acal:1.0:function:x500Name-is-in",
+    "rfc822Name":          "urn:oasis:names:tc:acal:1.0:function:rfc822Name-is-in",
+    "dayTimeDuration":     "urn:oasis:names:tc:acal:1.0:function:dayTimeDuration-is-in",
+    "yearMonthDuration":   "urn:oasis:names:tc:acal:1.0:function:yearMonthDuration-is-in",
 }
 
 # ---------------------------------------------------------------------------
@@ -123,6 +403,7 @@ class _SymbolTable:
 # ---------------------------------------------------------------------------
 # Grammar
 #
+# Covers the Axiomatics PDP 7.x ALFA dialect as documented on https://alfa.guide/
 # Structural keywords use _ prefix so Lark discards them from transformer
 # item lists.  Value-carrying terminals (PERMIT_KW, DENY_KW, CMP_OP, etc.)
 # keep their names so the transformer can read their values.
@@ -373,6 +654,7 @@ def _process_attribute(node: Tree, st: _SymbolTable, ns_parts: list[str]) -> Non
                 attr_type = _token_value(clause, "IDENTIFIER") or ""
                 if attr_type == "bag":
                     is_bag = True
+                    attr_type = ""  # "bag" is a cardinality modifier, not a data type
             elif clause.data == "datatype_clause":
                 if not attr_type:
                     attr_type = _token_value(clause, "IDENTIFIER") or ""
@@ -381,6 +663,15 @@ def _process_attribute(node: Tree, st: _SymbolTable, ns_parts: list[str]) -> Non
         raise ALFASyntaxError(
             f"Attribute {local_name!r} has no 'category' clause. "
             "Every attribute block must declare a category."
+        )
+
+    if attr_type == "xpath":
+        warnings.warn(
+            f"Attribute {local_name!r} declares type 'xpath', which has no ACAL 1.0 equivalent "
+            "(ACAL 1.0 does not include the xpathExpression data type). "
+            "The attribute will pass through as-is; XPath-dependent evaluation at the PDP may fail.",
+            UserWarning,
+            stacklevel=4,
         )
 
     st.attributes[local_name] = _AttributeDecl(
@@ -803,10 +1094,42 @@ class AlfaTransformer(Transformer):
     def cmp_expr(self, items: list) -> Any:
         non_tokens = [i for i in items if not isinstance(i, Token)]
         tokens = [i for i in items if isinstance(i, Token)]
+
+        def _strip(node: Any) -> Any:
+            if isinstance(node, dict) and "_bag" in node:
+                return {k: v for k, v in node.items() if k != "_bag"}
+            return node
+
         if len(non_tokens) == 1:
-            return non_tokens[0]
+            return _strip(non_tokens[0])
+
         lhs, rhs = non_tokens[0], non_tokens[1]
         op = str(tokens[0])
+
+        lhs_is_bag = isinstance(lhs, dict) and lhs.get("_bag")
+        rhs_is_bag = isinstance(rhs, dict) and rhs.get("_bag")
+        lhs = _strip(lhs)
+        rhs = _strip(rhs)
+
+        # Bag overloading: attr_bag == scalar → <type>-is-in(scalar, bag)
+        if (lhs_is_bag or rhs_is_bag) and op in ("==", "!="):
+            bag = lhs if lhs_is_bag else rhs
+            scalar = rhs if lhs_is_bag else lhs
+            dtype = bag.get("AttributeDesignator", {}).get("DataType", "string")
+            is_in_fn = _TYPE_IS_IN_MAP.get(dtype)
+            if is_in_fn:
+                base: dict = {"Apply": {"FunctionId": is_in_fn, "Argument": [scalar, bag]}}
+                if op == "!=":
+                    return {"Apply": {
+                        "FunctionId": _INFIX_FUNCTION_MAP["!"],
+                        "Argument": [base],
+                    }}
+                return base
+            self._warn_or_raise(
+                f"Bag attribute has unsupported type {dtype!r} for {op!r} comparison. "
+                "Using string-equal as fallback; result may be semantically incorrect."
+            )
+
         fn_id = _INFIX_FUNCTION_MAP.get(op)
         if fn_id is None:
             raise ALFAUnsupportedFeatureError(f"Unknown comparison operator: {op!r}")
@@ -861,7 +1184,12 @@ class AlfaTransformer(Transformer):
             desig: dict = {"Category": decl.category, "AttributeId": attr_id}
             if decl.type:
                 desig["DataType"] = decl.type
-            return {"AttributeDesignator": desig}
+            result: dict = {"AttributeDesignator": desig}
+            if decl.is_bag:
+                # Private marker consumed by cmp_expr for bag overloading.
+                # Stripped before the dict is returned from any expression context.
+                result["_bag"] = True
+            return result
 
         # Unresolvable
         self._warn_or_raise(

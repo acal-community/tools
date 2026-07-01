@@ -1,0 +1,11 @@
+namespace com.example {
+    policy OrderedPermitExample apply orderedPermitOverrides {
+        rule AllowEditor {
+            permit
+            condition Attributes.subject.role == "editor"
+        }
+        rule DenyAll {
+            deny
+        }
+    }
+}

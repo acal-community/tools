@@ -1,5 +1,29 @@
 # Architectural Decisions
 
+## alfa-function-map-sources-from-system-alfa (July 2026)
+
+`_NAMED_FUNCTION_MAP` in the ALFA reader is sourced exhaustively from `system.alfa` (the canonical Axiomatics PDP 7.x runtime declaration file), converting the XACML version prefix (`xacml:1.0`, `xacml:2.0`, `xacml:3.0`) uniformly to `acal:1.0`.
+
+**WHY**: The prior map covered ~20 functions and was manually curated, producing "Unknown ALFA function" warnings on real Axiomatics policies (date comparisons, bag introspection, type conversions, regex matches). `system.alfa` is the authoritative short-name → URN registry for the Axiomatics dialect — all functions a PDP user can call are declared there. Sourcing from it eliminates the completeness problem and ties the map to the same reference that Axiomatics tools use.
+
+---
+
+## alfa-bag-overloading-private-marker (July 2026)
+
+Bag-typed attributes signal their multiplicity to `cmp_expr` via a private `"_bag": True` key on the outer `{"AttributeDesignator": {...}}` wrapper dict. `cmp_expr` consumes the marker and strips it before returning in all code paths.
+
+**WHY**: `_resolve_attr_path` returns a plain dict; changing it to return a tuple `(dict, is_bag)` would require updating every caller in the transformer. The `_bag` key on the outer wrapper is invisible to downstream consumers (neutral dict writers, `acal-explain` analyzer) because they access the inner `"AttributeDesignator"` key, not the wrapper. The only other option — reverse-looking up from the symbol table inside `cmp_expr` by AttributeId — would require iterating all symbol table entries and comparing full URNs, which is fragile if the URN was synthesized from the namespace. The private marker is cheap, local, and always stripped at the boundary.
+
+---
+
+## alfa-bag-type-is-cardinality-not-datatype (July 2026)
+
+When an ALFA attribute block declares `type = bag`, the string `"bag"` sets `is_bag = True` and `attr_type` is cleared to `""`. A subsequent `datatype = <type>` clause then sets the element type.
+
+**WHY**: `"bag"` is a cardinality modifier in Axiomatics ALFA, not an XSD or ACAL data type. Storing `DataType = "bag"` in the AttributeDesignator would produce an invalid neutral dict (no PDP recognises `"bag"` as a type) and would cause the `_TYPE_IS_IN_MAP` lookup to return `None`, silently falling back to the wrong function. The correct pattern matches what Axiomatics uses in real attribute files: `type = bag` + `datatype = integer` for a typed multi-valued integer attribute.
+
+---
+
 ## acal-explain-acal-only-input (June 2026)
 
 `acal-explain` accepts only XACML, YACAL, and JACAL as input — ALFA is explicitly rejected with a message directing the user to convert first.

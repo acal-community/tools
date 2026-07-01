@@ -1,5 +1,13 @@
 # Lessons Learned
 
+## alfa-bag-type-not-a-datatype (July 2026)
+
+**Rule**: In ALFA attribute declarations, `type = bag` is a cardinality modifier, not an XSD datatype — clear `attr_type` to `""` when `"bag"` is detected; do not store it in the AttributeDesignator's `DataType` field.
+
+**Why**: The existing code set `attr_type = "bag"` and then passed it to `DataType` via `if decl.type: desig["DataType"] = decl.type`. The downstream `_TYPE_IS_IN_MAP.get("bag")` returned `None`, so the bag-is-in expansion silently fell through to `string-equal` — wrong function, wrong argument order, no error. The failure was invisible because the neutral dict writer accepted any `DataType` string. Discovered only when writing a type-aware bag test and inspecting the output. The fix is in `_process_attribute` — one extra line that clears `attr_type` after setting `is_bag = True`. The lesson: DSL type keywords often have dual semantics (type vs. cardinality modifier) — verify against real attribute files before assuming a type field maps directly to a data type.
+
+---
+
 ## litellm-module-level-import-for-mocking (June 2026)
 
 **Rule**: Import `litellm` (and any other third-party library you need to mock in tests) at module level, not inside the function that uses it. Use a try/except at the top of the module to handle the not-installed case.
