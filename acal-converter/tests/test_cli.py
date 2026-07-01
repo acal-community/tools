@@ -20,7 +20,7 @@ from acal_core.readers.jacal import load as load_jacal
 _TOOLS_DIR = Path(__file__).parent.parent.parent
 FIXTURES = _TOOLS_DIR / "acal-core" / "tests" / "fixtures"
 XACML3 = FIXTURES / "xacml3"
-ALFA = FIXTURES / "alfa"
+ALFA = FIXTURES / "alfa"  # Axiomatics PDP 7.x ALFA dialect fixtures
 
 _PAIRS = [
     ("ex01-simple-permit.yaml", "ex01-simple-permit.json"),
@@ -132,10 +132,11 @@ def test_cli_xacml_strict_flag(runner):
 
 
 # ---------------------------------------------------------------------------
-# ALFA → YACAL/JACAL via CLI
+# Axiomatics PDP 7.x ALFA dialect → YACAL/JACAL via CLI
 # ---------------------------------------------------------------------------
 
 def test_cli_alfa_to_yacal(runner):
+    """Axiomatics PDP 7.x ALFA dialect policy converts to YACAL."""
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "yacal",
         str(ALFA / "simple-permit.alfa"),
@@ -148,6 +149,7 @@ def test_cli_alfa_to_yacal(runner):
 
 
 def test_cli_alfa_to_jacal(runner):
+    """Axiomatics PDP 7.x ALFA dialect policy converts to JACAL."""
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "jacal",
         str(ALFA / "condition.alfa"),
@@ -158,6 +160,7 @@ def test_cli_alfa_to_jacal(runner):
 
 
 def test_cli_alfa_strict_warns_exit_nonzero(runner):
+    """--strict turns custom combining algorithm warning into error for Axiomatics PDP 7.x ALFA dialect."""
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "yacal",
         "--strict",
@@ -168,6 +171,7 @@ def test_cli_alfa_strict_warns_exit_nonzero(runner):
 
 
 def test_cli_alfa_no_strict_succeeds_with_warning(runner):
+    """--no-strict allows custom combining algorithm warning for Axiomatics PDP 7.x ALFA dialect."""
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
         result = runner.invoke(main, [
@@ -179,6 +183,7 @@ def test_cli_alfa_no_strict_succeeds_with_warning(runner):
 
 
 def test_cli_alfa_include_resolves_shorthands(runner):
+    """--include resolves shorthand attributes in Axiomatics PDP 7.x ALFA dialect policies."""
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "yacal",
         "--include", str(ALFA / "acal-attributes.alfa"),
@@ -195,6 +200,7 @@ def test_cli_alfa_include_resolves_shorthands(runner):
 
 
 def test_cli_alfa_include_multiple_files(runner):
+    """--include can be repeated; all files contribute to the symbol table (Axiomatics PDP 7.x ALFA dialect)."""
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "jacal",
         "--include", str(ALFA / "acal-attributes.alfa"),
@@ -207,6 +213,7 @@ def test_cli_alfa_include_multiple_files(runner):
 
 
 def test_cli_alfa_import_stmt_does_not_error(runner):
+    """'import' statements in Axiomatics PDP 7.x ALFA dialect do not cause errors when --include is provided."""
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "yacal",
         "--include", str(ALFA / "acal-attributes.alfa"),
@@ -220,10 +227,11 @@ _AX_INCLUDES = [
     str(ALFA / "standard-attributes.alfa"),
     str(ALFA / "adaf_standard_attributes.alfa"),
     str(ALFA / "demo-attributes.alfa"),
-]
+]  # Axiomatics PDP 7.x ALFA dialect standard include files
 
 
 def test_cli_alfa_axiomatics_portal(runner):
+    """CLI converts portal.alfa (Axiomatics PDP 7.x ALFA dialect) with include chain."""
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "jacal",
         *[arg for f in _AX_INCLUDES for arg in ("--include", f)],
@@ -235,10 +243,11 @@ def test_cli_alfa_axiomatics_portal(runner):
 
 
 # ---------------------------------------------------------------------------
-# --include warning for non-ALFA formats
+# --include warning for non-Axiomatics-PDP-7.x-ALFA formats
 # ---------------------------------------------------------------------------
 
 def test_cli_include_warns_for_non_alfa(runner, tmp_path):
+    """--include with non-Axiomatics PDP 7.x ALFA input emits a warning."""
     yacal_file = tmp_path / "policy.yaml"
     yacal_file.write_text(
         "Policy:\n  PolicyId: test\n  CombinerInput: []\n"
@@ -248,7 +257,7 @@ def test_cli_include_warns_for_non_alfa(runner, tmp_path):
         "--include", str(ALFA / "acal-attributes.alfa"),
         str(yacal_file),
     ])
-    assert "--include is only meaningful for ALFA" in result.output
+    assert "--include is only meaningful for Axiomatics PDP 7.x ALFA dialect" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +265,7 @@ def test_cli_include_warns_for_non_alfa(runner, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_cli_debug_dumps_symbol_table(runner):
+    """--debug dumps the symbol table for Axiomatics PDP 7.x ALFA dialect input."""
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "jacal",
         "--debug",

@@ -1,5 +1,13 @@
 # Lessons Learned
 
+## litellm-module-level-import-for-mocking (June 2026)
+
+**Rule**: Import `litellm` (and any other third-party library you need to mock in tests) at module level, not inside the function that uses it. Use a try/except at the top of the module to handle the not-installed case.
+
+**Why**: `unittest.mock.patch("acal_explain.llm.litellm")` requires `litellm` to exist as a module-level attribute of `acal_explain.llm`. When the import was inside the `explain()` function body, `patch` raised `AttributeError: module does not have the attribute 'litellm'` — even though the function would have imported it correctly at call time. Moving to module level with `try: import litellm / except ImportError: litellm = None` gives the mock a stable target without losing the graceful-degradation behaviour for users who don't have it installed.
+
+---
+
 ## real-world-files-expose-synthetic-fixture-blind-spots (June 2026)
 
 **Rule**: Import real-world source files as test fixtures as early as possible — synthetic fixtures cover only the grammar paths the writer thought of, not the ones a real tool vendor chose.

@@ -1,5 +1,29 @@
 # Architectural Decisions
 
+## acal-explain-acal-only-input (June 2026)
+
+`acal-explain` accepts only XACML, YACAL, and JACAL as input — ALFA is explicitly rejected with a message directing the user to convert first.
+
+**WHY**: `acal-explain` explains what an ACAL policy is expressing. ALFA is a source language that gets *converted into* ACAL; explaining an ALFA file directly would require running the ALFA reader and then explaining the resulting ACAL neutral dict anyway. The tool's purpose is ACAL-family insight, not ALFA parsing. Making the rejection explicit (with a `acal-convert … | acal-explain` hint) is clearer than silently accepting ALFA and potentially confusing users who expected ALFA-level semantics.
+
+---
+
+## acal-explain-two-call-llm (June 2026)
+
+`acal-explain` makes two separate LLM calls: (1) structural summary (what the policy does, given the full neutral dict as JSON), (2) observations/nuances (given only the structured analysis findings — shadowed rules, default-deny gaps, obligation gaps, unresolved attrs).
+
+**WHY**: A single call mixing "explain what it does" and "find the problems" produces unfocused output — the model tends to either narrate the JSON or make generic observations without grounding. Separating the calls keeps each prompt tightly scoped. The second call receives pre-computed structured findings rather than raw JSON, which prevents the model from hallucinating issues that aren't there and keeps the observations section factual and specific.
+
+---
+
+## acal-explain-config-file (June 2026)
+
+LLM provider, model string, API credentials, and output format defaults are configured via `~/.config/acal-explain/config.toml` with env var overrides (`ACAL_EXPLAIN_MODEL`, `ACAL_EXPLAIN_API_KEY`, `ACAL_EXPLAIN_API_BASE`). No model versions are hardcoded anywhere in the tool.
+
+**WHY**: This is an open-source tool; users run it with their own credentials against their own preferred provider. Hardcoding model strings would make the tool go stale as new versions drop. The `~/.config/acal-explain/` path follows the XDG convention already established by `~/.cache/acal-validator/`. litellm's `provider/model` convention (e.g. `anthropic/claude-sonnet-4-6`, `ollama/llama3`) is used directly so users can switch providers without changing anything except the config file.
+
+---
+
 ## acal-core-as-shared-library (June 2026)
 
 All format readers and writers live in a dedicated `acal-core/` package. The `acal-converter` tool is a thin CLI wrapper that imports from it. Future tools (`acal-explain`, and any others) depend on `acal-core` directly.

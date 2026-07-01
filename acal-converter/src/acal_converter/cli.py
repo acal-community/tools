@@ -45,10 +45,10 @@ from acal_core.writers import write
     multiple=True,
     type=click.Path(exists=True, dir_okay=False),
     help=(
-        "Additional ALFA file to load for symbol resolution (attribute registries, "
-        "standard namespaces). May be repeated. Only meaningful with --from alfa. "
-        "These files are not converted — they are used only to resolve attribute "
-        "shorthand names and obligation/advice URNs in the main policy file."
+        "Additional Axiomatics PDP 7.x ALFA dialect file to load for symbol resolution "
+        "(attribute registries, standard namespaces). May be repeated. Only meaningful "
+        "with --from alfa. These files are not converted — they are used only to resolve "
+        "attribute shorthand names and obligation/advice URNs in the main policy file."
     ),
 )
 @click.option(
@@ -71,7 +71,7 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
         strict = False
     """Convert ACAL policy documents between formats.
 
-    Supports XACML 2.0–4.0, YACAL (YAML), JACAL (JSON), and ALFA as inputs.
+    Supports XACML 2.0–4.0, YACAL (YAML), JACAL (JSON), and Axiomatics PDP 7.x ALFA dialect as inputs.
     Outputs only YACAL or JACAL.
 
     Use --strict (recommended for security use cases) to turn any warning into
@@ -86,7 +86,7 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
 
     if include_files and fmt and fmt != "alfa":
         click.echo(
-            f"Warning: --include is only meaningful for ALFA input (got --from {fmt!r}). "
+            f"Warning: --include is only meaningful for Axiomatics PDP 7.x ALFA dialect input (got --from {fmt!r}). "
             "The included files will be ignored.",
             err=True,
         )
