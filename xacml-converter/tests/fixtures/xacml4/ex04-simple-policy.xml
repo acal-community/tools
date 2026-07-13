@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  XACML 4.0 (ACAL Core XML v1.0) example: Policy with a boolean-expression
+  Target and a NoticeExpression.  Exercises: namespace detection, Target as
+  direct Apply, Value (not AttributeValue), NoticeExpression with IsObligation,
+  identifier pass-through (already ACAL URNs).
+-->
+<Policy xmlns="urn:oasis:names:tc:xacml:4.0:core:schema"
+        PolicyId="urn:example:policy:xacml4-simple"
+        Version="1.0"
+        CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit">
+  <Description>XACML 4.0 simple permit policy with an obligation.</Description>
+  <Target>
+    <Apply FunctionId="urn:oasis:names:tc:acal:1.0:function:string-is-in">
+      <Value>read</Value>
+      <AttributeDesignator
+        Category="urn:oasis:names:tc:acal:1.0:attribute-category:action"
+        AttributeId="urn:oasis:names:tc:acal:1.0:action:action-id"
+        MustBePresent="true"/>
+    </Apply>
+  </Target>
+  <Rule Id="rule-doctor-permit" Effect="Permit">
+    <Description>Doctors may read.</Description>
+    <Condition>
+      <Apply FunctionId="urn:oasis:names:tc:acal:1.0:function:string-is-in">
+        <Value>doctor</Value>
+        <AttributeDesignator
+          Category="urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+          AttributeId="urn:oasis:names:tc:acal:1.0:subject:subject-id"
+          MustBePresent="true"/>
+      </Apply>
+    </Condition>
+  </Rule>
+  <NoticeExpression Id="urn:example:obligation:log"
+                    IsObligation="true"
+                    AppliesTo="Permit">
+    <AttributeAssignmentExpression AttributeId="urn:example:attribute:log-message">
+      <Value>Access granted</Value>
+    </AttributeAssignmentExpression>
+  </NoticeExpression>
+</Policy>

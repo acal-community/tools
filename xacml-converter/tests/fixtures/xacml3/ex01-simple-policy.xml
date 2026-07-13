@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  XACML 3.0 example: one Policy with a single-Match Target and one Rule.
+  Exercises: namespace detection, AnyOf/AllOf/Match → Apply, RuleId → Id,
+  RuleCombiningAlgId, XSD DataType remapping, subject-category remapping.
+-->
+<Policy xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
+        PolicyId="urn:example:policy:simple-permit"
+        Version="1.0"
+        RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-unless-permit">
+  <Description>A doctor may read any resource.</Description>
+  <Target>
+    <AnyOf>
+      <AllOf>
+        <Match MatchId="urn:oasis:names:tc:xacml:1.0:function:string-equal">
+          <AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string">read</AttributeValue>
+          <AttributeDesignator
+            Category="urn:oasis:names:tc:xacml:3.0:attribute-category:action"
+            AttributeId="urn:oasis:names:tc:xacml:1.0:action:action-id"
+            DataType="http://www.w3.org/2001/XMLSchema#string"
+            MustBePresent="false"/>
+        </Match>
+      </AllOf>
+    </AnyOf>
+  </Target>
+  <Rule RuleId="rule-doctor-permit" Effect="Permit">
+    <Description>Doctors may read.</Description>
+    <Condition>
+      <Apply FunctionId="urn:oasis:names:tc:xacml:1.0:function:string-is-in">
+        <AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string">doctor</AttributeValue>
+        <AttributeDesignator
+          Category="urn:oasis:names:tc:xacml:1.0:subject-category:access-subject"
+          AttributeId="urn:oasis:names:tc:xacml:1.0:subject:subject-id"
+          DataType="http://www.w3.org/2001/XMLSchema#string"
+          MustBePresent="true"/>
+      </Apply>
+    </Condition>
+  </Rule>
+</Policy>

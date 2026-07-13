@@ -1,0 +1,36 @@
+Policy:
+  PolicyId: urn:example:policy:xacml4-simple
+  Version: '1.0'
+  CombiningAlgId: urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit
+  Description: XACML 4.0 simple permit policy with an obligation.
+  Target:
+    Apply:
+      FunctionId: urn:oasis:names:tc:acal:1.0:function:string-is-in
+      Argument:
+        - Value: read
+        - AttributeDesignator:
+            Category: urn:oasis:names:tc:acal:1.0:attribute-category:action
+            AttributeId: urn:oasis:names:tc:acal:1.0:action:action-id
+            MustBePresent: true
+  CombinerInput:
+    - Rule:
+        Id: rule-doctor-permit
+        Effect: Permit
+        Description: Doctors may read.
+        Condition:
+          Apply:
+            FunctionId: urn:oasis:names:tc:acal:1.0:function:string-is-in
+            Argument:
+              - Value: doctor
+              - AttributeDesignator:
+                  Category: urn:oasis:names:tc:acal:1.0:subject-category:access-subject
+                  AttributeId: urn:oasis:names:tc:acal:1.0:subject:subject-id
+                  MustBePresent: true
+  NoticeExpression:
+    - Id: urn:example:obligation:log
+      IsObligation: true
+      AppliesTo: Permit
+      AttributeAssignmentExpression:
+        - AttributeId: urn:example:attribute:log-message
+          Expression:
+            Value: Access granted

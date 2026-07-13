@@ -1,0 +1,69 @@
+Policy:
+  PolicyId: urn:example:policyset:medical
+  Version: '1.0'
+  CombiningAlgId: urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit
+  Description: Medical data access control.
+  CombinerInput:
+    - Policy:
+        PolicyId: urn:example:policy:read-access
+        Version: '1.0'
+        CombiningAlgId: urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit
+        Target:
+          Apply:
+            FunctionId: urn:oasis:names:tc:acal:1.0:function:string-equal
+            Argument:
+              - Value: read
+              - AttributeDesignator:
+                  Category: urn:oasis:names:tc:acal:1.0:attribute-category:action
+                  AttributeId: urn:oasis:names:tc:acal:1.0:action:action-id
+                  MustBePresent: true
+        CombinerInput:
+          - Rule:
+              Id: rule-permit-doctors-read
+              Effect: Permit
+              Condition:
+                Apply:
+                  FunctionId: urn:oasis:names:tc:acal:1.0:function:string-is-in
+                  Argument:
+                    - Value: doctor
+                    - AttributeDesignator:
+                        Category: urn:oasis:names:tc:acal:1.0:subject-category:access-subject
+                        AttributeId: urn:oasis:names:tc:acal:1.0:subject:subject-id
+                        MustBePresent: true
+    - Policy:
+        PolicyId: urn:example:policy:write-access
+        Version: '1.0'
+        CombiningAlgId: urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit
+        Target:
+          Apply:
+            FunctionId: urn:oasis:names:tc:acal:1.0:function:string-equal
+            Argument:
+              - Value: write
+              - AttributeDesignator:
+                  Category: urn:oasis:names:tc:acal:1.0:attribute-category:action
+                  AttributeId: urn:oasis:names:tc:acal:1.0:action:action-id
+                  MustBePresent: true
+        CombinerInput:
+          - Rule:
+              Id: rule-permit-senior-doctors-write
+              Effect: Permit
+              Condition:
+                Apply:
+                  FunctionId: urn:oasis:names:tc:acal:1.0:function:and
+                  Argument:
+                    - Apply:
+                        FunctionId: urn:oasis:names:tc:acal:1.0:function:string-is-in
+                        Argument:
+                          - Value: doctor
+                          - AttributeDesignator:
+                              Category: urn:oasis:names:tc:acal:1.0:subject-category:access-subject
+                              AttributeId: urn:oasis:names:tc:acal:1.0:subject:subject-id
+                              MustBePresent: true
+                    - Apply:
+                        FunctionId: urn:oasis:names:tc:acal:1.0:function:string-is-in
+                        Argument:
+                          - Value: senior
+                          - AttributeDesignator:
+                              Category: urn:oasis:names:tc:acal:1.0:subject-category:access-subject
+                              AttributeId: urn:example:attribute:seniority
+                              MustBePresent: true

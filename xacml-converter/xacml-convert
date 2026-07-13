@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Convenience wrapper — run from the xacml-converter/ project root so that
+# relative paths like tests/fixtures/... resolve correctly.
+python -m xacml_converter "$@"
