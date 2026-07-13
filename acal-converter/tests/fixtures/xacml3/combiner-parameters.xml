@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Policy xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
-        PolicyId="urn:example:acal-convert:xacml3:comb-params"
-        Version="1.0"
-        RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-unless-permit">
-  <Target/>
-  <CombinerParameters/>
-  <Rule RuleId="permit-all" Effect="Permit"/>
-</Policy>
