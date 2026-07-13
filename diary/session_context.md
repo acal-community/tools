@@ -50,7 +50,7 @@ The supplementary `_check_shortidset_reference_graph` only activates when `sid_p
 - (→ lessons-learned) Anti-patterns discovered during JACAL schema investigation
 # Session Context — tools
 
-**Last Updated**: June 28, 2026
+**Last Updated**: 2026-07-13
 
 ---
 
@@ -80,18 +80,22 @@ The tool provides:
 
 ## Most Recent Sessions
 
-### June 28, 2026 — xacml-converter code review and improvements
+### July 13, 2026 — Accidental revert PR cleanup
 
-**Changes:**
-- Reorganized `converter.py`: moved all top-level helper functions (`_extract_ns`, `_local`, `_bool_attr`, `_int_attr`, `_coerce_value`, `_set_if`) to the top of the file (before the class definition and Public API). This improves code organization and avoids forward-reference issues in the module.
-- Improved error handling in `cli.py`: added specific `except ET.ParseError` (with clearer "malformed XML" message) before the general catch-all.
-- Verified all **54 tests** still pass after changes.
+GitHub automatically creates a `revert-<pr-number>-<branch>` branch when you merge a PR (in this case after merging PR #7 "acal-converter"). The user accidentally started a revert PR from this branch.
 
-This addresses code review feedback from the previous session. `xacml-converter` status remains **54 passed, 0 skipped**.
+**Actions taken:**
+- Identified the `revert-7-acal-converter` remote branch containing a revert commit.
+- Created draft PR #8 from that branch.
+- Immediately closed PR #8 with a comment explaining that the original PR #7 was intentionally merged and should remain unchanged.
+- No code was reverted on `main`; the original merged changes from PR #7 (the ACAL converter) remain intact.
+- Updated session context with today's date.
+
+Original PR #7 stays merged as requested. The `revert-7-acal-converter` branch can safely be deleted later if desired (`git push origin --delete revert-7-acal-converter`).
 
 ---
 
-### June 27, 2026 — xacml-converter: XACML 3.0 / 4.0 → YACAL v1.0 converter
+### June 28, 2026 — xacml-converter code review and improvements
 
 **Motivation:** Issue #2 in the GitHub repo (filed by Cyril Dangerville, AuthzForce author) asked for an XSLT stylesheet to convert XACML 4.0 → JACAL 1.0. We extended the scope to YACAL (YAML, not JSON) as output, handled both XACML 3.0 and 4.0 as input, and chose Python instead of XSLT/Java to stay in the project's existing ecosystem.
 
