@@ -1,0 +1,15 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:acal-convert:ex01",
+    "Version": "1.0",
+    "CombiningAlgId": "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "permit-all",
+          "Effect": "Permit"
+        }
+      }
+    ]
+  }
+}
