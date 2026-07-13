@@ -2,17 +2,26 @@
 
 ## Current State (July 2026)
 
-Three packages on the `acal-converter` branch (includes all `acal-core` and `acal-explain` work):
+Work spans two repos:
 
-- **`acal-core/`** — shared library with all format readers, writers, and detection logic. 87 tests.
-- **`acal-converter/`** — thin CLI wrapper (`acal-convert`) over `acal-core`. 20 tests.
-- **`acal-explain/`** — standalone policy explanation tool. 30 tests.
-
-All 107 tests pass (acal-core: 87, acal-converter: 20). The ALFA reader is now fully aligned with the Axiomatics PDP 7.x dialect as documented on alfa.guide.
+- **`xacml-spec/`** (the OASIS spec repo) — spec issue #94 cleanup. Branch `issue-94-notice-id-nonunique` is ready but **unmerged**, pending TC sign-off.
+- **`tools/`** — three packages on the `acal-converter` branch (`acal-core` 87 tests, `acal-converter` 20 tests, `acal-explain` 30 tests). All 107 pass. The ALFA reader is aligned with the Axiomatics PDP 7.x dialect per alfa.guide.
 
 ## Most Recent Session (July 2026)
 
-### alfa.guide audit + ALFA reader alignment
+### Spec issue #94: reversing the notice-Id uniqueness constraint
+
+**Why this work:** Issue #94 was a batch of UML-vs-prose alignment fixes in the ACAL Core spec. All items closed except one, which had flip-flopped twice. The spec originally declared `NoticeExpression` as `{ordered, nonunique}`; cdanger changed it to `{ordered, unique}` with an `isUnique(Id)` OCL across six artifacts; we then propagated that into the adoption guide. Steven Legg then objected, and he is right — so this session reversed the whole thing.
+
+**The substance of the reversal** is recorded as an architectural decision (→ notice-id-is-a-concept-identifier). In short: a notice `Id` names the obligation's *meaning* (as XACML 3.0's `ObligationId` did), not a particular occurrence, so requiring uniqueness both breaks compatibility with existing obligation definitions and contradicts §8.16's own evaluation model, which passes notices up from rules into a Result where duplicates are unavoidable.
+
+**What changed:** the constraint was removed from all six places it had been encoded — the core spec's UML/OCL and prose (§7.4, §7.12, §7.37), the two XSD `xs:key`s, three YACAL constraint rules, three JACAL `uniqueKeys` TODO comments, and the PlantUML source. A positive note was added to §7.26/§7.29 explaining *why* the Id is a concept identifier, so the constraint doesn't get reintroduced a third time. The adoption guide's "Multiple Notices Sharing an Action Type" example — which existed purely to teach the distinct-Id workaround — was inverted to demonstrate the traditional same-Id pattern instead.
+
+**Verification approach worth reusing:** rather than trusting the edits, I built policies with duplicate notice Ids and confirmed they were *rejected* by the schema before the change and *accepted* after, with a distinct-Id control passing throughout. Probing the neighbouring `AttributeAssignmentExpression` constraint as a control turned up a long-standing enforcement gap (→ xsd10-unique-silently-skips-absent-optional-fields), filed as spec issue #99.
+
+**Status:** the branch is not merged. cdanger had not yet replied to Steven when the work was done, and this is a normative change, so it needs TC agreement before landing.
+
+### alfa.guide audit + ALFA reader alignment (earlier session)
 
 **Why this work:** The user discovered https://alfa.guide/ and asked for a read-only audit of the ALFA reader against it. The audit identified three categories of gaps: missing combining algorithms, incomplete named function map, and unused bag-attribute metadata (`is_bag` tracked but not acted on). After the audit was presented, the user directed a full implementation pass to close all five gap priorities.
 
@@ -34,6 +43,9 @@ All 107 tests pass (acal-core: 87, acal-converter: 20). The ALFA reader is now f
 
 ## Open Items for Next Session
 
+- **Spec issue #94 branch awaiting TC sign-off**: `xacml-spec` branch `issue-94-notice-id-nonunique` removes the notice-Id uniqueness constraint. Steven Legg argued for it; cdanger had not responded when the work was done. Do not merge without TC agreement — it is a normative change.
+- **Spec issue #99**: normative examples (core spec §4, `examples/acal-xpath/Rule3.xml`) violate the `AttributeAssignmentExpression (AttributeId, Category)` uniqueness constraint, and the XSD cannot catch it. Needs both an example fix and a decision on how to enforce it (XSD 1.1 `xs:assert`, or document the gap).
+- **Tooling impact of #94**: if that branch lands, any validator enforcing notice-Id uniqueness must drop it. Check `yacal-validator`/`jacal-validator` before their PRs go up.
 - **README files**: `acal-core/README.md` is still an empty placeholder. `acal-explain/README.md` was populated in a prior session.
 - **Nested attribute resolution**: `user.clearance`, `record.department`, `medicalrecord.patientId` etc. still produce unresolved-attribute warnings (22 in current suite) because nested namespace paths aren't walked. Known limitation; tracked in analyzer output as `unresolved_attrs`.
 - **Infix comparison type dispatch**: The `>`, `<`, `>=`, `<=` operators default to `integer-*` functions regardless of attribute type. For double/date/time attributes they should dispatch to typed comparisons. The `==` operator similarly defaults to `string-equal` for non-bag scalar attributes; should dispatch to typed equality. Deferred to a follow-on pass.

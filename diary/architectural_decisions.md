@@ -1,5 +1,17 @@
 # Architectural Decisions
 
+## notice-id-is-a-concept-identifier (July 2026)
+
+A `NoticeExpression`/`Notice` `Id` in the ACAL spec is a **concept** identifier, not an instance identifier: it names *what the obligation means and how the PEP must process it*. It is therefore **not** required to be unique within a Policy, Rule, or Result — the same `Id` may appear repeatedly with different `AttributeAssignment`s.
+
+**WHY**: ACAL's `Id` properties are deliberately non-uniform. `PolicyId` is an instance identifier (must be unique); attribute `Id`, `FunctionId`, and notice `Id` are concept identifiers (repeats are legal and meaningful). The pull toward "every property named `Id` should be unique" is intuitive and wrong, and it was acted on once (spec commit 851ebc9) before Steven Legg caught it.
+
+Requiring uniqueness forces the obligation's *semantics* out of the `Id` and into an overloaded `AttributeAssignment` (`action = send-mail`), which breaks every preexisting XACML 3.0 obligation definition — their published `ObligationId` URIs become decorative, and the `Id` degrades into a per-occurrence instance tag nobody needs. It also blocks legitimate patterns: emitting `add-history` twice with different parameters, or emitting the same obligation from two rules that permit access for two different reasons.
+
+It is additionally inconsistent with the evaluation model. Spec §8.16 passes notices *up* the tree from rule → policy → Result, so two rules emitting the same-Id obligation makes a unique-by-Id `ResultType` literally unrepresentable — and no de-duplication or merging rule exists anywhere to reconcile it.
+
+---
+
 ## alfa-function-map-sources-from-system-alfa (July 2026)
 
 `_NAMED_FUNCTION_MAP` in the ALFA reader is sourced exhaustively from `system.alfa` (the canonical Axiomatics PDP 7.x runtime declaration file), converting the XACML version prefix (`xacml:1.0`, `xacml:2.0`, `xacml:3.0`) uniformly to `acal:1.0`.

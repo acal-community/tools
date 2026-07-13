@@ -1,5 +1,17 @@
 # Lessons Learned
 
+## xsd10-unique-silently-skips-absent-optional-fields (July 2026)
+
+**Rule**: An `xs:unique`/`xs:key` whose field list includes an **optional** attribute does not constrain elements where that attribute is absent. XSD 1.0 treats a field matching nothing as an incomplete key-sequence and skips the tuple entirely — no error, no duplicate detection. Never assume a declared identity constraint is actually enforcing the OCL it was generated from.
+
+**Why**: `NoticeExpression_AttributeAssignmentExpression_AttributeId-Category` in the core XSD declares fields `@AttributeId` + `@Category`, intending to enforce `self->isUnique(Sequence{AttributeId, Category})`. Because `Category` is optional, two `AttributeAssignmentExpression`s with the same `AttributeId` and **no** `Category` validate cleanly — while the same pair *with* `Category` present is correctly rejected. The gap is why two normative examples (the spec's own §4 example and `examples/acal-xpath/Rule3.xml`) have shipped for a long time violating a constraint the schema supposedly enforces (filed as spec issue #99).
+
+I only found this because I probed the *adjacent* constraint as a control while removing a different one — if I had only tested the constraint I was changing, I'd have missed it. When removing a constraint, test the neighbouring constraints too: it both proves you didn't over-remove and occasionally exposes a constraint that was never working.
+
+Also relevant when validating this schema at all: it is XSD 1.1 (`xs:assert` with `vc:minVersion="1.1"`), so `xmllint` cannot compile it directly. Strip the 1.1-only constructs first (the repo ships `xsd1.1-to-1.0.xsl` for exactly this); identity constraints are a 1.0 feature and survive the downgrade.
+
+---
+
 ## alfa-bag-type-not-a-datatype (July 2026)
 
 **Rule**: In ALFA attribute declarations, `type = bag` is a cardinality modifier, not an XSD datatype — clear `attr_type` to `""` when `"bag"` is detected; do not store it in the AttributeDesignator's `DataType` field.
