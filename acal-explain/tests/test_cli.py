@@ -104,10 +104,47 @@ def test_cli_explicit_from(runner):
 # Input validation
 # ---------------------------------------------------------------------------
 
-def test_cli_alfa_rejected(runner):
-    result = runner.invoke(main, ["--format", "text", str(_ALFA)])
-    assert result.exit_code != 0
-    assert "not accepted" in result.output or "alfa" in result.output.lower()
+def test_cli_alfa_accepted_without_writing_a_policy_file(runner, tmp_path):
+    """ALFA is converted in memory; the only artifact is the explanation itself."""
+    with runner.isolated_filesystem(temp_dir=tmp_path) as cwd:
+        with patch("acal_explain.llm.litellm") as mock_litellm:
+            mock_litellm.completion.side_effect = _mock_completion()
+            result = runner.invoke(main, ["--format", "text", str(_ALFA)])
+        assert result.exit_code == 0, result.output
+        assert _MOCK_SUMMARY in result.output
+        assert list(Path(cwd).iterdir()) == []
+
+
+def test_cli_alfa_reports_import_fidelity(runner):
+    """Unresolvable ALFA constructs surface as import-fidelity notes, not stderr noise."""
+    with patch("acal_explain.llm.litellm") as mock_litellm:
+        mock_litellm.completion.side_effect = _mock_completion()
+        result = runner.invoke(
+            main, ["--format", "json", str(_CORE_FIXTURES / "alfa" / "unresolvable-attr.alfa")]
+        )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["format"] == "alfa"
+    assert any("could not be resolved" in n for n in payload["import_notes"])
+
+
+def test_cli_alfa_fidelity_notes_render_in_text(runner):
+    with patch("acal_explain.llm.litellm") as mock_litellm:
+        mock_litellm.completion.side_effect = _mock_completion()
+        result = runner.invoke(
+            main, ["--format", "text", str(_CORE_FIXTURES / "alfa" / "xpath-datatype.alfa")]
+        )
+    assert result.exit_code == 0, result.output
+    assert "Import fidelity" in result.output
+    assert "xpath" in result.output.lower()
+
+
+def test_cli_native_input_has_no_import_notes(runner):
+    with patch("acal_explain.llm.litellm") as mock_litellm:
+        mock_litellm.completion.side_effect = _mock_completion()
+        result = runner.invoke(main, ["--format", "json", str(_SIMPLE_PERMIT)])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["import_notes"] == []
 
 
 def test_cli_unknown_extension_fails(runner, tmp_path):
@@ -147,3 +184,16 @@ def test_cli_llm_failure_exits_nonzero(runner):
         result = runner.invoke(main, ["--format", "text", str(_SIMPLE_PERMIT)])
     assert result.exit_code != 0
     assert "LLM call failed" in result.output
+
+
+def test_from_choices_track_the_registry():
+    """acal-explain must accept every format acal-core can read.
+
+    This test is the guard for the bug it was written after: --from was
+    hardcoded to xacml/yacal/jacal, silently excluding ALFA.
+    """
+    from acal_core.languages import READ_FORMATS
+
+    params = {p.name: p for p in main.params}
+    assert tuple(params["from_fmt"].type.choices) == READ_FORMATS
+    assert "alfa" in params["from_fmt"].type.choices

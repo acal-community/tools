@@ -1,12 +1,12 @@
 import io
 import sys
 
-_VALID_FORMATS = frozenset({"yacal", "jacal"})
+from ..languages import WRITE_FORMATS
 
 
 def write(data: dict, fmt: str, stream=None) -> None:
-    if fmt not in _VALID_FORMATS:
-        raise ValueError(f"Unknown output format: {fmt!r}. Expected one of: {sorted(_VALID_FORMATS)}")
+    if fmt not in WRITE_FORMATS:
+        raise ValueError(f"Unknown output format: {fmt!r}. Expected one of: {sorted(WRITE_FORMATS)}")
     if stream is None:
         stream = sys.stdout
     if fmt == "yacal":

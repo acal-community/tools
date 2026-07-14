@@ -1,5 +1,78 @@
 # Architectural Decisions
 
+## capability-matrix-is-the-delta-list (July 2026)
+
+Each non-native source language gets a machine-readable capability matrix at
+`acal-core/capabilities/<lang>.yaml`, keyed by **ACAL feature** (not by source construct),
+declaring which ACAL features that language can express. It is authored in Phase 3 of
+`/import-model`, before any reader code exists.
+
+**WHY**: The plan for the eventual ACAL *export* tool was to audit each language for what it
+can and cannot export, and write the result down as prose. Prose cannot gate an export tool,
+so the audit would have been redone — a third time, after the reader and the doc — when
+export was finally built, and by then the three would have drifted.
+
+Keying by ACAL feature rather than source construct is the whole point. "What does this
+source construct become in ACAL?" is the *import* question, and the reader's own code already
+answers it. "What can this language say *about* ACAL?" is the *export* question, and nothing
+in the codebase answers it — yet three separate consumers need it: the reader (warn vs.
+error), `acal-explain` (report what a target language could never express), and the future
+export tool (its precondition gate). Authoring it once per language is what makes export
+tractable later; auditing three times in three places is what makes it not.
+
+---
+
+## acal-explain-reads-every-source-language (July 2026)
+
+`acal-explain` accepts every format `acal-core` can read, converts non-native input in
+memory, and never writes a policy document. Supersedes (→ acal-explain-acal-only-input).
+
+**WHY**: The user asked for explain to "not export a file, simply explain." The old design
+forced anyone with an ALFA policy to run `acal-convert` first and materialize a `.yaml` they
+did not want, purely to satisfy a restriction at the CLI layer — `acal_core.readers.load()`
+had supported ALFA the whole time. Explaining a policy and producing an ACAL artifact are
+different jobs; `acal-convert` is the tool for the second one. Making explain refuse a file
+it was perfectly capable of reading served no user.
+
+The two jobs stay separate in the code: explain writes only its explanation, and the
+conversion exists solely in memory for the duration of the call.
+
+---
+
+## conversion-report-never-enters-the-document (July 2026)
+
+`load_with_report(path, fmt) -> (doc, ConversionReport)` returns import-fidelity information
+*beside* the neutral document. Provenance, source language, and lossy-mapping notes are never
+written into the document itself.
+
+**WHY**: To report what an import lost, that information has to reach the caller. The obvious
+design — stamp a `SourceLanguage` / conversion-report key into the ACAL document so it
+survives any pipeline — would make `acal-convert` emit documents that **fail our own
+validators**: the ACAL schemas set `additionalProperties` / `unevaluatedProperties` to false
+in several places, so an extra key is a structural violation. A converter whose output its
+sibling validator rejects is worse than one that reports less.
+
+The accepted cost is that fidelity is only available when explain performs the import itself;
+a YACAL file converted in an earlier process has no memory of its source. That is honest —
+the alternative is a claim we cannot substantiate. Carrying provenance properly requires a
+spec extension point, which is on the roadmap, not a workaround.
+
+---
+
+## central-language-registry (July 2026)
+
+Every policy language is declared exactly once, in `acal-core/src/acal_core/languages.py`.
+Format detection, reader dispatch, writer dispatch, and both CLIs' `--from` / `--to` choices
+are all derived from it. Adding a language is one registry entry.
+
+**WHY**: A format was previously declared in five places (`_VALID_FORMATS`, `_EXT_TO_FORMAT`,
+the `load()` dispatch, and a hand-written `click.Choice` in each of the two CLIs). Five
+declarations of one fact is four opportunities for them to disagree, and with Cedar and IAM
+queued that number was about to grow. Parity tests in each tool's suite now fail if a CLI's
+choices diverge from the registry, so the drift cannot return silently.
+
+---
+
 ## notice-id-is-a-concept-identifier (July 2026)
 
 A `NoticeExpression`/`Notice` `Id` in the ACAL spec is a **concept** identifier, not an instance identifier: it names *what the obligation means and how the PEP must process it*. It is therefore **not** required to be unique within a Policy, Rule, or Result — the same `Id` may appear repeatedly with different `AttributeAssignment`s.
@@ -36,11 +109,20 @@ When an ALFA attribute block declares `type = bag`, the string `"bag"` sets `is_
 
 ---
 
-## acal-explain-acal-only-input (June 2026)
+## acal-explain-acal-only-input (June 2026) — SUPERSEDED July 2026
+
+**Superseded by (→ acal-explain-reads-every-source-language). Kept because the reasoning
+was sound and only one premise turned out to be wrong.**
 
 `acal-explain` accepts only XACML, YACAL, and JACAL as input — ALFA is explicitly rejected with a message directing the user to convert first.
 
 **WHY**: `acal-explain` explains what an ACAL policy is expressing. ALFA is a source language that gets *converted into* ACAL; explaining an ALFA file directly would require running the ALFA reader and then explaining the resulting ACAL neutral dict anyway. The tool's purpose is ACAL-family insight, not ALFA parsing. Making the rejection explicit (with a `acal-convert … | acal-explain` hint) is clearer than silently accepting ALFA and potentially confusing users who expected ALFA-level semantics.
+
+**What was wrong with it**: the argument "you'd just run the reader and explain the neutral
+dict anyway" is *correct*, and is precisely the reason to accept ALFA rather than reject it —
+the work is identical either way, so the only thing the rejection bought was making the user
+do it by hand and leave a `.yaml` on disk they never wanted. The premise that the user wanted
+an ACAL artifact was never checked.
 
 ---
 

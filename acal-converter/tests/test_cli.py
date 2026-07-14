@@ -274,3 +274,16 @@ def test_cli_debug_dumps_symbol_table(runner):
     ])
     assert result.exit_code == 0, result.output
     assert "ALFA symbol table" in result.output
+
+
+def test_from_and_to_choices_track_the_registry():
+    """acal-convert must offer exactly the formats acal-core declares.
+
+    Guards the drift class that left ALFA out of acal-explain's --from while
+    acal_core.load() supported it.
+    """
+    from acal_core.languages import READ_FORMATS, WRITE_FORMATS
+
+    params = {p.name: p for p in main.params}
+    assert tuple(params["from_fmt"].type.choices) == READ_FORMATS
+    assert tuple(params["to_fmt"].type.choices) == WRITE_FORMATS

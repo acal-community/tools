@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 
+from acal_core.languages import READ_FORMATS, WRITE_FORMATS
 from acal_core.readers import detect_format, load
 from acal_core.writers import write
 
@@ -12,13 +13,13 @@ from acal_core.writers import write
 @click.argument("input_file", type=click.Path(exists=True, dir_okay=False))
 @click.option(
     "--from", "from_fmt",
-    type=click.Choice(["xacml", "yacal", "jacal", "alfa"]),
+    type=click.Choice(READ_FORMATS),
     default=None,
     help="Input format. Auto-detected from file extension if omitted.",
 )
 @click.option(
     "--to", "to_fmt",
-    type=click.Choice(["yacal", "jacal"]),
+    type=click.Choice(WRITE_FORMATS),
     required=True,
     help="Output format.",
 )
@@ -93,9 +94,10 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
 
     if fmt is None:
         ext = Path(input_file).suffix or "(none)"
+        choices = "|".join(READ_FORMATS)
         raise click.UsageError(
             f"Cannot determine input format from extension {ext!r}. "
-            f"Use --from [xacml|yacal|jacal|alfa] to specify."
+            f"Use --from [{choices}] to specify."
         )
 
     try:

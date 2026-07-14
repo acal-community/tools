@@ -1,9 +1,12 @@
 ---
 name: import-model
-description: Add a new source policy language to acal-converter. Runs a structured gap analysis, documents decisions before writing code, implements the reader, adds tests and CLI integration, then closes with session-historian and a code review. Invoke as `/import-model <LANGUAGE>`.
+description: Add a new source policy language to acal-core. Runs a structured gap analysis, documents decisions before writing code, implements the reader, adds tests and CLI integration, then closes with session-historian and a code review. Invoke as `/import-model <LANGUAGE>`.
 ---
 
-Implement a new source-language reader for `acal-converter`. Run **inline in the main conversation** (do not spawn an agent unless a step specifically says to).
+Implement a new source-language reader in `acal-core`. Every tool in this repo
+(`acal-convert`, `acal-explain`) consumes readers from `acal-core`, so a language added
+here becomes available to all of them at once. Run **inline in the main conversation**
+(do not spawn an agent unless a step specifically says to).
 
 ## Phase 0: Validate input
 
@@ -11,12 +14,18 @@ If the language name was not given as an argument, use **AskUserQuestion** to as
 
 Perform a **comprehensive existence check** across all integration points:
 
-1. `acal-converter/src/acal_converter/readers/<lang>.py` — reader file
-2. `_VALID_FORMATS` in `acal-converter/src/acal_converter/readers/__init__.py` — format registry
-3. `--from` `click.Choice` in `acal-converter/src/acal_converter/cli.py` — CLI choices
-4. A language section in `acal-converter/docs/policy-language-expressiveness.md`
+1. `acal-core/src/acal_core/readers/<lang>.py` — reader file
+2. An entry in `LANGUAGES` in `acal-core/src/acal_core/languages.py` — the central registry
+3. A dispatch branch in `load()` in `acal-core/src/acal_core/readers/__init__.py`
+4. `acal-core/capabilities/<lang>.yaml` — the machine-readable capability matrix
+5. A language section in `acal-core/docs/policy-language-expressiveness.md`
 
 Report which of these exist and which do not. If **any** are present, surface this as an issue and **stop processing** until the user clarifies intent. Do not assume a partial implementation should be continued or overwritten.
+
+Note what is **not** on this list: the CLIs. `acal-convert` and `acal-explain` build their
+`--from` choices from `LANGUAGES` at import time, so they need no edit. Do not add a format
+name to a `click.Choice` by hand — that is the drift bug the registry exists to prevent, and
+a parity test in each tool's suite will fail if you do.
 
 ## Phase 1: Load context
 
@@ -25,9 +34,11 @@ Before any analysis, read in order:
 1. `diary/architectural_decisions.md`
 2. `diary/lessons_learned.md`
 3. `diary/session_context.md`
-4. `acal-converter/docs/policy-language-expressiveness.md` — the no-silent-drops requirement and existing gap taxonomy
-5. `acal-converter/src/acal_converter/readers/__init__.py` — all current integration points
-6. `acal-converter/src/acal_converter/readers/xacml.py` — the reference reader pattern
+4. `acal-core/docs/policy-language-expressiveness.md` — the no-silent-drops requirement and existing gap taxonomy
+5. `acal-core/src/acal_core/languages.py` — the central language registry
+6. `acal-core/src/acal_core/readers/__init__.py` — detection and dispatch
+7. `acal-core/src/acal_core/readers/xacml.py` — the reference reader pattern for a structured format
+8. `acal-core/src/acal_core/readers/alfa.py` — the reference reader pattern for a DSL (two-pass, symbol table)
 
 Output 2–3 sentences naming any architectural constraints from the diary or the expressiveness doc that are directly relevant to this language. If nothing applies, proceed silently.
 
@@ -83,9 +94,25 @@ When all branches are resolved, output the decision summary as a structured tabl
 
 ## Phase 3: Document decisions before writing code
 
-Write the language section in `acal-converter/docs/policy-language-expressiveness.md` following the existing template at the bottom of that file. This must happen **before** any reader code is written.
+Two artifacts, both written **before** any reader code. They carry the same knowledge in
+two forms: one for humans, one for tools.
 
-The section must cover:
+**1. The capability matrix** — `acal-core/capabilities/<lang>.yaml`. This is the
+machine-readable delta list, and it is the artifact the eventual ACAL *export* tool will be
+built on. Three consumers read it, so it must be data, not prose:
+
+  - the reader, for its warn-vs-error dispositions
+  - `acal-explain`, to report which ACAL features in a document this language could never
+    express
+  - the future export tool, as its precondition gate
+
+Key it by **ACAL feature**, not by source construct — the question it answers is "what can
+this language say about ACAL?", which is the export direction. Record for each: whether it
+is exportable (`true` / `false` / `partial`), the disposition code, and a one-line note
+explaining the limit. Derive the entries from the Phase 2 gap analysis.
+
+**2. The prose section** — in `acal-core/docs/policy-language-expressiveness.md`, following
+the template at the bottom of that file. It must cover:
 
 - Whether the language is input-only or potentially bidirectional, and why
 - The no-silent-drops requirement as it applies to this language
@@ -93,47 +120,55 @@ The section must cover:
 - A concrete ACAL policy example that cannot round-trip back to the source language (required for input-only verdicts)
 - Which gaps are subject to `--strict` / `--no-strict` and what each mode does
 
-**Do not proceed to Phase 4 until the user confirms the section reflects the decisions from Phase 2.**
+Prose and matrix must agree. If they disagree, the matrix wins — it is the one that
+executes.
+
+**Do not proceed to Phase 4 until the user confirms both reflect the decisions from Phase 2.**
 
 ## Phase 4: Implement
 
 Work in this order, completing each step before starting the next:
 
-**1. Parser / loader** — if the language is a DSL, install and wire up the chosen parsing approach. Update `acal-converter/pyproject.toml` with any new dependencies. Parse errors (syntax errors in the source file) must surface as `<Lang>SyntaxError(ValueError)` — a distinct type from semantic conversion errors. If the Phase 2 analysis determined a two-pass architecture is needed, implement `_collect_symbols(tree) -> _SymbolTable` as a standalone function that runs over the raw parse tree before the main transformer; the main transformer receives the populated symbol table at construction time.
+**1. Parser / loader** — if the language is a DSL, install and wire up the chosen parsing approach. Update `acal-core/pyproject.toml` with any new dependencies. Parse errors (syntax errors in the source file) must surface as `<Lang>SyntaxError(ValueError)` — a distinct type from semantic conversion errors. If the Phase 2 analysis determined a two-pass architecture is needed, implement `_collect_symbols(tree) -> _SymbolTable` as a standalone function that runs over the raw parse tree before the main transformer; the main transformer receives the populated symbol table at construction time. `readers/alfa.py` is the worked example.
 
-**2. Reader** — create `acal-converter/src/acal_converter/readers/<lang>.py`:
+**2. Reader** — create `acal-core/src/acal_core/readers/<lang>.py`:
    - Define `<Lang>SyntaxError(ValueError)` for parse failures (raised in pass 1 / symbol collection)
    - Define `<Lang>UnsupportedFeatureError(ValueError)` for constructs with disposition (c) (raised in pass 2 / transformation)
    - Both inherit `ValueError` to match the `XACMLUnsupportedFeatureError` precedent
    - Implement `load(path: str, strict: bool = False) -> dict` returning the neutral ACAL dict
    - Every source-language construct must be **explicitly handled** — no silent skips; unrecognised constructs should raise, not pass
-   - Warning-eligible constructs (disposition b) emit `UserWarning` in non-strict mode and raise `<Lang>UnsupportedFeatureError` in strict mode
+   - Warning-eligible constructs (disposition b) emit `UserWarning` in non-strict mode and raise `<Lang>UnsupportedFeatureError` in strict mode. `load_with_report` turns those warnings into structured `ConversionNote`s, which is how `acal-explain` reports import fidelity — so the warning message *is* user-facing copy. Write it accordingly: name the construct and say what the consequence is.
+   - Never write provenance or conversion metadata **into** the returned dict. The ACAL schemas set `additionalProperties` / `unevaluatedProperties` to false in places, so an extra key makes our own output fail our own validators. Fidelity travels in the `ConversionReport`, never in the document.
 
-**3. Registry** — update `acal-converter/src/acal_converter/readers/__init__.py`:
-   - Add the format name to `_VALID_FORMATS`
-   - Add extension(s) to `_EXT_TO_FORMAT`
+**3. Registry** — `acal-core/src/acal_core/languages.py`:
+   - Add one `Language(...)` entry: name, label, extensions, `can_read=True`, `can_write=False`, and `capabilities="<lang>.yaml"`
+   - Foreign languages are import-only. Do not set `can_write=True` without a writer and a round-trip test.
+
+   Then `acal-core/src/acal_core/readers/__init__.py`:
    - Extend `detect_format_from_bytes` with a content-sniff rule if one was established in Phase 2
    - Add the format branch to `load()`
-   - Re-export `<Lang>UnsupportedFeatureError` if callers need to catch it by name
+   - Re-export `<Lang>UnsupportedFeatureError` so callers can catch it by name
 
-**4. CLI** — update `acal-converter/src/acal_converter/cli.py`:
-   - Add the format name to the `--from` `click.Choice` list
+**4. CLI** — nothing to do. Both CLIs derive their `--from` choices from `LANGUAGES`. If you find yourself editing a `click.Choice`, stop: you have missed the registry entry.
 
 ## Phase 5: Test
 
-Create test fixtures under `acal-converter/tests/fixtures/<lang>/`. Required categories:
+Create test fixtures under `acal-core/tests/fixtures/<lang>/`. Required categories:
 
 - **Valid** — at least one fixture per major construct (simple permit, condition, combining algorithm if supported, obligation if supported, attribute access)
 - **Unsupported constructs** — one fixture per disposition-(c) gap; each should trigger `<Lang>UnsupportedFeatureError`
-- **Warning-eligible constructs** — one fixture per disposition-(b) gap; confirm warning fires under `--no-strict` and error fires under `--strict`
+- **Warning-eligible constructs** — one fixture per disposition-(b) gap; confirm the warning fires under `--no-strict` and the error fires under `--strict`
+- **Fidelity** — at least one fixture where `load_with_report` returns a non-empty `report.notes`, and one clean fixture where it returns none. A disposition-(b) gap that produces no note is a silent drop.
 - **Round-trip** — for any gap confirmed as lossless in Phase 2, a fixture that converts to YACAL/JACAL and back to the neutral dict with no data change
 
-Add parametrized tests in `acal-converter/tests/test_converter.py` (or a dedicated `tests/test_<lang>_reader.py` if volume warrants it). Every fixture must have a corresponding test. Run the full test suite after adding each fixture group — don't batch them all and run once at the end.
+Add tests in `acal-core/tests/test_core.py` (or a dedicated `tests/test_<lang>_reader.py` if volume warrants it). Every fixture must have a corresponding test. Run the full suite after adding each fixture group — don't batch them all and run once at the end.
 
 ## Phase 6: Validate
 
-- Run `pytest` from `acal-converter/` — all tests must pass, no regressions in existing readers
-- Exercise the CLI end-to-end: `acal-convert <fixture> --from <lang> --to yacal`
+- Run `pytest` from `acal-core/`, `acal-converter/`, **and** `acal-explain/` — a reader change touches all three, and the registry parity tests live in the two tool suites
+- Exercise both CLIs end-to-end:
+  - `acal-convert <fixture> --from <lang> --to yacal`
+  - `acal-explain <fixture>` — must work directly on the source file, with no intermediate policy file written, and must print an Import Fidelity section when the fixture is lossy
 - Test `--strict` on a warning-eligible fixture and confirm it errors
 - Test `--no-strict` on the same fixture and confirm it warns and converts
 - Confirm `detect_format` correctly identifies a sample file by content sniff (if implemented) and by extension

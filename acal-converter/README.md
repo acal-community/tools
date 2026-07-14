@@ -13,7 +13,7 @@ Converts policy documents between ACAL serialization formats, and reads legacy X
 
 YACAL and JACAL represent the same ACAL data model — one in YAML, one in JSON. Conversion between them is always lossless.
 
-XACML and ALFA are input-only. See [docs/policy-language-expressiveness.md](docs/policy-language-expressiveness.md) for the gap analysis and rationale.
+XACML and ALFA are input-only. See [acal-core/docs/policy-language-expressiveness.md](../acal-core/docs/policy-language-expressiveness.md) for the gap analysis and rationale.
 
 ---
 
@@ -159,7 +159,7 @@ acal-convert --from alfa --to yacal \
 
 The `--include` flag loads additional ALFA files (attribute registries, standard namespace declarations like `system.alfa`) for symbol resolution. These files are not converted — they only contribute to the attribute, obligation, and advice symbol table used by the main policy file.
 
-See [docs/policy-language-expressiveness.md](docs/policy-language-expressiveness.md) for full coverage details: all 9 combining algorithms, complete function map, bag overloading semantics, and gap dispositions.
+See [acal-core/docs/policy-language-expressiveness.md](../acal-core/docs/policy-language-expressiveness.md) for full coverage details: all 9 combining algorithms, complete function map, bag overloading semantics, and gap dispositions.
 
 ---
 
@@ -214,7 +214,7 @@ The `--strict` / `--no-strict` flag controls behavior for non-semantic deprecati
 |---|---|---|
 | `IncludeInResult="true"` on request `<Attribute>` | Warning (ignored — only affects response formatting) | Error |
 
-See [docs/policy-language-expressiveness.md](docs/policy-language-expressiveness.md) for the full rationale behind these decisions.
+See [acal-core/docs/policy-language-expressiveness.md](../acal-core/docs/policy-language-expressiveness.md) for the full rationale behind these decisions.
 
 The converter assumes the input is a valid XACML document and does not validate it against the XACML XSD schemas.
 

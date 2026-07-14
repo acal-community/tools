@@ -5,8 +5,10 @@ All analysis is deterministic and requires no LLM call.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from acal_core.report import ConversionReport
 
 
 @dataclass
@@ -46,6 +48,10 @@ class AnalysisResult:
     rule_count: int
     permit_count: int
     deny_count: int
+
+    # What the source language could not express faithfully in ACAL. Empty for
+    # native inputs (YACAL/JACAL), which are the neutral model already.
+    import_notes: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +190,7 @@ def _obligation_gaps(policy: PolicyInfo) -> list[str]:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def analyze(doc: dict, fmt: str) -> AnalysisResult:
+def analyze(doc: dict, fmt: str, report: ConversionReport | None = None) -> AnalysisResult:
     """Analyze a loaded ACAL neutral dict and return structured observations."""
     top_policy: PolicyInfo | None = None
     bundle_policies: list[PolicyInfo] = []
@@ -221,4 +227,5 @@ def analyze(doc: dict, fmt: str) -> AnalysisResult:
         rule_count=len(all_rules),
         permit_count=permit_count,
         deny_count=deny_count,
+        import_notes=[n.message for n in report.notes] if report else [],
     )

@@ -6,7 +6,7 @@ import pytest
 import ruamel.yaml
 
 from acal_core import convert
-from acal_core.readers import detect_format, detect_format_from_bytes
+from acal_core.readers import detect_format, detect_format_from_bytes, load, load_with_report
 from acal_core.readers.yacal import load as load_yacal
 from acal_core.readers.jacal import load as load_jacal
 from acal_core.readers.xacml import load as load_xacml, XACMLUnsupportedFeatureError
@@ -731,3 +731,139 @@ def test_alfa_malformed_syntax_raises_syntax_error():
     msg = str(exc_info.value)
     assert "Syntax error" in msg
     assert "line" in msg and "col" in msg
+
+
+# ---------------------------------------------------------------------------
+# Language registry — every format is declared exactly once, in languages.py.
+# These tests exist because ALFA was silently missing from acal-explain's
+# --from choices while acal_core.load() supported it the whole time.
+# ---------------------------------------------------------------------------
+
+def test_registry_is_the_only_source_of_extensions():
+    from acal_core.languages import EXT_TO_FORMAT, LANGUAGES
+
+    declared = {ext for lang in LANGUAGES for ext in lang.extensions}
+    assert set(EXT_TO_FORMAT) == declared
+    for ext, fmt in EXT_TO_FORMAT.items():
+        assert detect_format(f"nonexistent{ext}") == fmt
+
+
+def test_every_readable_language_dispatches():
+    """READ_FORMATS must not advertise a format that load() rejects."""
+    from acal_core.languages import READ_FORMATS
+
+    for fmt in READ_FORMATS:
+        with pytest.raises((FileNotFoundError, OSError)):
+            load(f"nonexistent-file-for-{fmt}", fmt)
+
+
+# ---------------------------------------------------------------------------
+# load_with_report — fidelity travels as data, never inside the document
+# ---------------------------------------------------------------------------
+
+def test_load_with_report_captures_reader_warnings():
+    doc, report = load_with_report(str(ALFA / "xpath-datatype.alfa"), "alfa")
+    assert "Policy" in doc
+    assert report.source_format == "alfa"
+    assert report.lossy
+    assert any("xpath" in n.message.lower() for n in report.notes)
+
+
+def test_load_with_report_clean_for_native_input():
+    doc, report = load_with_report(str(FIXTURES / "ex01-simple-permit.yaml"), "yacal")
+    assert "Policy" in doc
+    assert not report.lossy
+    assert report.notes == []
+
+
+def test_report_never_pollutes_the_document():
+    """Provenance must stay out of the doc — ACAL schemas forbid extra properties."""
+    doc, report = load_with_report(str(ALFA / "xpath-datatype.alfa"), "alfa")
+    assert report.lossy
+    serialized = json.dumps(doc)
+    assert "source_format" not in serialized
+    assert "ConversionReport" not in serialized
+    for key in doc:
+        assert key in {"Policy", "Bundle", "Request", "Response", "ShortIdSet"}
+
+
+def test_load_with_report_does_not_swallow_non_user_warnings():
+    import warnings as _w
+
+    def _emit():
+        _w.warn("deprecated thing", DeprecationWarning, stacklevel=2)
+        return {"Policy": {}}
+
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("acal_core.readers.load", lambda *a, **k: _emit())
+            from acal_core.readers import load_with_report as lwr
+            doc, report = lwr("ignored", "yacal")
+    assert not report.lossy
+    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+
+
+# ---------------------------------------------------------------------------
+# Capability matrices — the machine-readable delta list. These are the spine of
+# the future export tool, so they must stay in sync with the registry and the
+# disposition vocabulary.
+# ---------------------------------------------------------------------------
+
+_DISPOSITIONS = {"a", "b", "c", "d", "e"}
+
+
+def test_every_foreign_language_has_a_capability_matrix():
+    """A foreign (non-native) language with no matrix is an unaudited export gap."""
+    from acal_core.languages import LANGUAGES, CAPABILITIES_DIR
+
+    for lang in LANGUAGES:
+        if lang.native:
+            assert lang.capabilities is None, f"{lang.name} is native; it needs no matrix"
+        else:
+            assert lang.capabilities, f"{lang.name} has no capability matrix"
+            assert (CAPABILITIES_DIR / lang.capabilities).is_file()
+
+
+def test_capability_matrices_are_well_formed():
+    from acal_core.languages import LANGUAGES, capabilities
+
+    for lang in (l for l in LANGUAGES if not l.native):
+        matrix = capabilities(lang.name)
+        assert matrix["language"] == lang.name, "matrix `language` must match the registry name"
+        assert matrix["direction"] in {"import-only", "bidirectional"}
+        features = matrix["acal_features"]
+        assert features, f"{lang.name} matrix declares no ACAL features"
+        for feature, spec in features.items():
+            assert spec["exportable"] in (True, False, "partial"), feature
+            assert spec["disposition"] in _DISPOSITIONS, feature
+            if spec["exportable"] is not True:
+                assert spec.get("note"), f"{lang.name}.{feature} limits export but says nothing about why"
+
+
+def test_native_languages_have_no_export_gaps():
+    from acal_core.languages import unexportable_features
+
+    assert unexportable_features("yacal") == {}
+    assert unexportable_features("jacal") == {}
+
+
+def test_unexportable_features_are_reported():
+    from acal_core.languages import unexportable_features
+
+    alfa_gaps = unexportable_features("alfa")
+    # ALFA has no cross-policy variable sharing — the canonical ACAL-only feature.
+    assert "SharedVariableDefinition" in alfa_gaps
+    assert alfa_gaps["SharedVariableDefinition"]
+
+
+def test_alfa_xpath_datatype_raises_under_strict():
+    """Disposition (b) means warn by default AND error under --strict.
+
+    The xpath warning fires during symbol collection (pass 1), which originally
+    took no `strict` argument — so the documented --strict guarantee silently did
+    not hold for it. A disposition-(b) construct that cannot be escalated is a
+    silent drop, which this project forbids.
+    """
+    with pytest.raises(ALFAUnsupportedFeatureError, match="xpath"):
+        load_alfa(str(ALFA / "xpath-datatype.alfa"), strict=True)

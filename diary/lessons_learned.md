@@ -1,5 +1,66 @@
 # Lessons Learned
 
+## strict-must-be-threaded-through-every-pass (July 2026)
+
+**Rule**: In a multi-pass reader, `strict` must reach *every* pass. A disposition-(b)
+construct whose warning fires in a pass that never received the flag will warn correctly and
+then silently fail to escalate under `--strict`. Grep for `warnings.warn` and confirm each
+call site can see `strict`.
+
+**Why**: The ALFA `xpath` datatype is documented as "(b) warning / error under `--strict`" in
+the gap table. It never errored. The warning is emitted during symbol collection (pass 1), and
+`_collect_symbols(tree)` took no `strict` argument — only `AlfaTransformer` (pass 2) had
+`_strict` and a `_warn_or_raise` helper. The escalation path did not exist for anything pass 1
+detects, and the gap table's claim had been false since the feature shipped.
+
+This is exactly the failure the project's no-silent-drops rule exists to prevent, and it hid
+in plain sight because the *warning* worked perfectly — the default path behaved as
+documented, so nothing looked broken. Only exercising `--strict` end-to-end on a
+warning-eligible fixture exposed it. `--strict` is a security-relevant promise here: it is
+what a user turns on when they need conversion to fail rather than approximate. Test the
+escalation, not just the warning. (→ dsl-vs-format-is-the-first-fork-for-new-readers)
+
+---
+
+## check-for-fork-before-deleting-a-duplicate (July 2026)
+
+**Rule**: Two files with the same name in two directories are not necessarily a duplicate and
+an original. Before deleting the "copy", diff them *both ways* — list the headings unique to
+each. If each side has content the other lacks, it is a fork, and deleting either loses work.
+
+**Why**: `policy-language-expressiveness.md` existed in both `acal-converter/docs/` and
+`acal-core/docs/` after the acal-core extraction. The obvious move was to delete the stale
+converter copy. It was not stale: it held the July alfa.guide alignment (all 9 combining
+algorithms, the full function map, bag overloading V2) that the core copy had never received,
+while the core copy held the Cedar/IAM/Rego gap analyses the converter copy lacked. The
+converter copy was also *smaller* (125 lines vs 500), which made it look obviously like the
+lesser one.
+
+A one-way `diff` showed only what core added and reinforced the wrong conclusion. `comm` on
+the two heading lists showed the fork immediately. The cost of getting this wrong is silent:
+the deleted content does not come back, and nothing fails.
+
+---
+
+## a-restriction-may-be-a-decision-not-a-bug (July 2026)
+
+**Rule**: Before calling a narrow allowlist "drift" and widening it, search the diary for a
+decision that put it there. Reversing a deliberate decision is fine; reversing it while
+believing it was an accident means the original reasoning never gets addressed.
+
+**Why**: `acal-explain` accepted XACML/YACAL/JACAL but not ALFA, even though
+`acal_core.readers.load()` supported ALFA. This looked exactly like registry drift — one of
+five declaration sites had been missed — and it was reported as such. It was not: it was
+`acal-explain-acal-only-input`, a deliberate decision with a written rationale.
+
+The decision was still worth reversing (the user's feature request overturned it), and the
+central registry was still worth building. But the diary entry needed to be *superseded* with
+an explanation of which premise was wrong, not silently contradicted by code. The tell was
+that the rejection had a helpful, hand-written error message pointing at `acal-convert` —
+drift does not write itself a good error message.
+
+---
+
 ## xsd10-unique-silently-skips-absent-optional-fields (July 2026)
 
 **Rule**: An `xs:unique`/`xs:key` whose field list includes an **optional** attribute does not constrain elements where that attribute is absent. XSD 1.0 treats a field matching nothing as an incomplete key-sequence and skips the tuple entirely — no error, no duplicate detection. Never assume a declared identity constraint is actually enforcing the OCL it was generated from.

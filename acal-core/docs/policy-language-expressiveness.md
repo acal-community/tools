@@ -157,9 +157,11 @@ whether to re-express the intent using `ResultEntity` in their ACAL policy.
 
 ## ALFA (Abbreviated Language for Authorization)
 
-*Reader: implemented in acal-converter v0.1 (June 2026).*
+*Reader: `acal-core/src/acal_core/readers/alfa.py`. Aligned with alfa.guide as of July 2026.*
 
 ALFA is a DSL developed within the OASIS XACML ecosystem as a human-readable alternative to XACML 3.0 XML. It uses a C/Java-like syntax with braces, keywords, and dot-notation attribute access. ALFA compiles conceptually to XACML 3.0 — meaning its semantic model aligns closely with XACML 3.0, not ACAL 1.0 directly. The ALFA reader translates the ALFA tree into the ACAL neutral dict, with remapping handled by the same patterns used in the XACML 3.0 reader where applicable.
+
+ALFA was submitted to OASIS as a contribution to the XACML TC in March 2014 but was never published as a formally versioned standard. The de-facto reference implementation is the **Axiomatics PDP 7.x dialect**, documented at <https://alfa.guide/>, which adds extensions beyond the original OASIS submission. This reader targets that dialect.
 
 ### Why ALFA is input-only
 
@@ -193,7 +195,11 @@ ALFA is a DSL, not a structured data format. The reader uses the `lark` parsing 
 | Infix operators (`==`, `!=`, `>`, `<`, `&&`, `\|\|`, `!`) | `Apply` with `FunctionId` URN from operator map | (d) Supplementary | N/A |
 | Named function calls (`stringContains(...)` etc.) | `Apply` with `FunctionId` URN from function name map | (d) Supplementary | N/A |
 | Unknown function names | `Apply` with `urn:custom:function:{name}` + `UserWarning` | (b) Lossy/warn | Error under `--strict` |
-| Bag overloading (type-dependent `==` expansion) | Implementable within the Apply tree (V1 emits scalar function + `UserWarning` when attribute bag-ness is unknown; V2 adds full type tracking) | (b) Lossy/warn | Error under `--strict` |
+| Infix `==` / `!=` on **bag** attributes | `<type>-is-in(scalar, bag)`, negated for `!=` | (d) Supplementary | N/A |
+| Bag element type with no `is-in` function | Falls back to `string-equal` + `UserWarning` | (b) Lossy/warn | Error under `--strict` |
+| `xpath` attribute datatype | Passed through; no ACAL 1.0 equivalent | (b) Lossy/warn | Error under `--strict` |
+| `import` statement | No-op; symbol loading is handled by `--include` | (d) Supplementary | N/A |
+| `system.alfa` declarations | Discarded — PDP runtime config, no ACAL equivalent | (d) Supplementary | N/A |
 | `obligation` in `on permit` / `on deny` | `NoticeExpression { IsObligation: true, AppliesTo: Permit/Deny }` | (a) Direct | N/A |
 | `advice` in `on permit` / `on deny` | `NoticeExpression { IsObligation: false, AppliesTo: Permit/Deny }` | (a) Direct | N/A |
 | Obligation/advice URN (from namespace declaration) | Resolved from symbol table | (d) Supplementary | N/A |
@@ -218,22 +224,58 @@ The reader operates in two passes over the Lark parse tree:
 
 **Unresolvable references:** attribute paths or obligation/advice names not found in the symbol table emit `warnings.warn(..., UserWarning)` in non-strict mode and `raise ALFAUnsupportedFeatureError(...)` in strict mode.
 
-**Bag overloading (V2):** when `is_bag=True` is stored in the `_AttributeDecl`, the transformer expands `lhs == rhs` to `any-of` or `string-at-least-one-member-of` instead of `string-equal`. In V1, attributes without explicit type declarations default to `is_bag=False` and emit a `UserWarning` if the infix `==` is applied to a path whose bag-ness cannot be confirmed.
-
 Paths that remain unresolvable after both passes write the raw path string into the output and emit a `UserWarning` (or raise under `--strict`).
+
+### Bag overloading (V2, July 2026)
+
+When an attribute is declared with `type = bag` (optionally with `datatype = <type>`), the
+infix `==` operator expands to `<type>-is-in(scalar, bag)` rather than
+`<type>-equal(bag, scalar)`. The expansion is **type-aware**: a `bag` attribute with
+`datatype = integer` uses `integer-is-in`; an untyped bag defaults to `string-is-in`.
+
+`!=` expands to `not(<type>-is-in(...))`.
+
+If the bag's element type has no `is-in` entry in the function map, a `UserWarning` is
+emitted — disposition (b) — and `string-equal` is used as a fallback.
 
 ### Combining algorithm keyword map
 
-```python
-ACAL_COMBINING_ALGO_MAP = {
-    "denyOverrides":    "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides",
-    "permitOverrides":  "urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-overrides",
-    "firstApplicable":  "urn:oasis:names:tc:acal:1.0:combining-algorithm:first-applicable",
-    "denyUnlessPermit": "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
-    "permitUnlessDeny": "urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-unless-deny",
-    "onlyOneApplicable":"urn:oasis:names:tc:acal:1.0:combining-algorithm:only-one-applicable",
-}
-```
+All 9 algorithms on alfa.guide are covered (July 2026). Every URN below is prefixed
+`urn:oasis:names:tc:acal:1.0:combining-algorithm:`.
+
+| ALFA keyword | ACAL 1.0 suffix |
+|---|---|
+| `denyOverrides` | `deny-overrides` |
+| `permitOverrides` | `permit-overrides` |
+| `firstApplicable` | `first-applicable` |
+| `orderedDenyOverrides` | `ordered-deny-overrides` |
+| `orderedPermitOverrides` | `ordered-permit-overrides` |
+| `denyUnlessPermit` | `deny-unless-permit` |
+| `permitUnlessDeny` | `permit-unless-deny` |
+| `onlyOneApplicable` | `only-one-applicable` |
+| `onPermitApplySecond` | `on-permit-apply-second` |
+
+Unknown algorithm names are passed through as-is with a `UserWarning` — disposition (b),
+promoted to `ALFAUnsupportedFeatureError` under `--strict`.
+
+### Datatypes
+
+All 17 datatypes listed on alfa.guide pass through from attribute declarations to the
+neutral dict. The one exception is `xpath`, which has no ACAL 1.0 equivalent (ACAL 1.0
+does not include the `xpathExpression` data type) and emits a `UserWarning` at
+attribute-declaration parse time — disposition (b).
+
+### Functions
+
+All `function` entries from `system.alfa` are mapped to ACAL 1.0 URNs in
+`_NAMED_FUNCTION_MAP`. The map covers equality, arithmetic, string manipulation, type
+conversion, logical operators, typed comparisons, date/time arithmetic, every bag
+one-and-only / bag-size / is-in / bag-constructor form, bag set operations
+(at-least-one-member-of, subset, set-equals, intersection, union), higher-order bag
+functions (`any-of`, `all-of`, …), match functions, and XPath introspection functions.
+
+Unknown function names map to `urn:custom:function:<name>` with a `UserWarning` —
+disposition (b).
 
 ### Category URN map
 
@@ -245,6 +287,22 @@ ACAL_CATEGORY_MAP = {
     "environment": "urn:oasis:names:tc:acal:1.0:attribute-category:environment",
 }
 ```
+
+### Structural elements (all fully supported)
+
+`namespace` (nested), `policyset`, `policy`, `rule`, `target clause`, `condition`,
+`on permit` / `on deny`, `obligation`, `advice`, `attribute`, `import`, `var`,
+`variable()`, `system.alfa` declarations, the infix operators (`==`, `!=`, `>`, `<`,
+`>=`, `<=`, `&&`, `||`, `!`, `and`, `or`), and policy cross-references (`ref_stmt`).
+
+### `--strict` / `--no-strict` behaviour
+
+Under `--no-strict` (the default), all disposition-(b) constructs emit a `UserWarning`
+and conversion proceeds: custom combining algorithms, unknown functions, unresolvable
+attribute paths, undeclared obligation/advice URNs, `xpath` type declarations, and
+bag-fallback comparisons.
+
+Under `--strict`, every one of them raises `ALFAUnsupportedFeatureError` instead.
 
 ### Auto-detection
 

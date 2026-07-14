@@ -1,14 +1,8 @@
+import warnings
 from pathlib import Path
 
-_EXT_TO_FORMAT = {
-    ".xml": "xacml",
-    ".yaml": "yacal",
-    ".yml": "yacal",
-    ".json": "jacal",
-    ".alfa": "alfa",
-}
-
-_VALID_FORMATS = frozenset({"xacml", "yacal", "jacal", "alfa"})
+from ..languages import EXT_TO_FORMAT, READ_FORMATS
+from ..report import LOSSY, ConversionReport
 
 # Re-export language-specific errors so callers can catch them by name.
 from .xacml import XACMLUnsupportedFeatureError as XACMLUnsupportedFeatureError  # noqa: E402
@@ -58,7 +52,7 @@ def detect_format(path: str) -> str | None:
             return result
     except OSError:
         pass
-    return _EXT_TO_FORMAT.get(Path(path).suffix.lower())
+    return EXT_TO_FORMAT.get(Path(path).suffix.lower())
 
 
 def load(
@@ -68,8 +62,10 @@ def load(
     include: tuple[str, ...] = (),
     debug: bool = False,
 ) -> dict:
-    if fmt not in _VALID_FORMATS:
-        raise ValueError(f"Unknown input format: {fmt!r}. Expected one of: {sorted(_VALID_FORMATS)}")
+    if fmt not in READ_FORMATS:
+        raise ValueError(
+            f"Unknown input format: {fmt!r}. Expected one of: {sorted(READ_FORMATS)}"
+        )
     if fmt == "xacml":
         from . import xacml
         return xacml.load(path, strict=strict)
@@ -81,3 +77,32 @@ def load(
         return alfa.load(path, strict=strict, include=include, debug=debug)
     from . import jacal
     return jacal.load(path)
+
+
+def load_with_report(
+    path: str,
+    fmt: str,
+    strict: bool = False,
+    include: tuple[str, ...] = (),
+    debug: bool = False,
+) -> tuple[dict, ConversionReport]:
+    """Load a policy and report what the reader had to compromise on.
+
+    Same contract as `load`, but the fidelity warnings the reader would have
+    printed to stderr are returned as structured notes instead. Warnings that
+    are not about conversion fidelity are re-emitted so nothing is swallowed.
+    """
+    report = ConversionReport(source_format=fmt, strict=strict)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load(path, fmt, strict=strict, include=include, debug=debug)
+
+    for entry in caught:
+        if issubclass(entry.category, UserWarning):
+            report.add(LOSSY, str(entry.message))
+        else:
+            warnings.warn_explicit(
+                entry.message, entry.category, entry.filename, entry.lineno
+            )
+
+    return doc, report

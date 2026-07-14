@@ -568,9 +568,9 @@ def _token_value(node: Tree, token_type: str) -> str | None:
     return None
 
 
-def _collect_symbols(tree: Tree) -> _SymbolTable:
+def _collect_symbols(tree: Tree, strict: bool = False) -> _SymbolTable:
     st = _SymbolTable()
-    _walk_tree_for_namespaces(tree, st, [])
+    _walk_tree_for_namespaces(tree, st, [], strict)
     return st
 
 
@@ -589,13 +589,17 @@ def _merge_into(base: _SymbolTable, other: _SymbolTable) -> None:
         base.namespace_parts = other.namespace_parts
 
 
-def _walk_tree_for_namespaces(tree: Tree, st: _SymbolTable, parent_parts: list[str]) -> None:
+def _walk_tree_for_namespaces(
+    tree: Tree, st: _SymbolTable, parent_parts: list[str], strict: bool = False
+) -> None:
     for child in tree.children:
         if isinstance(child, Tree) and child.data == "namespace_decl":
-            _process_namespace(child, st, parent_parts)
+            _process_namespace(child, st, parent_parts, strict)
 
 
-def _process_namespace(node: Tree, st: _SymbolTable, parent_parts: list[str]) -> None:
+def _process_namespace(
+    node: Tree, st: _SymbolTable, parent_parts: list[str], strict: bool = False
+) -> None:
     dotted_id = _token_value(node, "DOTTED_ID")
     if dotted_id is None:
         return
@@ -609,9 +613,9 @@ def _process_namespace(node: Tree, st: _SymbolTable, parent_parts: list[str]) ->
         if not isinstance(child, Tree):
             continue
         if child.data == "namespace_decl":
-            _process_namespace(child, st, parts)
+            _process_namespace(child, st, parts, strict)
         elif child.data == "attribute_decl":
-            _process_attribute(child, st, parts)
+            _process_attribute(child, st, parts, strict)
         elif child.data == "obligation_decl":
             _process_notice_decl(child, st, "obligation", parts)
         elif child.data == "advice_decl":
@@ -622,7 +626,9 @@ def _process_namespace(node: Tree, st: _SymbolTable, parent_parts: list[str]) ->
         st.namespace_parts = parts
 
 
-def _process_attribute(node: Tree, st: _SymbolTable, ns_parts: list[str]) -> None:
+def _process_attribute(
+    node: Tree, st: _SymbolTable, ns_parts: list[str], strict: bool = False
+) -> None:
     local_name = _token_value(node, "IDENTIFIER")
     if local_name is None:
         return
@@ -666,13 +672,14 @@ def _process_attribute(node: Tree, st: _SymbolTable, ns_parts: list[str]) -> Non
         )
 
     if attr_type == "xpath":
-        warnings.warn(
+        msg = (
             f"Attribute {local_name!r} declares type 'xpath', which has no ACAL 1.0 equivalent "
             "(ACAL 1.0 does not include the xpathExpression data type). "
-            "The attribute will pass through as-is; XPath-dependent evaluation at the PDP may fail.",
-            UserWarning,
-            stacklevel=4,
+            "The attribute will pass through as-is; XPath-dependent evaluation at the PDP may fail."
         )
+        if strict:
+            raise ALFAUnsupportedFeatureError(msg)
+        warnings.warn(msg, UserWarning, stacklevel=4)
 
     st.attributes[local_name] = _AttributeDecl(
         id=attr_id, category=category_urn, type=attr_type, is_bag=is_bag
@@ -1329,7 +1336,7 @@ def load(
             inc_tree = _PARSER.parse(inc_source)
         except UnexpectedInput as exc:
             raise _syntax_error(f"include file {inc_path!r}", exc) from exc
-        _merge_into(combined, _collect_symbols(inc_tree))
+        _merge_into(combined, _collect_symbols(inc_tree, strict=strict))
 
     with open(path, encoding="utf-8") as fh:
         source = fh.read()
@@ -1338,7 +1345,7 @@ def load(
     except UnexpectedInput as exc:
         raise _syntax_error(f"ALFA file {path!r}", exc) from exc
 
-    _merge_into(combined, _collect_symbols(tree))
+    _merge_into(combined, _collect_symbols(tree, strict=strict))
 
     if debug:
         _dump_symbol_table(combined)

@@ -88,6 +88,15 @@ def _build_observations_prompt(analysis: AnalysisResult) -> str:
     else:
         lines.append("Attribute resolution: all attributes have declared categories")
 
+    if analysis.import_notes:
+        lines.append(
+            f"Import fidelity: this policy was converted from {analysis.format}, and the "
+            f"following could not be represented faithfully in ACAL:"
+        )
+        lines.extend(f"  - {note}" for note in analysis.import_notes)
+    elif analysis.format not in ("yacal", "jacal"):
+        lines.append(f"Import fidelity: converted from {analysis.format} with no loss")
+
     analysis_block = "\n".join(f"  {l}" for l in lines)
 
     return f"""You are an access-control policy analyst reviewing a policy for correctness and completeness.
@@ -99,6 +108,7 @@ Based on these findings, write 2–4 bullet points highlighting:
 - Any completeness gaps (e.g. missing obligations for Deny outcomes, default-permit risks)
 - Any shadowed or unreachable rules the policy author should review
 - Any unresolved attribute references that could cause runtime evaluation errors
+- Any import-fidelity loss that means the explained policy differs from the author's source
 - Any other nuances in the combining algorithm or rule order that a reviewer should understand
 
 Be specific: name the rule IDs or attribute names involved. If there are no concerns for a category, omit that bullet. If everything looks complete, say so briefly."""

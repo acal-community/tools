@@ -2,9 +2,9 @@
 
 Generates plain-English explanations of ACAL policy documents, with observations about completeness, rule interactions, and potential issues.
 
-`acal-explain` accepts ACAL 1.0 policies in any of the three ACAL serialization formats — XACML 2.0–4.0 (`.xml`), YACAL (`.yaml`), or JACAL (`.json`) — and produces a structured explanation using an LLM of your choice via [litellm](https://github.com/BerriAI/litellm).
+`acal-explain` accepts a policy in **any source language `acal-core` can read** — XACML 2.0–4.0 (`.xml`), YACAL (`.yaml`), JACAL (`.json`), or ALFA (`.alfa`) — and produces a structured explanation using an LLM of your choice via [litellm](https://github.com/BerriAI/litellm).
 
-ALFA policies must first be converted to YACAL or JACAL using `acal-convert` (see [ALFA input](#alfa-input)).
+Non-native inputs are converted in memory. **No policy document is ever written** — the only output is the explanation itself. Anything the source language could not express faithfully in ACAL is reported as an [import-fidelity](#import-fidelity) note alongside the explanation.
 
 ---
 
@@ -19,7 +19,7 @@ This tool operates on the **ACAL 1.0** neutral data model. ACAL 1.0 is aligned w
 
 XACML 2.0 and 3.0 inputs are remapped to ACAL 1.0 identifiers on load. XACML 4.0 inputs use ACAL 1.0 URNs natively.
 
-For ALFA policies: ALFA (Abbreviated Language for Authorization) was submitted to OASIS as a contribution to the XACML TC but was never published as a formally versioned standard. `acal-convert --from alfa` is validated against the Axiomatics PDP 7.x ALFA dialect, which is the de-facto reference implementation. It includes extensions beyond the original OASIS submission — notably the `target clause` two-word keyword form, `apply` declared inside policy/policyset bodies, `and`/`or` as keyword operators, and `system.alfa`-style runtime declarations (`ruleCombinator`, `type`, `category`, `function`, `infix`). See [ALFA input](#alfa-input) for how to convert ALFA before using `acal-explain`.
+For ALFA policies: ALFA (Abbreviated Language for Authorization) was submitted to OASIS as a contribution to the XACML TC but was never published as a formally versioned standard. The ALFA reader is validated against the Axiomatics PDP 7.x ALFA dialect, which is the de-facto reference implementation. It includes extensions beyond the original OASIS submission — notably the `target clause` two-word keyword form, `apply` declared inside policy/policyset bodies, `and`/`or` as keyword operators, and `system.alfa`-style runtime declarations (`ruleCombinator`, `type`, `category`, `function`, `infix`). See [ALFA input](#alfa-input).
 
 ---
 
@@ -257,25 +257,49 @@ acal-explain --format markdown policy.json | less
 
 ## ALFA input
 
-ALFA (Abbreviated Language for Authorization) is a concise DSL for authoring XACML/ACAL policies, used by the Axiomatics PDP toolchain. `acal-explain` does not read ALFA directly — convert it first:
+ALFA (Abbreviated Language for Authorization) is a concise DSL for authoring XACML/ACAL policies, used by the Axiomatics PDP toolchain. `acal-explain` reads it directly:
 
 ```bash
-# Convert ALFA to YACAL, then explain
-acal-convert my-policy.alfa --to yacal -o my-policy.yaml
-acal-explain my-policy.yaml
-
-# Or pipe directly (Linux/macOS)
-acal-convert my-policy.alfa --to yacal | acal-explain /dev/stdin --from yacal
+acal-explain my-policy.alfa
 ```
 
-For ALFA files that reference attribute registries or standard include files, pass `--include` to `acal-convert`:
+The conversion happens in memory. You do not need to run `acal-convert` first, and no
+intermediate `.yaml` is written — if you want a converted policy file, that is what
+`acal-convert` is for.
+
+For ALFA files that reference attribute registries or standard include files, pass
+`--include` (repeatable) so the symbol table can resolve attribute shorthand:
 
 ```bash
-acal-convert my-policy.alfa \
+acal-explain my-policy.alfa \
   --include standard-attributes.alfa \
-  --include attributes.alfa \
-  --to yacal | acal-explain /dev/stdin --from yacal
+  --include attributes.alfa
 ```
+
+---
+
+## Import fidelity
+
+When the input is not already ACAL (YACAL/JACAL), some of what the author wrote may not
+survive the trip into the ACAL model. `acal-explain` reports this rather than quietly
+explaining a policy that differs from the one on disk:
+
+```
+Import fidelity (alfa → ACAL)
+  - Attribute 'docPath' declares type 'xpath', which has no ACAL 1.0 equivalent
+    (ACAL 1.0 does not include the xpathExpression data type). The attribute will
+    pass through as-is; XPath-dependent evaluation at the PDP may fail.
+```
+
+These notes appear in all three output formats (as an `import_notes` array in `--format
+json`) and are also given to the LLM, so the observations can account for them. Native
+YACAL/JACAL input produces no notes — it is the neutral model already.
+
+Use `--strict` to turn every fidelity note into a hard error instead.
+
+Which ACAL features a given source language can and cannot express is recorded per language
+in [`acal-core/capabilities/`](../acal-core/capabilities/), with the reasoning in
+[`acal-core/docs/policy-language-expressiveness.md`](../acal-core/docs/policy-language-expressiveness.md).
 
 ---
 

@@ -20,14 +20,18 @@ def render(
     elif fmt == "markdown":
         _render_markdown(summary, observations, analysis, stream)
     else:
-        _render_text(summary, observations, stream)
+        _render_text(summary, observations, analysis, stream)
 
 
-def _render_text(summary: str, observations: str, stream: IO[str]) -> None:
+def _render_text(summary: str, observations: str, analysis: AnalysisResult, stream: IO[str]) -> None:
     stream.write(summary)
     stream.write("\n\n")
     stream.write(observations)
     stream.write("\n")
+    if analysis.import_notes:
+        stream.write(f"\nImport fidelity ({analysis.format} → ACAL)\n")
+        for note in analysis.import_notes:
+            stream.write(f"  - {note}\n")
 
 
 def _render_markdown(summary: str, observations: str, analysis: AnalysisResult, stream: IO[str]) -> None:
@@ -43,6 +47,10 @@ def _render_markdown(summary: str, observations: str, analysis: AnalysisResult, 
     stream.write("## Observations\n\n")
     stream.write(observations)
     stream.write("\n")
+    if analysis.import_notes:
+        stream.write(f"\n## Import Fidelity ({analysis.format} → ACAL)\n\n")
+        for note in analysis.import_notes:
+            stream.write(f"- {note}\n")
 
 
 def _render_json(summary: str, observations: str, analysis: AnalysisResult, stream: IO[str]) -> None:
@@ -62,6 +70,7 @@ def _render_json(summary: str, observations: str, analysis: AnalysisResult, stre
         "shadowed_rules": analysis.shadowed_rules,
         "obligation_gaps": analysis.obligation_gaps,
         "unresolved_attrs": analysis.unresolved_attrs,
+        "import_notes": analysis.import_notes,
         "summary": summary,
         "observations": observations,
     }
