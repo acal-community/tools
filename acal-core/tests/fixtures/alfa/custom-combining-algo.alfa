@@ -1,0 +1,9 @@
+// This policy uses a custom combining algorithm name.
+// The reader should emit a UserWarning and pass the name through as-is.
+namespace com.example {
+  policy CustomAlgoPolicy apply myCustomAlgorithm {
+    rule Allow {
+      permit
+    }
+  }
+}

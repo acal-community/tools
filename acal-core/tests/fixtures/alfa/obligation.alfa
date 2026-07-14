@@ -1,0 +1,17 @@
+namespace com.example {
+  obligation auditLog "urn:example:obligation:audit-log";
+  advice logHint "urn:example:advice:log-hint";
+
+  policy DocumentPolicy apply permitOverrides {
+    rule AllowRead {
+      permit
+      condition Attributes.action.action-id == "read"
+    }
+    on permit {
+      obligation auditLog();
+    }
+    on deny {
+      advice logHint();
+    }
+  }
+}

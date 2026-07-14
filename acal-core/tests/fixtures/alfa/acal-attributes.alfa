@@ -1,0 +1,14 @@
+namespace com.example {
+
+    attribute user {
+        category = subjectCat
+        id = "urn:example:attribute:user-id"
+        type = string
+    }
+
+    attribute resourceType {
+        category = resourceCat
+        id = "urn:example:attribute:resource-type"
+        type = string
+    }
+}

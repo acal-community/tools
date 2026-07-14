@@ -1,5 +1,134 @@
 # Lessons Learned
 
+## strict-must-be-threaded-through-every-pass (July 2026)
+
+**Rule**: In a multi-pass reader, `strict` must reach *every* pass. A disposition-(b)
+construct whose warning fires in a pass that never received the flag will warn correctly and
+then silently fail to escalate under `--strict`. Grep for `warnings.warn` and confirm each
+call site can see `strict`.
+
+**Why**: The ALFA `xpath` datatype is documented as "(b) warning / error under `--strict`" in
+the gap table. It never errored. The warning is emitted during symbol collection (pass 1), and
+`_collect_symbols(tree)` took no `strict` argument — only `AlfaTransformer` (pass 2) had
+`_strict` and a `_warn_or_raise` helper. The escalation path did not exist for anything pass 1
+detects, and the gap table's claim had been false since the feature shipped.
+
+This is exactly the failure the project's no-silent-drops rule exists to prevent, and it hid
+in plain sight because the *warning* worked perfectly — the default path behaved as
+documented, so nothing looked broken. Only exercising `--strict` end-to-end on a
+warning-eligible fixture exposed it. `--strict` is a security-relevant promise here: it is
+what a user turns on when they need conversion to fail rather than approximate. Test the
+escalation, not just the warning. (→ dsl-vs-format-is-the-first-fork-for-new-readers)
+
+---
+
+## check-for-fork-before-deleting-a-duplicate (July 2026)
+
+**Rule**: Two files with the same name in two directories are not necessarily a duplicate and
+an original. Before deleting the "copy", diff them *both ways* — list the headings unique to
+each. If each side has content the other lacks, it is a fork, and deleting either loses work.
+
+**Why**: `policy-language-expressiveness.md` existed in both `acal-converter/docs/` and
+`acal-core/docs/` after the acal-core extraction. The obvious move was to delete the stale
+converter copy. It was not stale: it held the July alfa.guide alignment (all 9 combining
+algorithms, the full function map, bag overloading V2) that the core copy had never received,
+while the core copy held the Cedar/IAM/Rego gap analyses the converter copy lacked. The
+converter copy was also *smaller* (125 lines vs 500), which made it look obviously like the
+lesser one.
+
+A one-way `diff` showed only what core added and reinforced the wrong conclusion. `comm` on
+the two heading lists showed the fork immediately. The cost of getting this wrong is silent:
+the deleted content does not come back, and nothing fails.
+
+---
+
+## a-restriction-may-be-a-decision-not-a-bug (July 2026)
+
+**Rule**: Before calling a narrow allowlist "drift" and widening it, search the diary for a
+decision that put it there. Reversing a deliberate decision is fine; reversing it while
+believing it was an accident means the original reasoning never gets addressed.
+
+**Why**: `acal-explain` accepted XACML/YACAL/JACAL but not ALFA, even though
+`acal_core.readers.load()` supported ALFA. This looked exactly like registry drift — one of
+five declaration sites had been missed — and it was reported as such. It was not: it was
+`acal-explain-acal-only-input`, a deliberate decision with a written rationale.
+
+The decision was still worth reversing (the user's feature request overturned it), and the
+central registry was still worth building. But the diary entry needed to be *superseded* with
+an explanation of which premise was wrong, not silently contradicted by code. The tell was
+that the rejection had a helpful, hand-written error message pointing at `acal-convert` —
+drift does not write itself a good error message.
+
+---
+
+## xsd10-unique-silently-skips-absent-optional-fields (July 2026)
+
+**Rule**: An `xs:unique`/`xs:key` whose field list includes an **optional** attribute does not constrain elements where that attribute is absent. XSD 1.0 treats a field matching nothing as an incomplete key-sequence and skips the tuple entirely — no error, no duplicate detection. Never assume a declared identity constraint is actually enforcing the OCL it was generated from.
+
+**Why**: `NoticeExpression_AttributeAssignmentExpression_AttributeId-Category` in the core XSD declares fields `@AttributeId` + `@Category`, intending to enforce `self->isUnique(Sequence{AttributeId, Category})`. Because `Category` is optional, two `AttributeAssignmentExpression`s with the same `AttributeId` and **no** `Category` validate cleanly — while the same pair *with* `Category` present is correctly rejected. The gap is why two normative examples (the spec's own §4 example and `examples/acal-xpath/Rule3.xml`) have shipped for a long time violating a constraint the schema supposedly enforces (filed as spec issue #99).
+
+I only found this because I probed the *adjacent* constraint as a control while removing a different one — if I had only tested the constraint I was changing, I'd have missed it. When removing a constraint, test the neighbouring constraints too: it both proves you didn't over-remove and occasionally exposes a constraint that was never working.
+
+Also relevant when validating this schema at all: it is XSD 1.1 (`xs:assert` with `vc:minVersion="1.1"`), so `xmllint` cannot compile it directly. Strip the 1.1-only constructs first (the repo ships `xsd1.1-to-1.0.xsl` for exactly this); identity constraints are a 1.0 feature and survive the downgrade.
+
+---
+
+## alfa-bag-type-not-a-datatype (July 2026)
+
+**Rule**: In ALFA attribute declarations, `type = bag` is a cardinality modifier, not an XSD datatype — clear `attr_type` to `""` when `"bag"` is detected; do not store it in the AttributeDesignator's `DataType` field.
+
+**Why**: The existing code set `attr_type = "bag"` and then passed it to `DataType` via `if decl.type: desig["DataType"] = decl.type`. The downstream `_TYPE_IS_IN_MAP.get("bag")` returned `None`, so the bag-is-in expansion silently fell through to `string-equal` — wrong function, wrong argument order, no error. The failure was invisible because the neutral dict writer accepted any `DataType` string. Discovered only when writing a type-aware bag test and inspecting the output. The fix is in `_process_attribute` — one extra line that clears `attr_type` after setting `is_bag = True`. The lesson: DSL type keywords often have dual semantics (type vs. cardinality modifier) — verify against real attribute files before assuming a type field maps directly to a data type.
+
+---
+
+## litellm-module-level-import-for-mocking (June 2026)
+
+**Rule**: Import `litellm` (and any other third-party library you need to mock in tests) at module level, not inside the function that uses it. Use a try/except at the top of the module to handle the not-installed case.
+
+**Why**: `unittest.mock.patch("acal_explain.llm.litellm")` requires `litellm` to exist as a module-level attribute of `acal_explain.llm`. When the import was inside the `explain()` function body, `patch` raised `AttributeError: module does not have the attribute 'litellm'` — even though the function would have imported it correctly at call time. Moving to module level with `try: import litellm / except ImportError: litellm = None` gives the mock a stable target without losing the graceful-degradation behaviour for users who don't have it installed.
+
+---
+
+## real-world-files-expose-synthetic-fixture-blind-spots (June 2026)
+
+**Rule**: Import real-world source files as test fixtures as early as possible — synthetic fixtures cover only the grammar paths the writer thought of, not the ones a real tool vendor chose.
+
+**Why**: The ALFA grammar built against synthetic fixtures had six gaps that would have failed on any real Axiomatics policy file: missing `target clause` keyword, `apply` inside body rather than before `{`, `and`/`or` as keyword operators, inline `{ }` advice blocks, bare policyset cross-references, and system.alfa-style declarations. None of these were invented by Axiomatics — they are all in the ALFA spec or common tooling conventions. Discovering them only requires running the converter on a real file. The cost of not importing real files early was building and debugging a grammar that was functionally useless on real input.
+
+---
+
+## lark-visit-error-wrapping (June 2026)
+
+**Rule**: In Lark Transformers, any exception raised inside a transformer method is caught by Lark and re-raised wrapped in `lark.exceptions.VisitError`. Catch `VisitError` in the `load()` entry point and unwrap the inner exception before propagating.
+
+**Why**: `ALFAUnsupportedFeatureError` raised inside `applying_kw()` surfaced to callers as `VisitError`, not as the expected exception type. The `strict=True` test that called `pytest.raises(ALFAUnsupportedFeatureError)` would have failed silently — the exception IS raised but under a different type. The fix is a single try/except around `transformer.transform(tree)` that checks `exc.__context__` for known application exception types and re-raises them directly. Without this unwrap, every downstream caller (CLI, tests, external code) would need to know about `VisitError` — a Lark implementation detail that should not leak.
+
+---
+
+## lark-rule-alias-passthrough-trap (June 2026)
+
+**Rule**: In a Lark rule with alternation aliases (`rule: A -> alias_a | B`), the alternative WITHOUT an alias (`| B`) still invokes the method named after the RULE, not after B. Check for the distinguishing token in the items list rather than assuming the method is only called for the primary alternative.
+
+**Why**: `not_expr: NOT_OP not_expr -> not_expr | cmp_expr` — when `| cmp_expr` matches (no `NOT_OP`), Lark still calls the `not_expr()` transformer method with `items = [cmp_expr_result]`. The method was unconditionally wrapping the result in `{"Apply": {"FunctionId": "not", ...}}`, producing `not(not(string-equal(...)))` for any comparison expression. The bug was invisible until inspecting the full output dict because parse and transform both completed without error. Fix: `has_not = any(isinstance(i, Token) and i.type == "NOT_OP" for i in items)`.
+
+---
+
+## lark-symbol-collection-use-token-type-not-position (June 2026)
+
+**Rule**: When walking a raw Lark parse tree (before a Transformer runs), find Token children by `.type` attribute rather than by index position.
+
+**Why**: In the symbol collection pre-pass (`_collect_symbols`), the initial code used `node.children[0]` to get the namespace name, expecting the first child to be DOTTED_ID. But grammar terminals appear in children in definition order — `namespace_decl: _NAMESPACE_KW DOTTED_ID "{" ...` — so with `_NAMESPACE_KW` NOT yet discarded (the raw tree includes all tokens regardless of `_` prefix), `children[0]` was the keyword token `Token('_NAMESPACE_KW', 'namespace')` and `children[1]` was the DOTTED_ID. Position-based access breaks whenever the grammar is reordered. Using `next(c for c in node.children if isinstance(c, Token) and c.type == 'DOTTED_ID')` is robust to grammar changes.
+
+---
+
+## dsl-vs-format-is-the-first-fork-for-new-readers (June 2026)
+
+**Rule**: When adding a new source language to `acal-converter`, the first question must be "is this a structured data format or a DSL?" — this determines the entire dependency and parsing strategy before any semantic analysis is useful.
+
+**Why**: Structured formats (XML, JSON, YAML) delegate parsing to a standard library and the reader's job is purely semantic mapping. DSLs require an actual parser (tokenizer + grammar), which introduces a new dependency, a new error type, and a fundamentally different implementation shape (grammar file + Transformer class vs. a few library calls). Starting the gap analysis with semantic coverage questions before settling this produces a detailed mapping that then needs to be rebuilt around whichever parser is chosen. The `import-model` skill now explicitly surfaces this as Phase 2's first question and branches the interview accordingly.
+
+---
+
 ## supplementary-shortidset-check-dead-for-bundles (June 2026)
 
 **Rule**: When adding a supplementary Python check that mirrors a catalog-level rule, verify that the path filter (`if sid_path != "ShortIdSet": continue`) actually matches real documents — otherwise the supplementary check is silently skipped on every input.

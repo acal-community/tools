@@ -1,0 +1,104 @@
+# Which ACAL features the Axiomatics PDP 7.x ALFA dialect can express.
+# Derived from the gap analysis in docs/policy-language-expressiveness.md (ALFA section).
+# See README.md in this directory for the schema and disposition codes.
+
+language: alfa
+direction: import-only
+reference: https://alfa.guide/
+
+acal_features:
+
+  PolicyId:
+    exportable: partial
+    disposition: d
+    note: >
+      ALFA has no PolicyId field. On import the id is synthesized by dot-joining the
+      namespace hierarchy with the element name. Exporting an arbitrary URN-style PolicyId
+      back to a `namespace { policy }` nesting is not generally possible.
+
+  Version:
+    exportable: false
+    disposition: d
+    note: ALFA has no version field. ACAL's Version is optional, so import is clean; export drops it.
+
+  CombiningAlgId:
+    exportable: partial
+    disposition: b
+    supported:
+      - deny-overrides
+      - permit-overrides
+      - first-applicable
+      - ordered-deny-overrides
+      - ordered-permit-overrides
+      - deny-unless-permit
+      - permit-unless-deny
+      - only-one-applicable
+      - on-permit-apply-second
+    note: >
+      All 9 standard algorithms have ALFA keywords. Any other combining-algorithm URN —
+      including custom ones — has no ALFA keyword and cannot be exported.
+
+  Rule:
+    exportable: true
+    disposition: a
+    note: ALFA `rule` with `permit` / `deny` maps 1:1 to Rule with Effect.
+
+  Target:
+    exportable: true
+    disposition: a
+    note: ALFA `target clause` maps directly.
+
+  Condition:
+    exportable: true
+    disposition: a
+
+  Apply:
+    exportable: true
+    disposition: d
+    note: >
+      Infix operators and named function calls both become Apply trees. Export requires
+      choosing an infix form where one exists and a named call otherwise.
+
+  AttributeDesignator:
+    exportable: true
+    disposition: a
+    note: >
+      Exportable only if the attribute's category maps to one of ALFA's reserved category
+      names, or an `attribute {}` declaration is emitted alongside the policy.
+
+  AttributeSelector:
+    exportable: false
+    disposition: b
+    note: >
+      ALFA's `xpath` datatype has no ACAL 1.0 equivalent (ACAL 1.0 has no xpathExpression
+      data type). XPath-dependent evaluation may fail at the PDP.
+
+  NoticeExpression:
+    exportable: true
+    disposition: a
+    note: >
+      `obligation` / `advice` inside `on permit` / `on deny` map to NoticeExpression with
+      IsObligation true/false. Export requires the URN to be declared in the namespace.
+
+  VariableDefinition:
+    exportable: true
+    disposition: a
+    note: ALFA `var` is policy-scoped, matching ACAL's VariableDefinition scope.
+
+  SharedVariableDefinition:
+    exportable: false
+    disposition: c
+    note: >
+      ALFA has no cross-policy variable sharing — variables are strictly scoped to the
+      enclosing policy block. A Bundle-level SharedVariableDefinition cannot be expressed
+      without duplicating the declaration into every consuming policy.
+
+  RequestEntity:
+    exportable: false
+    disposition: c
+    note: ALFA describes policies only. It has no request syntax.
+
+  ResultEntity:
+    exportable: false
+    disposition: c
+    note: ALFA describes policies only. It has no response syntax.

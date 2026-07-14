@@ -1,0 +1,9 @@
+namespace com.example {
+  policy VarPolicy apply denyOverrides {
+    var myRole = Attributes.subject.role;
+    rule PermitAdmin {
+      permit
+      condition variable(myRole) == "admin"
+    }
+  }
+}

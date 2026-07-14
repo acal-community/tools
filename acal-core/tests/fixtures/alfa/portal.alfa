@@ -1,0 +1,22 @@
+namespace axiomatics.demo{
+	import System
+	
+
+	/*Portal Access Control */
+	policy portal{
+		target clause actionId == "Access"
+		apply firstApplicable
+		
+		/*Allow all portal access */
+		rule allowAll{
+			permit
+			
+			on permit{
+				advice decision_reason  {
+					reason = "Allow all portal access"
+				}
+			}
+		}
+	}
+	
+}

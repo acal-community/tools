@@ -1,0 +1,7 @@
+namespace com.example {
+  policy SimplePermit apply denyOverrides {
+    rule AllowAll {
+      permit
+    }
+  }
+}

@@ -1,0 +1,10 @@
+// Attribute path 'unknownCategory.attr' cannot be resolved.
+// The reader should emit a UserWarning and produce an empty Category.
+namespace com.example {
+  policy UnresolvableAttrPolicy apply denyOverrides {
+    rule TestRule {
+      permit
+      condition unknownCategory.attr == "value"
+    }
+  }
+}

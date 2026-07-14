@@ -4,21 +4,22 @@ from pathlib import Path
 
 import click
 
-from .readers import detect_format, load
-from .writers import write
+from acal_core.languages import READ_FORMATS, WRITE_FORMATS
+from acal_core.readers import detect_format, load
+from acal_core.writers import write
 
 
 @click.command()
 @click.argument("input_file", type=click.Path(exists=True, dir_okay=False))
 @click.option(
     "--from", "from_fmt",
-    type=click.Choice(["xacml", "yacal", "jacal"]),
+    type=click.Choice(READ_FORMATS),
     default=None,
     help="Input format. Auto-detected from file extension if omitted.",
 )
 @click.option(
     "--to", "to_fmt",
-    type=click.Choice(["yacal", "jacal"]),
+    type=click.Choice(WRITE_FORMATS),
     required=True,
     help="Output format.",
 )
@@ -40,33 +41,67 @@ from .writers import write
     help="Allow warnings for non-semantic deprecated constructs (default).",
 )
 @click.option(
+    "--include",
+    "include_files",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help=(
+        "Additional Axiomatics PDP 7.x ALFA dialect file to load for symbol resolution "
+        "(attribute registries, standard namespaces). May be repeated. Only meaningful "
+        "with --from alfa. These files are not converted — they are used only to resolve "
+        "attribute shorthand names and obligation/advice URNs in the main policy file."
+    ),
+)
+@click.option(
     "--validate",
     is_flag=True,
     default=False,
     help="Validate the output with the appropriate ACAL validator.",
 )
-def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict):
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help=(
+        "For ALFA input: dump the collected symbol table (attributes, obligations, advice) "
+        "to stderr before converting. Useful for debugging shorthand resolution."
+    ),
+)
+def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, include_files, debug):
     if no_strict:
         strict = False
     """Convert ACAL policy documents between formats.
 
-    Supports XACML 2.0–4.0, YACAL (YAML), and JACAL (JSON) as inputs.
+    Supports XACML 2.0–4.0, YACAL (YAML), JACAL (JSON), and Axiomatics PDP 7.x ALFA dialect as inputs.
     Outputs only YACAL or JACAL.
 
     Use --strict (recommended for security use cases) to turn any warning into
     a hard error. Use --no-strict to allow warnings for deprecated-but-harmless
     constructs (like IncludeInResult).
+
+    For ALFA input, use --include to supply attribute-registry files (e.g.
+    standard-attributes.alfa, attributes.alfa) that define the attribute
+    shorthand names referenced in the policy file.
     """
     fmt = from_fmt or detect_format(input_file)
+
+    if include_files and fmt and fmt != "alfa":
+        click.echo(
+            f"Warning: --include is only meaningful for Axiomatics PDP 7.x ALFA dialect input (got --from {fmt!r}). "
+            "The included files will be ignored.",
+            err=True,
+        )
+
     if fmt is None:
         ext = Path(input_file).suffix or "(none)"
+        choices = "|".join(READ_FORMATS)
         raise click.UsageError(
             f"Cannot determine input format from extension {ext!r}. "
-            f"Use --from [xacml|yacal|jacal] to specify."
+            f"Use --from [{choices}] to specify."
         )
 
     try:
-        data = load(input_file, fmt, strict=strict)
+        data = load(input_file, fmt, strict=strict, include=include_files, debug=debug)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 

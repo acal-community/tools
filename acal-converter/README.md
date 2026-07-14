@@ -9,10 +9,11 @@ Converts policy documents between ACAL serialization formats, and reads legacy X
 | YACAL (`.yaml`) | JACAL (`.json`) | ↔ bidirectional | Lossless round-trip |
 | JACAL (`.json`) | YACAL (`.yaml`) | ↔ bidirectional | Lossless round-trip |
 | XACML 2.0–4.0 (`.xml`) | YACAL or JACAL | → input only | Version detected from namespace (`XACMLVersion` enum); V2.0/V3.0 require identifier remapping |
+| Axiomatics PDP 7.x ALFA dialect (`.alfa`) | YACAL or JACAL | → input only | See [ALFA input](#alfa-input) |
 
 YACAL and JACAL represent the same ACAL data model — one in YAML, one in JSON. Conversion between them is always lossless.
 
-XACML is input-only. See [docs/policy-language-expressiveness.md](docs/policy-language-expressiveness.md) for the rationale.
+XACML and ALFA are input-only. See [acal-core/docs/policy-language-expressiveness.md](../acal-core/docs/policy-language-expressiveness.md) for the gap analysis and rationale.
 
 ---
 
@@ -141,6 +142,27 @@ acal-convert --to jacal -o out.json legacy-policy.xml --validate
 
 ---
 
+## ALFA input
+
+ALFA (Abbreviated Language for Authorization) is a concise DSL for authoring XACML/ACAL policies, used by the Axiomatics PDP toolchain. `acal-convert` reads the **Axiomatics PDP 7.x ALFA dialect** as documented on [alfa.guide](https://alfa.guide/).
+
+```bash
+# Simple conversion
+acal-convert --from alfa --to yacal my-policy.alfa
+
+# With attribute registries (resolves shorthand attribute names)
+acal-convert --from alfa --to yacal \
+    --include standard-attributes.alfa \
+    --include attributes.alfa \
+    my-policy.alfa
+```
+
+The `--include` flag loads additional ALFA files (attribute registries, standard namespace declarations like `system.alfa`) for symbol resolution. These files are not converted — they only contribute to the attribute, obligation, and advice symbol table used by the main policy file.
+
+See [acal-core/docs/policy-language-expressiveness.md](../acal-core/docs/policy-language-expressiveness.md) for full coverage details: all 9 combining algorithms, complete function map, bag overloading semantics, and gap dispositions.
+
+---
+
 ## Conversion integrity: no silent drops
 
 **This converter never silently drops data.** Every element in the input document is either:
@@ -192,7 +214,7 @@ The `--strict` / `--no-strict` flag controls behavior for non-semantic deprecati
 |---|---|---|
 | `IncludeInResult="true"` on request `<Attribute>` | Warning (ignored — only affects response formatting) | Error |
 
-See [docs/policy-language-expressiveness.md](docs/policy-language-expressiveness.md) for the full rationale behind these decisions.
+See [acal-core/docs/policy-language-expressiveness.md](../acal-core/docs/policy-language-expressiveness.md) for the full rationale behind these decisions.
 
 The converter assumes the input is a valid XACML document and does not validate it against the XACML XSD schemas.
 
@@ -223,16 +245,3 @@ The test suite (`tests/test_converter.py`) covers:
 - `XACMLUnsupportedFeatureError` is catchable as `ValueError`
 - CLI: auto-detection, `--from` override, `-o` output, error exit codes
 
----
-
-## Publishing to PyPI
-
-From the `acal-converter/` directory:
-
-```bash
-pip install build twine
-python -m build
-twine upload dist/*
-```
-
-Update `version` in `pyproject.toml` before each release.

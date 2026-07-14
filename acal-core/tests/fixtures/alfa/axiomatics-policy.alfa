@@ -1,0 +1,27 @@
+namespace axiomatics.demo{
+	import System
+	
+	
+	/*Demo portal - policy entrypoint */
+	policyset root{
+		apply firstApplicable
+	
+		/*Online Trial Tutorial policy */
+		records
+		
+		/*Access to TRANSACTIONS (ADAF) */
+		transactions
+		
+		/*Access to MEDICAL RECORDS (ADAF) */
+		healthcare
+		
+		/*Portal Access Control */
+		portal
+		
+		/*API access control */
+		api
+		
+		/*Aerospace access control */
+		aerospace.aerospace
+	}
+}

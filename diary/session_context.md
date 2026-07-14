@@ -1,41 +1,62 @@
 # Session Context
 
-## Current State (June 2026)
+## Current State (July 2026)
 
-Two validator tools are in active development on separate branches:
-- `yacal-validator` — YACAL v1.0 (YAML) policy validator; believed complete with tests passing
-- `jacal-validator` — JACAL v1.0 (JSON) policy validator; **test suite now complete and passing (90/90)**
+Work spans two repos:
 
-Both are in the `/tools/` directory. The `acal-validator` branch (the original XML-aware monolith) is slated for deletion once both tools are verified.
+- **`xacml-spec/`** (the OASIS spec repo) — spec issue #94 cleanup. Branch `issue-94-notice-id-nonunique` is ready but **unmerged**, pending TC sign-off.
+- **`tools/`** — five packages. `acal-core` (99), `acal-converter` (21), `acal-explain` (34), `yacal-validator` (88), `jacal-validator` (90). **332 tests pass.**
 
-## Most Recent Session (June 2026)
+**Branch state is the thing to know.** `main` is *behind*. The chain
+`main → acal-converter → acal-core → acal-explain` is linear, each containing the last, and
+`acal-explain` holds 7 commits that never landed on main — the ALFA reader, the acal-core
+extraction, the import-model skill, and this session's work. `acal-converter` and `acal-core`
+are stale checkpoints fully contained in `acal-explain`. The merged branches
+(`jacal-validator`, `xacml-to-yacal`, `yacal-validator`) were deleted this session.
+`origin/revert-7-acal-converter` is a stale remote branch that never merged.
 
-Addressed all six items from a structured code review of the jacal-validator. The session had two goals: close known coverage gaps in the test suite, and fix a latent consistency bug in the supplementary graph checker.
+## Most Recent Session (July 13, 2026)
 
-**Why this work matters:** The gold-standard requirement is not just that valid documents pass, but that every exercisable code path has a corresponding fixture and that checkers behave consistently with each other.
+### Direction: the next languages, and why not Rego
 
-**What was addressed:**
+A `/grill-me` session set the next phase. The imports are **Cedar, then AWS IAM JSON**. Rego
+is deferred, and the reason is worth keeping: the stated criterion was "start with what
+imports cleanly," and this project's own expressiveness doc already calls Rego a
+Turing-complete *program, not a document* whose parser is "a non-trivial dependency." Rego
+lost to our own prior analysis rather than to a preference. A Rego reader would have to
+define and police a recognized *subset* of the language — a different kind of problem from
+every import so far, and one worth taking deliberately rather than by momentum.
 
-*Issue 6 (Low — comment accuracy):* The "41 constraints evaluated" comment in the valid fixture section was corrected to "≥38" to match the actual assertion. The `TestDataTypeConstraintsNeverFire` docstring was revised to stop claiming `request-defaults-unique-concrete-subtype` and `policy-defaults-unique-concrete-subtype` "always evaluate" without a matching fixture — they now reference ex09 and ex11 explicitly.
+The long-term goal list (ACAL export, Rego, the provenance spec extension) now lives in
+`ROADMAP.md` and GitHub issues rather than in this file. The diary is a working log; a
+roadmap outside contributors cannot read is not a roadmap.
 
-*Issue 5 (Medium — diamond fixture + checker fix):* The supplementary `_check_shortidset_reference_graph`'s `walk()` was using `visited.remove(ref)` (DFS backtracking), making it unable to detect diamond patterns where a node is reached via two independent paths. The catalog-level `_graph_no_repeat` (line 659) has no backtracking and correctly detects this. Removed the `visited.remove()` call to make the supplementary checker consistent. Added `err37` with an A→[B,C], B→[D], C→[D] diamond to prove the catalog-level checker fires.
+### The delta list became executable
 
-*Issues 2 & 3 (High/Medium — valid fixture coverage):* Added seven new valid fixtures:
-- **ex11**: Request with `XPathRequestDefaults` (exercising RequestDefaultsTypeExtensions anchor) and `Content` in a RequestEntity
-- **ex12**: Policy with `XPathEntityAttributeSelector` (exercising EntityAttributeSelectorTypeExtensions anchor; requires both `Path` and `Expression`)
-- **ex13**: Policy with both `XPathAttributeSelector` and `JSONPathAttributeSelector` active, exercising the dual-profile composition branch at `validator.py:259`
-- **ex14**: Policy with `PolicyIssuer` (EntityType with Attribute array using bare-string PrimitiveValueType values)
-- **ex15**: Bundle with `NamedArgument` in a SharedVariableReference (exercises ArgumentTypeTree's NamedArgument branch and `_check_argument_datatype_agreement` NamedArgument path)
-- **ex16**: Full valid Response with `Status`, two distinct `Notice` entries (obligation and advice), two distinct `ResultEntity` categories (each with Attribute), and two `ApplicablePolicyReference` items (each with required `Version`)
-- **ex17**: Bundle with three user-defined ShortIdSets in a 3-level reference chain (set-policy → set-actions → set-base), Policy consuming the chain via `ShortIdSetReference`
+The plan had been to audit each language for what it can and cannot export, as prose. Prose
+cannot gate a tool, and the export tool is the entire point of the audit — so the gap
+analysis now lives in `acal-core/capabilities/<lang>.yaml`, keyed by ACAL feature, with three
+consumers. Matrices for ALFA and XACML were written from the existing prose; Cedar's gets
+authored by `/import-model` before its reader exists.
+(→ capability-matrix-is-the-delta-list)
 
-*Issue 1 (High — include path resolution):* Added `tests/fixtures/include/ext-policy.json` (a Policy document for `urn:example:policy:external`) and `tests/fixtures/include/ext-sharedvar.json` (a Bundle with the SharedVariableDefinition for `urn:example:shared:defined-elsewhere`). Added `TestIncludePathResolution` class to `test_jacal_validator.py` with four tests: the two incomplete fixtures become complete (exit 0) when the include file is supplied, and remain incomplete (exit 2) when it is not.
+### acal-explain now reads every source language
 
-*Issue 4 (Medium — full valid response):* Covered by ex16 above.
+A user feature request — "explain should not export a file, simply explain" — turned out to
+mean: *don't make me materialize a converted `.yaml` just to explain a `.alfa`*. It is now
+`acal-explain policy.alfa`, converting in memory and writing nothing but the explanation.
+This reverses a deliberate June decision (→ acal-explain-reads-every-source-language), and
+explain also gained import-fidelity reporting: what the source language could not express
+faithfully in ACAL, surfaced in all three output formats and fed to the LLM so the
+observations account for it.
 
-**Key finding — supplementary ShortIdSet check is effectively dead for Bundle documents:**
-The supplementary `_check_shortidset_reference_graph` only activates when `sid_path == "ShortIdSet"` — meaning ShortIdSet appears at the document root. In JACAL, ShortIdSet only ever appears inside Bundle (`Bundle.ShortIdSet`), so the supplementary check's path filter silently skips every real document. The catalog-level `_graph_no_repeat` covers all Bundle.ShortIdSet cases and is the actual enforcement path. The backtracking removal in the supplementary checker is a consistency fix for completeness, not a practical bug fix. (→ lessons-learned)
+The fidelity information travels *beside* the document, never inside it — stamping provenance
+into the ACAL doc would make acal-convert emit output that fails our own validators.
+(→ conversion-report-never-enters-the-document)
 
+<<<<<<< acal-explain
+### Four defects surfaced along the way
+=======
 ## Open Items for Next Session
 
 - **File upstream bugs**: `AttributeSelectorType.unevaluatedProperties: false` blocks XPath profile extension in JACAL (workaround in `_patch_core_schema_shape_bugs()` in `validator.py`)
@@ -174,113 +195,39 @@ Walks all nested Policy objects collecting ancestor VariableDefinition IDs, then
 - the unused `xpath_examples` fixture was removed from `tests/conftest.py`
 
 **Result:** The `yacal-validator` suite no longer depends on missing upstream YAML example artifacts and now runs cleanly as `83 passed, 0 skipped`.
+>>>>>>> main
 
-### June 16, 2026 — YACAL conformance coverage expanded to full catalog + YAML rules
+- The `/import-model` skill pointed at pre-refactor paths and would have failed its own Phase 0 check on Cedar. Repointed at acal-core; taught about the registry and the capability matrix.
+- `policy-language-expressiveness.md` existed twice **and had forked** — each copy held content the other lacked. It was nearly deleted as a duplicate. (→ check-for-fork-before-deleting-a-duplicate)
+- A format was declared in five places, which is why the registry now exists. (→ central-language-registry)
+- **A real bug:** the ALFA `xpath` datatype is documented as disposition (b) — warn by default, error under `--strict`. It never errored, because the warning fires in symbol collection and `_collect_symbols` never received the `strict` flag. `--strict` is what a user turns on when they need conversion to *fail* rather than approximate; it was silently not keeping that promise. (→ strict-must-be-threaded-through-every-pass)
 
-**Completed:** Expanded the fixture suite from policy-centric examples into a conformance-oriented suite covering:
-- all supported root document forms (`Policy`, `Bundle`, `Request`, `Response`, standalone `ShortIdSet`)
-- YAML prohibited features (tags, anchors/aliases, merge keys, nulls, octal integers, multi-document streams)
-- all current catalog rule families, including request/multi-request integrity, response/result uniqueness, status detail rules, parameter/name uniqueness, datatype agreement, short-id graph rules, shared-variable graph rules, and profile-default subtype uniqueness
-- profile-aware validation for XPath and JSONPath fixtures
+### Spec issue #94 (earlier in July)
 
-**Test status at that milestone:** `81 passed, 2 skipped`.
+The notice-`Id` uniqueness constraint was reversed across all six artifacts where it had been
+encoded. A notice `Id` names the obligation's *meaning*, not an occurrence.
+(→ notice-id-is-a-concept-identifier). Branch is unmerged pending TC agreement — it is a
+normative change. Probing a neighbouring constraint as a control turned up a long-standing
+enforcement gap, filed as spec issue #99.
+(→ xsd10-unique-silently-skips-absent-optional-fields)
 
-**Validator/schema work required to make spec-aligned coverage possible:**
-- Added YAML feature linting before schema validation (`yaml:*` rule ids)
-- Added local support for `AllowedStatusDetailKeys` in `conditionalPresence`
-- Patched additional upstream schema defects at load time:
-  1. `PolicyDefaults` / `RequestDefaults` cardinality corrected to arrays
-  2. selector extension hooks corrected so wrapper-key forms (`AttributeSelector`, `EntityAttributeSelector`) compose through `$dynamicRef`
-  3. missing core selector defs (`AttributeSelectorCoreType`, `EntityAttributeSelectorCoreType`) synthesized
-  4. `StatusDetailTypeExtensionsDisabled` neutralized so core `MissingAttributeDetail` is structurally valid
-  5. malformed `IdReferenceType` / `ExactMatchIdReferenceType` repaired so `ApplicablePolicyReference` is testable
+## Open Items for Next Session
 
-**Coverage outcome:** the suite now exercises every current catalog rule directly, including the previously unreachable `statusdetail-missing-attribute-shape` rule via a constraint-level unit test. The two remaining skips at that milestone were later removed by replacing the upstream-dependent XPath tests with local fixtures.
+**Immediate — the merge backlog blocks everything:**
 
-### June 16, 2026 — Phase 2: --include flag; three-way exit codes; INCOMPLETE output state
+- **PR `acal-explain` → main.** Seven commits. Cedar cannot start cleanly until this lands. Then delete the stale `acal-converter` / `acal-core` local branches and `origin/revert-7-acal-converter`.
+- Cut a `cedar` branch from the new main and run `/import-model CEDAR`.
+- File the ROADMAP long-term items as GitHub issues (export tool, Rego, provenance extension).
 
-**Added `--include FILE`** (repeatable) to CLI. Loads additional YACAL files into the resolution index before constraint evaluation. Required when a document has `PolicyReference` or `SharedVariableReference` pointing to definitions in external files.
+**Spec:**
 
-**Three-way exit codes:**
-- `0` — valid AND fully evaluated (no skipped constraints)
-- `1` — validation failed (one or more errors)
-- `2` — incomplete (cross-file references could not be resolved, provide `--include`)
-         OR tool error (missing schemas, bad input, etc.)
+- **Issue #94 branch awaiting TC sign-off.** Do not merge without agreement — normative change.
+- **Issue #99**: normative examples violate the `AttributeAssignmentExpression (AttributeId, Category)` uniqueness constraint and the XSD cannot catch it.
+- **Tooling impact of #94**: if it lands, any validator enforcing notice-Id uniqueness must drop it. Check `yacal-validator` / `jacal-validator`.
 
-**Output state `INCOMPLETE`** — `human()` now shows `INCOMPLETE  YACAL v1.0 (YAML) — file.yaml  (N constraint(s) not evaluated — use --include)` when `result.incomplete` is True. Previously valid-with-skips fell through to the advisory-warnings PASS branch.
-
-**`result.incomplete`** property on `ValidationResult` — `True` when `constraints_skipped > 0`. Surfaced in JSON output as `"incomplete": true`.
-
-**Architecture:**
-- `_merge_from_document()` — extracts SharedVariableDefinition and Policy entries from any document form (Bundle or standalone PolicyDocument)
-- `_build_resolution_index(document, extra_docs=None)` — runs `_merge_from_document` over primary + extras and merges into shared context dict
-- `evaluate(document, catalog, extra_docs=None)` — passes extra_docs to index builder
-- `validate(..., include_paths=None)` — loads and parses include files via `_load_include_docs()`
-
-**Key lesson:** The catalog paths `$.Policy.CombinerInput[].PolicyReference` and `$.Bundle.PolicyReference` do NOT cover `PolicyReference` nested inside `$.Bundle.Policy[].CombinerInput[]`. The Phase 2 test fixture must be a standalone PolicyDocument, not a Bundle, to exercise the catalog path.
-
-**Test suite:** 36 passed, 2 skipped (permanent XPath). Three new Phase 2 tests (without include → exit 2, with matching include → exit 0, with mismatched include → exit 1).
-
----
-
-### June 16, 2026 — Phase 1 within-Bundle resolution; 38/38 constraints evaluated
-
-**Implemented:** Within-document resolution for the two formerly-skipped cross-document constraints (`sharedvariablereference-argument-datatype-agreement` and `policyreference-argument-datatype-agreement`).
-
-Before Phase 1, both constraints blanket-skipped every document with advisory warnings. After Phase 1, for any document whose references resolve within the same Bundle, both constraints are fully evaluated — no skip warnings emitted.
-
-**Mechanism:** `_build_resolution_index(document)` scans a Bundle and builds two indexes:
-- `shared_vars: {Id → [ParameterType]}`  (from `Bundle.SharedVariableDefinition[]`)
-- `policies: {PolicyId → [ParameterType]}` (from `Bundle.Policy[]`)
-
-`evaluate()` builds the index before running catalog rules and passes it to `_property_agreement` via `context=`. For each `SharedVariableReference`/`PolicyReference` found in the document, the checker resolves it in the index. If found: runs `_check_argument_datatype_agreement()` which matches positional and named arguments against parameter DataType declarations. If not found (cross-file, Phase 2 territory): emits a per-reference skip warning with hint "Use --include to provide the definition file."
-
-**Output change:** All valid fixtures now show `Constraints: 38/38 evaluated` with no skip annotation (was `34/36 evaluated · 2 skipped`).
-
-**Test suite:** 33 passed, 2 skipped (permanent XPath). Two new fixtures added:
-- `ex10-bundle-parameterized-sharedvar.yaml` — valid; exercises DataType agreement check
-- `err10-sharedvar-datatype-mismatch.yaml` — invalid; `{integer}` passed where `{string}` required
-
-**Phase 2 (next):** Add `--include FILE` CLI flag to load external definition files into the resolution index, enabling full evaluation for cross-file references.
-
----
-
-### June 16, 2026 — Fixture test suite complete; gold-standard validation enforced
-
-**Completed:** Added `tests/fixtures/valid/` (7 adoption guide examples, ex01–ex09) and `tests/fixtures/invalid/` (9 error cases). Created `tests/test_fixtures.py` with 19 parametrized and targeted tests. All 31 tests pass (2 permanent XPath skips unchanged).
-
-**Gold-standard requirement:** yacal-validator must have NO known gaps. Two upstream catalog defects were found and remedied by supplementary constraint checks in `constraints.py` rather than documenting them as acceptable gaps:
-
-1. **Missing catalog rule** — duplicate Rule IDs within a Policy CombinerInput had no catalog entry. Added `_check_rule_id_unique_within_policy()`.
-2. **Wrong catalog path** — `shortidset-shortid-name-unique` uses path `$.ShortIdSet[].ShortId` which matches no real YACAL document form (ShortIdSet appears only at document root). Added `_check_shortid_name_unique()` with recursive traversal.
-
-Both supplementary checks increment `constraints_total`/`constraints_evaluated` so coverage reporting stays accurate. Counter is now `38/38 evaluated · 2 skipped` for valid documents.
-
-**Spec schema bugs fixed** (in `_patch_schema()` in validator.py):
-1. `ExactMatchIdReferenceType.allOf[1].properties: null` — removes null properties key
-2. `$defs.QuantifiedExpressionTypeTree` — bare list wrapped in `{"oneOf": [...]}`
-3. `ArgumentTypeTree.oneOf[1].required` — scalar string promoted to array
-
-**Constraint catalog path bug fixed** — All 7 non-graph checkers were reading path fields from rule top level; the catalog nests them under `AppliesTo`. Fixed systematically.
-
-**False-positive in graph checker fixed** — `_graph_no_repeat` seeded `visited` with the node's own refs before traversal, causing immediate false-positive on first-hop edges. Fixed by initializing `visited` as empty set.
-
----
-
-### June 16, 2026 — Saxon pivot, yacal-validator built, constraint transparency added
-
-**Trigger:** A `/grill-me` session on Saxon EE licensing established that Saxon EE (commercial) is required for XSD 1.1 schema processing. The `saxonche` pip package (Saxon HE) cannot perform schema validation at all, making the original `acal-validator` XML path permanently broken for an open-source tool.
-
-**Architectural pivot:** Split `acal-validator` into per-language tools. XML validation deferred to a separate effort. `yacal-validator` branch created from `main`, containing only YACAL code carved from `acal-validator` with XML/hint cruft stripped. Flat module layout (`src/yacal_validator/validator.py`, `constraints.py`, `schemas.py`, etc.); no `validators/` subdir; no migration hints; no Saxon dependency. (→ per-language-tools-no-xml)
-
-**`__main__.py` + README:** Added `python -m yacal_validator` support. README documents three invocation modes (run from source, install locally, install from PyPI) and walks through the full PyPI publishing workflow step-by-step for first-time publishers.
-
-**Constraint coverage transparency:** The catalog has 36 rules. Two require cross-document lookup and are permanently skipped. Before this change, skips were buried as individual WARNING issues; users had no summary-level signal that semantic validation was partial. `evaluate()` now returns `(issues, total, evaluated, skipped)`. `ValidationResult` carries the counters. Both human and JSON output surfaces coverage on every run. Multi-file batch validation stays external (shell loops) — the tool delivers a complete verdict on one file; orchestration is the caller's job. (→ constraint-coverage-always-surfaced)
-
----
-
-## Open Items
-
+<<<<<<< acal-explain
+**Known limitations, deferred:**
+=======
 - ~~**Phase 2**: Add `--include FILE` CLI flag~~ ✓ Done
 - ~~`yacal-validator` merged to main via PR #3~~ ✓ Done
 - **Submit `xacml-to-yacal` branch as a PR** for independent review
@@ -294,10 +241,17 @@ Both supplementary checks increment `constraints_total`/`constraints_evaluated` 
   4. Wrong path for `shortidset-shortid-name-unique` in constraint catalog
   5. Root-element prose omits standalone `ShortIdSet` even though the structural schema allows it
 - Publish to PyPI when both tools are stable
+>>>>>>> main
 
----
+- **Nested attribute resolution**: `user.clearance`, `medicalrecord.patientId` etc. still produce unresolved-attribute warnings because nested namespace paths aren't walked. Surfaces in analyzer output as `unresolved_attrs`, and now also as import-fidelity notes.
+- **Infix comparison type dispatch**: `>`, `<`, `>=`, `<=` default to `integer-*` regardless of attribute type; `==` defaults to `string-equal` for non-bag scalars. Should dispatch on the declared type.
+- **Streaming output for acal-explain** (`--stream`).
+- **acal-explain end-to-end smoke test** against a real LLM (CI-gated).
+- Populate the root `README.md` (still empty). `acal-core/README.md` exists.
+- File the upstream schema/catalog bugs (see prior sessions; still unfiled).
+- Publish to PyPI when stable.
 
 ## Key Diary Files
 
-- [architectural_decisions.md](architectural_decisions.md) — design principles, non-negotiable patterns
+- [architectural_decisions.md](architectural_decisions.md) — design principles and non-negotiable patterns
 - [lessons_learned.md](lessons_learned.md) — anti-patterns and hard-won insights (most recent at top)

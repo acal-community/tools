@@ -1,0 +1,11 @@
+namespace com.example {
+    policy OrderedDenyExample apply orderedDenyOverrides {
+        rule AllowAll {
+            permit
+        }
+        rule DenyAdmin {
+            deny
+            condition Attributes.subject.role == "admin"
+        }
+    }
+}

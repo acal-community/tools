@@ -1,0 +1,18 @@
+namespace com.example {
+    attribute hireDate {
+        category = subjectCat
+        id = "urn:example:attribute:hire-date"
+        type = date
+    }
+
+    policy DateComparisonPolicy apply denyOverrides {
+        rule AllowSenior {
+            permit
+            condition dateGreaterThan(hireDate, dateFromString("2020-01-01"))
+        }
+        rule AllowEarlier {
+            permit
+            condition dateLessThanOrEqual(hireDate, dateFromString("2020-01-01"))
+        }
+    }
+}

@@ -1,0 +1,82 @@
+/*
+ * ADAF MD standard attributes.
+ */
+namespace System {
+
+    /*
+     * Name of the table to protect.
+     */
+    attribute table_name {
+    	id = "http://axiomatics.com/sql/filter/table_name"
+    	type = string
+    	category = resourceCat
+    }
+
+    /*
+     * Schema of the table to protect.
+     */
+    attribute table_schema {
+    	id = "http://axiomatics.com/sql/filter/table_schema"
+    	type = string
+    	category = resourceCat
+    }
+    
+    /*
+     * Column in the protected table that is being accessed.
+     */
+    attribute column_name {
+    	id = "http://axiomatics.com/sql/filter/column_name"
+    	type = string
+    	category = resourceCat	
+    }
+    
+    /*
+     * Identity of the user that requests the execution of a 
+     * SQL statement against the database.
+     */
+    attribute subject_id {
+        id = "urn:oasis:names:tc:xacml:1.0:subject:subject-id"
+        category = subjectCat
+        type = string
+    }   
+    
+    /*
+     * Action about to be performed on the protected table or column. 
+     * Possible values are: "SELECT", "INSERT", "UPDATE", "DELETE".
+     */
+    attribute action_id {
+        id = "urn:oasis:names:tc:xacml:1.0:action:action-id"
+        type = string
+        category = actionCat
+    }
+
+    /*
+     * Current time at the moment the database is accessed, 
+     * measured by the SQL Filter Server.
+     */
+    attribute currentTime {
+        id = "urn:oasis:names:tc:xacml:1.0:environment:current-time"
+        type = time
+        category = environmentCat
+    }
+
+    /*
+     * Current date at the moment the database is accessed, 
+     * measured by the SQL Filter Server.
+     */
+    attribute currentDate {
+        id = "urn:oasis:names:tc:xacml:1.0:environment:current-date"
+        type = date
+        category = environmentCat
+    }
+
+    /*
+     * Current date and time at the moment the database is accessed, 
+     * measured by the SQL Filter Server.
+     */
+    attribute currentDateTime {
+        id = "urn:oasis:names:tc:xacml:1.0:environment:current-dateTime"
+        type = dateTime
+        category = environmentCat
+    }
+}

@@ -1,5 +1,235 @@
 # Architectural Decisions
 
+## capability-matrix-is-the-delta-list (July 2026)
+
+Each non-native source language gets a machine-readable capability matrix at
+`acal-core/capabilities/<lang>.yaml`, keyed by **ACAL feature** (not by source construct),
+declaring which ACAL features that language can express. It is authored in Phase 3 of
+`/import-model`, before any reader code exists.
+
+**WHY**: The plan for the eventual ACAL *export* tool was to audit each language for what it
+can and cannot export, and write the result down as prose. Prose cannot gate an export tool,
+so the audit would have been redone — a third time, after the reader and the doc — when
+export was finally built, and by then the three would have drifted.
+
+Keying by ACAL feature rather than source construct is the whole point. "What does this
+source construct become in ACAL?" is the *import* question, and the reader's own code already
+answers it. "What can this language say *about* ACAL?" is the *export* question, and nothing
+in the codebase answers it — yet three separate consumers need it: the reader (warn vs.
+error), `acal-explain` (report what a target language could never express), and the future
+export tool (its precondition gate). Authoring it once per language is what makes export
+tractable later; auditing three times in three places is what makes it not.
+
+---
+
+## acal-explain-reads-every-source-language (July 2026)
+
+`acal-explain` accepts every format `acal-core` can read, converts non-native input in
+memory, and never writes a policy document. Supersedes (→ acal-explain-acal-only-input).
+
+**WHY**: The user asked for explain to "not export a file, simply explain." The old design
+forced anyone with an ALFA policy to run `acal-convert` first and materialize a `.yaml` they
+did not want, purely to satisfy a restriction at the CLI layer — `acal_core.readers.load()`
+had supported ALFA the whole time. Explaining a policy and producing an ACAL artifact are
+different jobs; `acal-convert` is the tool for the second one. Making explain refuse a file
+it was perfectly capable of reading served no user.
+
+The two jobs stay separate in the code: explain writes only its explanation, and the
+conversion exists solely in memory for the duration of the call.
+
+---
+
+## conversion-report-never-enters-the-document (July 2026)
+
+`load_with_report(path, fmt) -> (doc, ConversionReport)` returns import-fidelity information
+*beside* the neutral document. Provenance, source language, and lossy-mapping notes are never
+written into the document itself.
+
+**WHY**: To report what an import lost, that information has to reach the caller. The obvious
+design — stamp a `SourceLanguage` / conversion-report key into the ACAL document so it
+survives any pipeline — would make `acal-convert` emit documents that **fail our own
+validators**: the ACAL schemas set `additionalProperties` / `unevaluatedProperties` to false
+in several places, so an extra key is a structural violation. A converter whose output its
+sibling validator rejects is worse than one that reports less.
+
+The accepted cost is that fidelity is only available when explain performs the import itself;
+a YACAL file converted in an earlier process has no memory of its source. That is honest —
+the alternative is a claim we cannot substantiate. Carrying provenance properly requires a
+spec extension point, which is on the roadmap, not a workaround.
+
+---
+
+## central-language-registry (July 2026)
+
+Every policy language is declared exactly once, in `acal-core/src/acal_core/languages.py`.
+Format detection, reader dispatch, writer dispatch, and both CLIs' `--from` / `--to` choices
+are all derived from it. Adding a language is one registry entry.
+
+**WHY**: A format was previously declared in five places (`_VALID_FORMATS`, `_EXT_TO_FORMAT`,
+the `load()` dispatch, and a hand-written `click.Choice` in each of the two CLIs). Five
+declarations of one fact is four opportunities for them to disagree, and with Cedar and IAM
+queued that number was about to grow. Parity tests in each tool's suite now fail if a CLI's
+choices diverge from the registry, so the drift cannot return silently.
+
+---
+
+## notice-id-is-a-concept-identifier (July 2026)
+
+A `NoticeExpression`/`Notice` `Id` in the ACAL spec is a **concept** identifier, not an instance identifier: it names *what the obligation means and how the PEP must process it*. It is therefore **not** required to be unique within a Policy, Rule, or Result — the same `Id` may appear repeatedly with different `AttributeAssignment`s.
+
+**WHY**: ACAL's `Id` properties are deliberately non-uniform. `PolicyId` is an instance identifier (must be unique); attribute `Id`, `FunctionId`, and notice `Id` are concept identifiers (repeats are legal and meaningful). The pull toward "every property named `Id` should be unique" is intuitive and wrong, and it was acted on once (spec commit 851ebc9) before Steven Legg caught it.
+
+Requiring uniqueness forces the obligation's *semantics* out of the `Id` and into an overloaded `AttributeAssignment` (`action = send-mail`), which breaks every preexisting XACML 3.0 obligation definition — their published `ObligationId` URIs become decorative, and the `Id` degrades into a per-occurrence instance tag nobody needs. It also blocks legitimate patterns: emitting `add-history` twice with different parameters, or emitting the same obligation from two rules that permit access for two different reasons.
+
+It is additionally inconsistent with the evaluation model. Spec §8.16 passes notices *up* the tree from rule → policy → Result, so two rules emitting the same-Id obligation makes a unique-by-Id `ResultType` literally unrepresentable — and no de-duplication or merging rule exists anywhere to reconcile it.
+
+---
+
+## alfa-function-map-sources-from-system-alfa (July 2026)
+
+`_NAMED_FUNCTION_MAP` in the ALFA reader is sourced exhaustively from `system.alfa` (the canonical Axiomatics PDP 7.x runtime declaration file), converting the XACML version prefix (`xacml:1.0`, `xacml:2.0`, `xacml:3.0`) uniformly to `acal:1.0`.
+
+**WHY**: The prior map covered ~20 functions and was manually curated, producing "Unknown ALFA function" warnings on real Axiomatics policies (date comparisons, bag introspection, type conversions, regex matches). `system.alfa` is the authoritative short-name → URN registry for the Axiomatics dialect — all functions a PDP user can call are declared there. Sourcing from it eliminates the completeness problem and ties the map to the same reference that Axiomatics tools use.
+
+---
+
+## alfa-bag-overloading-private-marker (July 2026)
+
+Bag-typed attributes signal their multiplicity to `cmp_expr` via a private `"_bag": True` key on the outer `{"AttributeDesignator": {...}}` wrapper dict. `cmp_expr` consumes the marker and strips it before returning in all code paths.
+
+**WHY**: `_resolve_attr_path` returns a plain dict; changing it to return a tuple `(dict, is_bag)` would require updating every caller in the transformer. The `_bag` key on the outer wrapper is invisible to downstream consumers (neutral dict writers, `acal-explain` analyzer) because they access the inner `"AttributeDesignator"` key, not the wrapper. The only other option — reverse-looking up from the symbol table inside `cmp_expr` by AttributeId — would require iterating all symbol table entries and comparing full URNs, which is fragile if the URN was synthesized from the namespace. The private marker is cheap, local, and always stripped at the boundary.
+
+---
+
+## alfa-bag-type-is-cardinality-not-datatype (July 2026)
+
+When an ALFA attribute block declares `type = bag`, the string `"bag"` sets `is_bag = True` and `attr_type` is cleared to `""`. A subsequent `datatype = <type>` clause then sets the element type.
+
+**WHY**: `"bag"` is a cardinality modifier in Axiomatics ALFA, not an XSD or ACAL data type. Storing `DataType = "bag"` in the AttributeDesignator would produce an invalid neutral dict (no PDP recognises `"bag"` as a type) and would cause the `_TYPE_IS_IN_MAP` lookup to return `None`, silently falling back to the wrong function. The correct pattern matches what Axiomatics uses in real attribute files: `type = bag` + `datatype = integer` for a typed multi-valued integer attribute.
+
+---
+
+## acal-explain-acal-only-input (June 2026) — SUPERSEDED July 2026
+
+**Superseded by (→ acal-explain-reads-every-source-language). Kept because the reasoning
+was sound and only one premise turned out to be wrong.**
+
+`acal-explain` accepts only XACML, YACAL, and JACAL as input — ALFA is explicitly rejected with a message directing the user to convert first.
+
+**WHY**: `acal-explain` explains what an ACAL policy is expressing. ALFA is a source language that gets *converted into* ACAL; explaining an ALFA file directly would require running the ALFA reader and then explaining the resulting ACAL neutral dict anyway. The tool's purpose is ACAL-family insight, not ALFA parsing. Making the rejection explicit (with a `acal-convert … | acal-explain` hint) is clearer than silently accepting ALFA and potentially confusing users who expected ALFA-level semantics.
+
+**What was wrong with it**: the argument "you'd just run the reader and explain the neutral
+dict anyway" is *correct*, and is precisely the reason to accept ALFA rather than reject it —
+the work is identical either way, so the only thing the rejection bought was making the user
+do it by hand and leave a `.yaml` on disk they never wanted. The premise that the user wanted
+an ACAL artifact was never checked.
+
+---
+
+## acal-explain-two-call-llm (June 2026)
+
+`acal-explain` makes two separate LLM calls: (1) structural summary (what the policy does, given the full neutral dict as JSON), (2) observations/nuances (given only the structured analysis findings — shadowed rules, default-deny gaps, obligation gaps, unresolved attrs).
+
+**WHY**: A single call mixing "explain what it does" and "find the problems" produces unfocused output — the model tends to either narrate the JSON or make generic observations without grounding. Separating the calls keeps each prompt tightly scoped. The second call receives pre-computed structured findings rather than raw JSON, which prevents the model from hallucinating issues that aren't there and keeps the observations section factual and specific.
+
+---
+
+## acal-explain-config-file (June 2026)
+
+LLM provider, model string, API credentials, and output format defaults are configured via `~/.config/acal-explain/config.toml` with env var overrides (`ACAL_EXPLAIN_MODEL`, `ACAL_EXPLAIN_API_KEY`, `ACAL_EXPLAIN_API_BASE`). No model versions are hardcoded anywhere in the tool.
+
+**WHY**: This is an open-source tool; users run it with their own credentials against their own preferred provider. Hardcoding model strings would make the tool go stale as new versions drop. The `~/.config/acal-explain/` path follows the XDG convention already established by `~/.cache/acal-validator/`. litellm's `provider/model` convention (e.g. `anthropic/claude-sonnet-4-6`, `ollama/llama3`) is used directly so users can switch providers without changing anything except the config file.
+
+---
+
+## acal-core-as-shared-library (June 2026)
+
+All format readers and writers live in a dedicated `acal-core/` package. The `acal-converter` tool is a thin CLI wrapper that imports from it. Future tools (`acal-explain`, and any others) depend on `acal-core` directly.
+
+**WHY**: The `acal-explain` tool needs the same readers and format-detection logic as `acal-converter`. The original per-tool-directory pattern (one self-contained `pyproject.toml` per tool, no shared libraries) was chosen to avoid build-system coupling — but it only holds when tools share no logic. Once a second tool needs the same readers, the only options are duplication or a shared library. Duplication is worse: two copies of the ALFA grammar and Lark transformer would diverge. The shared library breaks the pattern intentionally and only for logic that genuinely belongs at the core: parsing and serialization of ACAL formats. CLI entrypoints, configuration, and output formatting remain per-tool. Writers were included alongside readers because future bidirectional conversion (ACAL → source language) will also need shared serializers. (→ per-language-tools-no-xml)
+
+---
+
+## alfa-policyset-as-policy (June 2026)
+
+A `policyset_decl` that appears at the namespace level is surfaced in the ACAL neutral dict as a `"Policy"` key, not a `"PolicySet"` key.
+
+**WHY**: The neutral dict top-level schema only has `{"Policy": ...}` and `{"Bundle": {"Policy": [...]}}` forms. A `policyset` in ALFA is structurally equivalent to a `policy` in ACAL — both have `PolicyId`, `CombiningAlgId`, `Target`, and `CombinerInput`. Emitting a `"PolicySet"` wrapper that no writer or downstream consumer handles would cause silent data loss. The writers (YACAL, JACAL) treat the neutral dict as pass-through, so the key name matters at the output level, not the ALFA source level.
+
+---
+
+## alfa-system-decl-discard (June 2026)
+
+System.alfa-style declarations (`ruleCombinator`, `policyCombinator`, `type`, `category`, `function`, `infix`) are parsed by the grammar and silently discarded by the transformer — they are not collected into the symbol table.
+
+**WHY**: These declarations are PDP runtime configuration (mapping short names to XACML URNs for combining algorithms, types, and operators). They have no ACAL equivalent — ACAL uses fixed combining algorithm URNs and does not need type or operator declarations. The grammar must accept them so `system.alfa` can be passed as an `--include` file without parse errors; the transformer discards them because they contribute nothing to the ACAL output. The `infix` body grammar uses `INFIX_BODY: /[^}]+/` (a single regex terminal matching everything except `}`) to avoid writing a full type-signature sub-grammar that will never be used.
+
+---
+
+## alfa-target-clause-keyword (June 2026)
+
+The `target_clause` rule accepts an optional `_CLAUSE_KW` ("clause") after the `target` keyword, matching the full Axiomatics ALFA syntax `target clause <expr>`.
+
+**WHY**: Axiomatics ALFA consistently uses `target clause <expr>`. The ALFA spec grammar uses the two-word form. Our synthetic test fixtures were written without `clause` and happened to work (because `clause` was parsed as a DOTTED_ID attr_path, leaving the expression to follow — which happened to parse correctly for simple fixtures). Real-world policy files expose the gap immediately. Adding `_CLAUSE_KW?` preserves backward compatibility with either form.
+
+---
+
+## alfa-apply-in-body (June 2026)
+
+The `applying_kw` alternative is allowed both before `{` (ACAL convention) and inside `policy_body` / `policyset_body` (Axiomatics convention). The transformer checks for `str` items in the body list when no combining algorithm was provided in the pre-body position.
+
+**WHY**: Axiomatics ALFA consistently puts `apply <algo>` inside the braces alongside `target clause` and rules. ACAL synthetic fixtures used the pre-brace form. Neither form is wrong — the ALFA spec is ambiguous on this point. Supporting both means the converter accepts real-world files without preprocessing.
+
+---
+
+## alfa-keyword-exclusion-in-dotted-id (June 2026)
+
+The ALFA grammar excludes all ALFA reserved words from matching the `DOTTED_ID` terminal via a negative lookahead regex, rather than relying on terminal priority to resolve the ambiguity.
+
+**WHY**: Lark's earley parser with `ambiguity="resolve"` picks the first valid alternative in a rule regardless of terminal priority. When `func_call: DOTTED_ID "("` appeared before `var_ref: VAR_REF_KW "("` in the `primary_expr` alternation, `variable(name)` was always parsed as a `func_call` (with `variable` tokenized as DOTTED_ID), because earley explores all options and then picks by order, not by specificity. Preventing DOTTED_ID from ever matching reserved words makes the grammar unambiguous by construction rather than by resolution policy. The pattern is: `DOTTED_ID: /(?!(namespace|policy|...|variable)[^a-zA-Z0-9_])[a-zA-Z_].../`.
+
+---
+
+## lark-keyword-discard-prefix (June 2026)
+
+All ALFA grammar keyword terminals whose string value is not needed by the transformer use the `_` prefix (e.g., `_POLICY_KW`, `_CONDITION_KW`) so Lark auto-discards them from the transformer's item lists.
+
+**WHY**: Without `_` prefix, Lark includes named keyword terminals as `Token` objects in the children list passed to each transformer method. This makes position-based access to actual content unreliable — `policy_decl` receives `[Token('_POLICY_KW','policy'), Token('IDENTIFIER','DocAccess'), ...]` instead of `[Token('IDENTIFIER','DocAccess'), ...]`. Every method needs to filter or skip tokens, which is error-prone and verbose. The `_` prefix is idiomatic Lark for "structural glue — don't pass to transformer." Value-carrying terminals that the transformer needs (PERMIT_KW, DENY_KW, CMP_OP, etc.) keep their names.
+
+---
+
+## alfa-separate-error-types (June 2026)
+
+The ALFA reader defines two distinct exception classes: `ALFASyntaxError(ValueError)` for parse failures and `ALFAUnsupportedFeatureError(ValueError)` for semantic conversion failures. Both inherit `ValueError`, matching `XACMLUnsupportedFeatureError`.
+
+**WHY**: Callers need to distinguish "this file is not valid ALFA syntax" (user supplied wrong input) from "this ALFA construct has no ACAL equivalent" (language gap, user needs to redesign). These require different user actions and different error messages. Inheriting `ValueError` rather than stdlib `SyntaxError` keeps the exceptions in application-error territory rather than interpreter-error territory, avoiding the need to populate interpreter-specific attributes (`lineno`, `filename`, `offset`) that `SyntaxError` carries.
+
+---
+
+## alfa-two-pass-symbol-table (June 2026)
+
+The ALFA reader operates in two passes: a pre-pass (`_collect_symbols(tree)`) that walks the raw Lark `Tree` to populate a `_SymbolTable` (attribute declarations, obligation/advice URNs, namespace hierarchy), then a `AlfaTransformer(symbols, strict)` pass that resolves all paths and identifiers against the table.
+
+**WHY**: ALFA allows shorthand attribute paths (`user.role`) where `user` is bound to a category via an `attribute { category = subjectCat }` declaration elsewhere in the file. A single-pass Lark Transformer visits nodes bottom-up and cannot resolve a shorthand path without first knowing all declarations. Policy-scoped variables are the one exception — they are tracked in `self._current_vars` inside the Transformer (reset per policy block) rather than in the symbol table, because they are short-lived and not referenced across blocks.
+
+---
+
+## import-model-skill-documents-before-code (June 2026)
+
+The `import-model` skill requires Phase 3 (writing the expressiveness doc section with all gap dispositions) to be confirmed by the user before Phase 4 (implementation) begins.
+
+**WHY**: Gap decisions made during analysis are easy to silently reverse during implementation — a construct that was agreed to raise an error gets quietly mapped instead, and the documentation is updated after the fact to match the code. Requiring written documentation and explicit user confirmation before any code is written makes the decisions reviewable and reversible. It also produces a paper trail for why each gap was handled the way it was, which matters for security-critical policy conversion tools where silent semantic changes can be dangerous.
+
+---
+
+## alfa-reader-uses-lark-not-antlr (June 2026)
+
+The ALFA reader uses the `lark` Python parsing library with a custom ALFA grammar, not the ANTLR4 runtime with the official OASIS/Axiomatics ALFA grammar.
+
+**WHY**: ANTLR4 requires a Java runtime for grammar compilation and adds `antlr4-python3-runtime` as a package dependency. ACAL's design philosophy is to shed the legacy XACML toolchain — carrying ANTLR into a modern JSON/YAML-profile converter runs counter to that goal. `lark` is pure Python, requires no compilation step, and the grammar risk is mitigated by test-driven development against real-world ALFA documents. If the grammar proves insufficient for a specific ALFA construct, it can be extended without changing the runtime dependency.
+
+---
+
 ## jacal-never-errors-datatype-constraints (June 2026)
 
 JACAL constraint fixtures for DataType agreement rules are categorized as "structurally prevented" rather than "constraint-level errors."

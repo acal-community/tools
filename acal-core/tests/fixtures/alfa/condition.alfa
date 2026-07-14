@@ -1,0 +1,11 @@
+namespace com.example {
+  policy DocumentAccess apply denyOverrides {
+    rule PermitEditors {
+      permit
+      condition Attributes.subject.role == "editor"
+    }
+    rule DenyOthers {
+      deny
+    }
+  }
+}

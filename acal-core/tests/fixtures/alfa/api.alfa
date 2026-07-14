@@ -1,0 +1,66 @@
+namespace axiomatics.demo{
+	import System
+	
+	/*Online Trial Tutorial policy */
+	
+	/*Policy for api's */
+	policyset api{
+		target clause  stringEndsWith("record", resourceType)
+		
+		apply denyUnlessPermit
+		
+		/*Global records policies... */
+		policyset global{
+			apply firstApplicable
+			
+			/*Clearance check */
+			policy clearance{
+				apply firstApplicable
+				
+				/*R5 - Deny all access if user clearance < record classification */
+				rule denyAccess{
+					condition user.clearance < record.classification
+					deny
+					
+					on deny{
+						advice decision_reason  {
+							reason = "R5 - Deny all access if user clearance < record classification"
+						}
+					}
+				}
+			}
+		}
+		
+		/*View records...*/
+		policyset GET{
+			target clause actionId == "GET"
+			apply firstApplicable
+			
+			/*Client can view records*/
+			policy client{
+				target clause user.role == "client"
+				apply denyUnlessPermit				
+			
+				/*R2.1 - An client can view a record in their own department with obligation to mask owner and status*/
+				rule clientView{
+					condition record.department == user.department
+					
+					permit
+					
+					on permit{
+						obligation fields  {
+							mask_fields = "owner"
+							mask_fields = "status"
+						}
+					}
+					
+					on permit{
+						advice decision_reason  {
+							reason = "2.1 - An client can view a record in their own department with obligation to mask owner and status"
+						}
+					}
+				}
+			}
+		}
+	}
+}
