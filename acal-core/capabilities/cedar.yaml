@@ -50,6 +50,91 @@ missing_attribute:
     instead, which turns an absent attribute into Indeterminate and denies.
 
 # ---------------------------------------------------------------------------
+# Decision points (interactive / profile-driven conversion)
+# ---------------------------------------------------------------------------
+# Every judgment call a *user* may legitimately want to make, enumerated as data.
+#
+# These are consumed three ways from one definition:
+#   - `acal-convert --profile p.yaml`  replay saved answers, reproducibly
+#   - `acal-convert --interactive`     prompt for the unanswered ones
+#   - acal-web                         render a form; download/upload the profile
+#
+# `triggers` is what makes this better than a wall of flags: a decision is only ever raised
+# if the document being converted actually reaches it. A Cedar policy with no decimals and no
+# attribute access asks the user nothing at all.
+#
+# Anything NOT listed here is not a user decision — it is a correctness requirement.
+# The combining encoding (outer deny-unless-permit over inner deny-overrides) is not
+# negotiable: the alternatives are simply wrong, and offering them would be offering the user
+# a way to silently disable every `forbid` in their policy.
+
+decisions:
+
+  missing-attribute-presence:
+    question: >
+      Cedar SKIPS a policy whose attribute is missing, so a `forbid` that cannot evaluate
+      does not fire and the request is ALLOWED. Reproduce that, or deny instead?
+    triggers: any AttributeDesignator is synthesized
+    default: faithful
+    flag: "--fail-closed"
+    options:
+      faithful:
+        must_be_present: false
+        consequence: >
+          Matches Cedar exactly. A deny rule whose attribute your PDP does not supply will
+          silently not fire. Cedar guards this with a schema validator; ACAL has none.
+      fail-closed:
+        must_be_present: true
+        consequence: >
+          An absent attribute becomes Indeterminate and DENIES. Safer than Cedar — and
+          therefore not Cedar: it changes the decision on that path.
+
+  approximate-datatype:
+    question: >
+      Cedar `decimal` is fixed-point to 4 places; ACAL `double` is IEEE-754 binary float. A
+      comparison at a precision boundary can decide differently. Proceed, or refuse?
+    triggers: a datatype with `fidelity: approximate` is used
+    default: warn
+    flag: "--strict"
+    options:
+      warn:
+        consequence: Convert, and report each approximate mapping as a fidelity note.
+      reject:
+        consequence: >
+          Refuse to convert. Choose this when an access decision must not turn on a
+          floating-point rounding difference.
+
+  annotation-loss:
+    question: >
+      Cedar annotations other than @id carry no evaluation semantics and have no ACAL home.
+      Drop them with a note, or refuse?
+    triggers: a policy carries an annotation other than @id
+    default: warn
+    flag: "--strict"
+    options:
+      warn:
+        consequence: Convert; each dropped annotation is reported as a fidelity note.
+      reject:
+        consequence: Refuse to convert rather than lose any metadata.
+
+  template-handling:
+    question: >
+      Cedar templates are parameterized policies. Keep them parameterized in ACAL, or expand
+      each link into a concrete policy?
+    triggers: the document contains a template
+    default: parameterize
+    flag: "--expand-templates"
+    options:
+      parameterize:
+        consequence: >
+          Template becomes a Policy with Parameter; each templateLink becomes a
+          PolicyReference with Argument. One template stays one policy.
+      expand:
+        consequence: >
+          Each link is inlined as a concrete policy. Flatter output, but one template with 50
+          links becomes 50 near-identical policies, and an unlinked template has nowhere to go.
+
+# ---------------------------------------------------------------------------
 # Datatype map (import direction)
 # ---------------------------------------------------------------------------
 # `acal_type: null` means "no known mapping" — the reader hard-errors rather than guessing.

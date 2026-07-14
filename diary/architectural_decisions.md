@@ -1,5 +1,62 @@
 # Architectural Decisions
 
+## conversion-decisions-are-data-not-flags (July 2026)
+
+Every judgment call a *user* may legitimately make during conversion is enumerated as data, in
+the `decisions:` block of `capabilities/<dialect>.yaml`: question, options, the consequence of
+each, a default, the CLI flag that sets it, and a `triggers` condition. Three front-ends
+consume that one definition — `--profile` (replay), `--interactive` (prompt), and the web UI
+(form + download/upload).
+
+Conversion becomes two-phase: `plan()` collects the decision points the *document actually
+reaches*; `execute()` runs once they are resolved.
+
+**WHY**: Cedar alone produced five user-facing decisions (presence fidelity, approximate
+datatypes, unmapped datatypes, annotation loss, template handling). ALFA and XACML have their
+own; Rego and IAM will add more. Expressing them as CLI flags leads to
+`--strict --fail-closed --allow-approximate --expand-templates …` — a matrix nobody can hold in
+their head, with undefined interactions, and no record of what was chosen.
+
+The `triggers` field is what makes this better than flags rather than merely different: a
+decision is raised only if the document reaches it. A Cedar policy with no decimals and no
+attribute access asks nothing.
+
+The durable artifact is a **decision profile** — an org answers once, replays across every
+conversion, and can later answer "why was this policy converted this way?". For access control
+that provenance is worth more than the convenience.
+
+**What is deliberately NOT a decision**: correctness requirements. The Cedar combining
+encoding (outer deny-unless-permit over inner deny-overrides) is not offered as a choice,
+because the alternatives are simply wrong — offering them would be offering the user a way to
+silently disable every `forbid` in their policy. A decision point is where a *reasonable person
+could differ*, not where one answer is a bug.
+
+---
+
+## acal-web-is-stateless (July 2026)
+
+The planned web UI (FastAPI + Jinja2 + HTMX) persists nothing. Policies and decision profiles
+are uploaded and downloaded; neither is stored server-side. No database.
+
+**WHY**: Two reasons, and the second is the real one.
+
+Deployment: no DB means one process, `pip install` + `uvicorn`, ~60MB resident — it runs on a
+Pi or a $5 VPS, which was a stated requirement.
+
+Security: the documents this tool handles are **customers' authorization rules**. They describe
+exactly who can reach what. A server that never stores them cannot leak them, and that property
+is far cheaper to design in at the first commit than to retrofit after someone asks where their
+policies are kept.
+
+Stack rationale: FastAPI because the endpoint the web form POSTs to *is* the batch API,
+auto-documented — the batch story falls out of the UI work rather than being a second parallel
+implementation. HTMX because it is one script tag: no npm, no bundler, no Node in the deploy
+path. Pyodide/WASM was considered and rejected — `cedarpy` is a Rust extension and Pyodide
+cannot load arbitrary compiled wheels. Streamlit was rejected for ~300MB of dependencies and no
+usable API.
+
+---
+
 ## presence-semantics-must-be-explicit (July 2026)
 
 Every reader emits `MustBePresent` **explicitly** on every `AttributeDesignator` it
