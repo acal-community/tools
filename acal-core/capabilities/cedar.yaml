@@ -1,0 +1,247 @@
+# Cedar (AWS) — capability matrix and datatype map.
+#
+# Cedar is a FOREIGN dialect — a spoke. See ../../CLAUDE.md for the hub/spoke frame.
+#
+# Two sections, two directions:
+#
+#   datatypes:      IMPORT direction. How Cedar's types and extension functions become ACAL
+#                   ones. Consulted by readers/cedar.py via the resolution ladder:
+#                     1. a built-in direct mapping exists      -> proceed (exact)
+#                     2. else a datatype entry here exists     -> proceed; if fidelity is
+#                                                                 `approximate`, warn (b)
+#                     3. else                                  -> HARD ERROR (c), naming the
+#                                                                 missing entry so the fix is
+#                                                                 one line in this file
+#
+#   acal_features:  EXPORT direction. What Cedar can say *about* ACAL. Consulted by
+#                   acal-explain and (later) acal-export.
+
+language: cedar
+dialect: cedar
+direction: import-only
+reference: https://docs.cedarpolicy.com/
+
+# ---------------------------------------------------------------------------
+# Runtime semantics we reproduce rather than repair
+# ---------------------------------------------------------------------------
+# Verified against Cedar's own evaluator (cedarpy.is_authorized), not inferred:
+#
+#   forbid (principal, action, resource) when { principal.banned == true };
+#   ...with a principal that has no `banned` attribute
+#   -> Cedar: the policy ERRORS, is SKIPPED, and the decision is ALLOW.
+#
+# Cedar fails open on a missing attribute. Its compensating control is the schema
+# validator, which catches the missing attribute at authoring time — a control that does
+# not exist on the ACAL side.
+#
+# We reproduce this faithfully (MustBePresent: false) rather than silently hardening it: a
+# converter that changes decisions is not a converter. The hazard is reported as a fidelity
+# note on every conversion, and `--fail-closed` rewrites every synthesized designator to
+# MustBePresent: true for users who want the hardened policy deliberately.
+
+missing_attribute:
+  source_behaviour: fail-open
+  must_be_present: false
+  note: >
+    Cedar skips a policy whose condition references an absent attribute, so a `forbid` that
+    cannot evaluate does not fire and the request is ALLOWED. The converted ACAL policy
+    reproduces this. If your PDP does not populate every attribute the policy reads, a deny
+    rule may silently not fire. Convert with --fail-closed to emit MustBePresent: true
+    instead, which turns an absent attribute into Indeterminate and denies.
+
+# ---------------------------------------------------------------------------
+# Datatype map (import direction)
+# ---------------------------------------------------------------------------
+# `acal_type: null` means "no known mapping" — the reader hard-errors rather than guessing.
+# That is not a permanent verdict, it is an invitation: supply a mapping and it proceeds.
+
+datatypes:
+
+  bool:
+    acal_type: "{boolean}"
+    fidelity: exact
+    functions: {}
+
+  long:
+    acal_type: "{integer}"
+    fidelity: exact
+    note: Cedar Long is a 64-bit signed integer; ACAL integer is unbounded, so no value is lost.
+    functions: {}
+
+  string:
+    acal_type: "{string}"
+    fidelity: exact
+    functions: {}
+
+  set:
+    acal_type: "{bag}"
+    fidelity: exact
+    note: Cedar Sets are unordered and duplicate-free, as ACAL bags are for membership purposes.
+    functions: {}
+
+  entity:
+    acal_type: "{string}"
+    fidelity: exact
+    note: >
+      A Cedar entity UID is carried as its string form (e.g. 'User::"alice"') on the reserved
+      attribute urn:cedar:1.0:entity-uid. Type and ancestry travel on urn:cedar:1.0:entity-type
+      and urn:cedar:1.0:entity-ancestors. All three are emitted with MustBePresent: false,
+      which reproduces Cedar exactly — see the `missing-attribute` note below.
+    functions: {}
+
+  decimal:
+    acal_type: "{double}"
+    fidelity: approximate
+    note: >
+      Cedar decimal is fixed-point with exactly 4 decimal places; ACAL double is IEEE-754
+      binary floating point. Values exact in Cedar may not be exactly representable, so a
+      comparison at a precision boundary can decide differently. In an authorization policy
+      that means a different access decision. Warned on every use; --strict rejects it.
+    functions:
+      lessThan: "{double-less-than}"
+      lessThanOrEqual: "{double-less-than-or-equal}"
+      greaterThan: "{double-greater-than}"
+      greaterThanOrEqual: "{double-greater-than-or-equal}"
+
+  datetime:
+    acal_type: "{dateTime}"
+    fidelity: exact
+    functions:
+      toDate: "{date-from-dateTime}"
+      toTime: "{time-from-dateTime}"
+
+  duration:
+    acal_type: "{dayTimeDuration}"
+    fidelity: approximate
+    note: >
+      Cedar duration is an integer count of milliseconds; ACAL dayTimeDuration is an
+      xs:dayTimeDuration. Whole milliseconds round-trip, but the two are not the same type and
+      sub-millisecond arithmetic has no Cedar counterpart.
+    functions: {}
+
+  ipaddr:
+    acal_type: null
+    fidelity: none
+    note: >
+      ACAL 1.0 has no IP-address datatype and no CIDR/range function in its vocabulary, so
+      Cedar's ip("10.0.0.1"), isInRange, isIpv4, isIpv6, isLoopback and isMulticast have
+      nowhere faithful to land. Mapping them to string comparison would silently turn a
+      subnet check into a text match — the wrong policy. Supply an acal_type and a `functions`
+      map here if your PDP defines an IP-address extension, and the reader will use it.
+    functions: {}
+
+  record:
+    acal_type: null
+    fidelity: none
+    note: >
+      Cedar records are nested, structurally-typed values ({ a: 1, b: "x" }). ACAL attributes
+      are flat — there is no record type and no path expression to reach into one. Flattening
+      a record into dotted attribute names would invent attributes the PDP was never told
+      about. Supply a mapping if your deployment has a convention for this.
+    functions: {}
+
+# ---------------------------------------------------------------------------
+# Capability matrix (export direction)
+# ---------------------------------------------------------------------------
+
+acal_features:
+
+  PolicyId:
+    exportable: true
+    disposition: a
+    note: Cedar's @id annotation carries the identifier.
+
+  Version:
+    exportable: false
+    disposition: d
+    note: >
+      Cedar has no policy version field. On import, Version is synthesized as "1.0" because
+      ACAL requires it; on export it would be discarded.
+
+  CombiningAlgId:
+    exportable: partial
+    disposition: d
+    supported:
+      - deny-overrides
+      - deny-unless-permit
+    note: >
+      Cedar has exactly one, implicit combining strategy: forbid overrides permit, and a
+      request that matches nothing is denied. It is reproduced in ACAL as an outer
+      deny-unless-permit policy wrapping an inner deny-overrides policy. Any other ACAL
+      algorithm — permit-overrides, first-applicable, only-one-applicable, a custom URN —
+      has no Cedar equivalent whatsoever.
+
+  Rule:
+    exportable: true
+    disposition: a
+    note: permit / forbid.
+
+  Target:
+    exportable: partial
+    disposition: d
+    note: >
+      Cedar's scope is fixed to exactly three slots (principal, action, resource) with only
+      ==, in and is. An ACAL Target is an arbitrary boolean expression over arbitrary
+      attribute categories, most of which cannot be pushed into a Cedar scope.
+
+  Condition:
+    exportable: true
+    disposition: a
+    note: Cedar `when`; `unless` is the negated form.
+
+  Apply:
+    exportable: partial
+    disposition: a
+    note: >
+      Cedar covers the common operators. It has no user-defined functions, so an ACAL policy
+      using a function outside Cedar's builtin set cannot be expressed.
+
+  AttributeDesignator:
+    exportable: partial
+    disposition: d
+    note: >
+      Cedar attribute access is rooted in one of four fixed variables (principal, action,
+      resource, context). ACAL allows arbitrary attribute-category URNs; anything outside
+      those four has no Cedar home.
+
+  AttributeSelector:
+    exportable: false
+    disposition: c
+    note: Cedar has no XPath/JSONPath selector mechanism.
+
+  NoticeExpression:
+    exportable: false
+    disposition: c
+    note: >
+      Cedar has no obligation or advice model at all — no post-decision side-effect hook. An
+      ACAL policy that *mandates* the PEP log, notify or redact as a condition of enforcement
+      cannot express that requirement in Cedar; the obligation would have to move into
+      application code, losing the enforceable guarantee. This is not an oversight in Cedar,
+      it is a deliberate consequence of keeping the language analyzable.
+
+  VariableDefinition:
+    exportable: false
+    disposition: c
+    note: Cedar has no let-binding — no way to name and reuse a sub-expression within a policy.
+
+  SharedVariableDefinition:
+    exportable: false
+    disposition: c
+    note: Cedar has no cross-policy variable sharing.
+
+  Bundle:
+    exportable: partial
+    disposition: d
+    note: >
+      A Cedar policy set is a flat collection of policies. It can hold the policies of a
+      Bundle, but not a Bundle's shared variables or short-id sets.
+
+  RequestEntity:
+    exportable: false
+    disposition: c
+    note: Cedar defines a request shape (principal/action/resource/context) but has no request document format ACAL could target.
+
+  ResultEntity:
+    exportable: false
+    disposition: c
+    note: Cedar has no response document model.

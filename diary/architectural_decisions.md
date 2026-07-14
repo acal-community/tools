@@ -1,5 +1,69 @@
 # Architectural Decisions
 
+## presence-semantics-must-be-explicit (July 2026)
+
+Every reader emits `MustBePresent` **explicitly** on every `AttributeDesignator` it
+synthesizes, set to whatever reproduces the **source language's real runtime behaviour**.
+Never omit it and never silently harden it. Where the faithful value means the policy can fail
+open, that is reported as a fidelity note; `--fail-closed` offers the hardened variant as a
+deliberate, declared deviation.
+
+**WHY**: Three readers, three different behaviours, only one of them defensible.
+
+- **XACML** carries `MustBePresent` from the source — correct: the author decided.
+- **ALFA** *omitted it entirely*, so the converted policy's behaviour fell back to an ACAL
+  schema default that reflects nothing ALFA meant. Every ALFA-converted deny rule referencing
+  an attribute the PDP does not supply could fail open, silently, with no diagnostic.
+- **Cedar** was going to be hardened to `MustBePresent: true` on the reasoning that a `forbid`
+  with a missing attribute should deny. Asking Cedar's own evaluator killed that: Cedar
+  **skips** a policy it cannot evaluate, so the `forbid` does not fire and the decision is
+  **Allow**. Cedar fails open. `true` would have been *safer than Cedar* — and therefore a
+  different policy.
+
+The line that resolves it: **a converter that changes decisions is not a converter.** Fidelity
+is the job. Cedar's compensating control (its schema validator, which catches missing
+attributes at authoring time) does not exist on the ACAL side, so the hazard is real — but the
+answer is to *report* it, and to offer `--fail-closed` for users who want hardening, not to
+impose a decision change on everyone by default.
+
+One exception, and it is not a hole: inside a `has` operand `MustBePresent` stays `false` even
+under `--fail-closed`, because "is this attribute present?" is exactly what `has` asks.
+
+The general rule this replaces: presence semantics were never stated anywhere, so each reader
+improvised. Improvising a fail-open in an access-control converter is how you ship a hole.
+(→ find-based-readers-drop-what-they-do-not-ask-for)
+
+---
+
+## datatype-resolution-ladder (July 2026)
+
+Source datatypes and extension functions resolve through a three-step ladder, defined per
+dialect in the `datatypes:` section of `capabilities/<dialect>.yaml`:
+
+1. a **built-in direct mapping** exists → proceed (exact);
+2. else a **datamap entry** exists → proceed; if `fidelity: approximate`, warn (b), error under
+   `--strict`;
+3. else → **hard error** (c), and the message names the missing entry.
+
+**WHY**: Datatype mismatch is the recurring headache across every spoke, and the two obvious
+policies are both wrong. Hard-erroring on every unmapped type makes the tool unusable — Cedar's
+`decimal`, `ipaddr` and `datetime` are common, and refusing them refuses most real policies.
+Best-effort mapping is worse: a near-miss on a comparison operator silently changes who gets
+access. Cedar `decimal` is fixed-point to 4 places and ACAL `double` is IEEE-754 binary float,
+so a comparison at a precision boundary decides differently — in an authorization policy, that
+means someone gets in who should not.
+
+The ladder makes the unmapped case *actionable* rather than terminal: the error names the one
+YAML entry that would fix it. `acal_type: null` in a shipped map is a deliberate refusal to
+guess, not an absence of thought — Cedar's `ipaddr` is null because mapping `isInRange` onto
+string comparison would turn a subnet check into a text match that fails open.
+
+This also fixes an existing blind spot: the XACML reader remaps datatypes by regex passthrough
+(`XMLSchema#foo` → `acal:data-type:foo`) and will happily emit an ACAL datatype that does not
+exist, unchecked. Retrofitting XACML and ALFA onto the ladder is follow-up work.
+
+---
+
 ## acal-is-a-hub-not-a-xacml-dialect (July 2026)
 
 **The hub is ACAL itself, in every serialization it has or will have** — today XACML 4.0

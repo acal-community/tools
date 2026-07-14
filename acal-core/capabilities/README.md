@@ -48,6 +48,39 @@ also the question three separate consumers need answered:
 Authoring this once, per language, is what makes the export tool tractable later. Doing the
 audit three times in three places is what makes it not.
 
+## Two sections, two directions
+
+Each file carries the machine-readable knowledge about one dialect, in both directions:
+
+| Section | Direction | Question it answers | Consumers |
+|---|---|---|---|
+| `datatypes:` | **import** | How do this dialect's types and functions become ACAL ones? | the reader |
+| `acal_features:` | **export** | What can this dialect say *about* ACAL? | `acal-explain`, future `acal-export` |
+
+## The datatype ladder
+
+Datatype mismatch is the recurring headache across every spoke, so it is resolved once, here,
+rather than ad hoc in each reader. When a reader meets a source type or extension function, it
+walks a three-step ladder:
+
+1. **A built-in direct mapping exists** → proceed. Exact.
+2. **No direct mapping, but a `datatypes:` entry exists** → proceed using it. If that entry is
+   `fidelity: approximate`, emit a fidelity note (disposition **b**) — promoted to a hard error
+   under `--strict`.
+3. **Neither** → **hard error** (disposition **c**), and the message names the missing entry.
+
+Step 3 is the point of the whole mechanism. A type we cannot map is not a permanent wall and
+it is not a silent guess: it is an error that tells you exactly which one line of YAML would
+make it work. `acal_type: null` in a shipped map means "we know about this type and have
+deliberately declined to guess" — see Cedar's `ipaddr`, where mapping to string comparison
+would silently turn a subnet check into a text match.
+
+`fidelity: approximate` exists because some mappings are usable but not safe to assume. Cedar
+`decimal` is fixed-point (4 dp); ACAL `double` is IEEE-754 binary float. A comparison at a
+precision boundary can decide differently — and in an authorization policy, "differently"
+means someone gets access they should not. The note is not decoration; it is the warning text
+the user sees.
+
 ## Schema
 
 ```yaml
@@ -55,6 +88,15 @@ language: cedar              # the format, per LANGUAGES in languages.py
 dialect: cedar               # the dialect id, per DIALECTS in languages.py
 direction: import-only       # import-only | bidirectional
 reference: https://…         # authoritative spec/dialect reference
+
+datatypes:                   # import direction — see "The datatype ladder" above
+  decimal:
+    acal_type: "{double}"    # null = deliberately unmapped; the reader hard-errors
+    fidelity: exact | approximate | none
+    note: >
+      What is lost, and what it costs. User-facing: this is the warning text.
+    functions:               # extension functions belonging to this type
+      lessThan: "{double-less-than}"
 
 acal_features:
   <FeatureName>:             # an ACAL construct, e.g. CombiningAlgId, NoticeExpression
