@@ -33,6 +33,8 @@ Each lands via `/import-model <LANGUAGE>` on its own branch.
 
 ### ACAL export (`acal-export`)
 
+**Tracking: [#10](https://github.com/acal-community/tools/issues/10)**
+
 Today every foreign language is **input-only**: ACAL is a superset of the languages we read,
 so emitting a policy *into* one of them means deciding what to discard — and discarding
 access-control semantics silently is dangerous.
@@ -51,6 +53,8 @@ Cedar and IAM have matrices, so the design is drawn from three examples rather t
 
 ### Rego / OPA import
 
+**Tracking: [#11](https://github.com/acal-community/tools/issues/11)**
+
 Rego is the most-requested language and the least suited to a structural import. It is
 Turing-complete, and a Rego module is a **program, not a document**: `allow` is *computed*,
 not declared. There is no `PolicyId`, no `Version`, no combining algorithm to recover.
@@ -61,6 +65,8 @@ and it is a different kind of problem from every import done so far. It is parke
 than dropped: the demand is real.
 
 ### Provenance as a spec extension
+
+**Tracking: [#12](https://github.com/acal-community/tools/issues/12)**
 
 `load_with_report()` deliberately returns fidelity information *beside* the document rather
 than inside it, because the ACAL schemas set `additionalProperties` / `unevaluatedProperties`
