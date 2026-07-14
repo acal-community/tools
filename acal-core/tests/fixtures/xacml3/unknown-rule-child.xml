@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Policy xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
+        PolicyId="urn:example:acal-convert:xacml3:unknown-rule-child"
+        Version="1.0"
+        RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-unless-permit">
+  <Rule RuleId="r1" Effect="Permit">
+    <SomeFutureRuleConstruct/>
+  </Rule>
+</Policy>

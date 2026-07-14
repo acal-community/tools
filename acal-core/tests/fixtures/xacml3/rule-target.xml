@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A Rule-level Target scopes when the rule applies. Dropping it silently would widen
+     "permit doctors" into "permit everyone" — see test_xacml3_rule_target_is_not_dropped. -->
+<Policy xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
+        PolicyId="urn:example:acal-convert:xacml3:rule-target"
+        Version="1.0"
+        RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-unless-permit">
+  <Target/>
+  <Rule RuleId="permit-only-doctors" Effect="Permit">
+    <Target>
+      <AnyOf><AllOf>
+        <Match MatchId="urn:oasis:names:tc:xacml:1.0:function:string-equal">
+          <AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string">doctor</AttributeValue>
+          <AttributeDesignator Category="urn:oasis:names:tc:xacml:1.0:subject-category:access-subject"
+                               AttributeId="urn:example:attribute:role"
+                               DataType="http://www.w3.org/2001/XMLSchema#string" MustBePresent="true"/>
+        </Match>
+      </AllOf></AnyOf>
+    </Target>
+  </Rule>
+</Policy>

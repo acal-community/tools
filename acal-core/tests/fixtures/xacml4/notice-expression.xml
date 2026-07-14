@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- XACML 4.0 unified 3.0's <ObligationExpressions> and <AdviceExpressions> into a single
+     <NoticeExpression>, discriminated by IsObligation. Only 4.0 reaches this reader branch.
+     One obligation and one advice, so both values of IsObligation are exercised. -->
+<Policy xmlns="urn:oasis:names:tc:xacml:4.0:core:schema"
+        PolicyId="urn:example:acal-convert:xacml4:notices"
+        Version="1.0"
+        CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-unless-deny">
+  <Rule Id="permit-all" Effect="Permit"/>
+  <NoticeExpression Id="urn:example:obligation:audit-log"
+                    IsObligation="true"
+                    AppliesTo="Permit">
+    <AttributeAssignmentExpression AttributeId="urn:example:attribute:decision-reason">
+      <Value DataType="urn:oasis:names:tc:acal:1.0:data-type:string">permitted-by-role</Value>
+    </AttributeAssignmentExpression>
+  </NoticeExpression>
+  <NoticeExpression Id="urn:example:advice:notify-user"
+                    AppliesTo="Deny">
+    <AttributeAssignmentExpression AttributeId="urn:example:attribute:message">
+      <Value DataType="urn:oasis:names:tc:acal:1.0:data-type:string">access denied</Value>
+    </AttributeAssignmentExpression>
+  </NoticeExpression>
+</Policy>

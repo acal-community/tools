@@ -14,6 +14,7 @@ from acal_core.readers.alfa import load as load_alfa, ALFAUnsupportedFeatureErro
 
 XACML2 = Path(__file__).parent / "fixtures" / "xacml2"
 XACML3 = Path(__file__).parent / "fixtures" / "xacml3"
+XACML4 = Path(__file__).parent / "fixtures" / "xacml4"
 ALFA = Path(__file__).parent / "fixtures" / "alfa"
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -867,3 +868,144 @@ def test_alfa_xpath_datatype_raises_under_strict():
     """
     with pytest.raises(ALFAUnsupportedFeatureError, match="xpath"):
         load_alfa(str(ALFA / "xpath-datatype.alfa"), strict=True)
+
+
+# ---------------------------------------------------------------------------
+# XACML 4.0 — the XML profile of ACAL 1.0.
+#
+# 4.0 differs from 2.0/3.0 in ways that are easy to leave untested, because a
+# 4.0 document that only uses shared constructs will convert correctly through
+# the 3.0 code paths and look fine. These fixtures target the branches only 4.0
+# reaches: no identifier remapping, Target as a BooleanExpression, unified
+# NoticeExpression, no PolicySet, and <PolicyReference>.
+# ---------------------------------------------------------------------------
+
+def test_xacml4_identifiers_are_not_remapped():
+    """4.0 identifiers are already ACAL URNs and must pass through untouched.
+
+    2.0/3.0 inputs get remapped to ACAL 1.0 URNs on load; 4.0 must not be, or a
+    correct URN would be rewritten into a different (or identical-looking but
+    re-derived) one. This is the core semantic difference of the 4.0 reader.
+    """
+    doc = load_xacml(str(XACML4 / "simple-policy.xml"))
+    policy = doc["Policy"]
+    assert policy["PolicyId"] == "urn:example:acal-convert:xacml4:simple"
+    assert policy["CombiningAlgId"] == (
+        "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit"
+    )
+    apply_ = policy["CombinerInput"][0]["Rule"]["Condition"]["Apply"]
+    assert apply_["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-equal"
+    designator = apply_["Argument"][0]["AttributeDesignator"]
+    assert designator["Category"] == (
+        "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+    )
+    assert designator["DataType"] == "urn:oasis:names:tc:acal:1.0:data-type:string"
+
+
+def test_xacml4_rule_uses_id_not_ruleid():
+    doc = load_xacml(str(XACML4 / "simple-policy.xml"))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    assert rule["Id"] == "permit-doctors"
+    assert rule["Effect"] == "Permit"
+
+
+def test_xacml4_target_is_a_boolean_expression():
+    """4.0 replaced 3.0's AnyOf/AllOf/Match Target with a plain BooleanExpression."""
+    doc = load_xacml(str(XACML4 / "target-boolean-expr.xml"))
+    policy = doc["Policy"]
+
+    target = policy["Target"]
+    assert "Apply" in target, "4.0 Target should convert to a bare expression, not a Match tree"
+    assert target["Apply"]["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-equal"
+
+    rule_target = policy["CombinerInput"][0]["Rule"]["Target"]
+    assert "Apply" in rule_target
+
+
+def test_xacml4_notice_expression_discriminates_obligation_from_advice():
+    """4.0 unified ObligationExpressions/AdviceExpressions into NoticeExpression."""
+    doc = load_xacml(str(XACML4 / "notice-expression.xml"))
+    notices = doc["Policy"]["NoticeExpression"]
+    assert len(notices) == 2
+
+    by_id = {n["Id"]: n for n in notices}
+    obligation = by_id["urn:example:obligation:audit-log"]
+    advice = by_id["urn:example:advice:notify-user"]
+
+    assert obligation["IsObligation"] is True
+    assert obligation["AppliesTo"] == "Permit"
+    # Advice is the absence of IsObligation, not IsObligation: false.
+    assert "IsObligation" not in advice
+    assert advice["AppliesTo"] == "Deny"
+
+
+def test_xacml4_nested_policy_and_policy_reference():
+    """4.0 has no PolicySet — policies nest directly, and refs are <PolicyReference>."""
+    doc = load_xacml(str(XACML4 / "nested-policy-reference.xml"))
+    inputs = doc["Policy"]["CombinerInput"]
+
+    nested = next(i["Policy"] for i in inputs if "Policy" in i)
+    assert nested["PolicyId"] == "urn:example:acal-convert:xacml4:nested"
+    assert nested["CombinerInput"][0]["Rule"]["Id"] == "deny-after-hours"
+
+    ref = next(i["PolicyReference"] for i in inputs if "PolicyReference" in i)
+    assert ref["PolicyId"] == "urn:example:policy:external"
+    assert ref["Version"] == "2.1"
+
+
+def test_xacml4_detected_by_namespace():
+    assert detect_format(str(XACML4 / "simple-policy.xml")) == "xacml"
+
+
+@pytest.mark.parametrize("fixture", [
+    "simple-policy.xml",
+    "target-boolean-expr.xml",
+    "notice-expression.xml",
+    "nested-policy-reference.xml",
+])
+def test_xacml4_converts_to_jacal_and_yacal(fixture):
+    """The literal ask of issue #2: XACML 4.0 → JACAL (and YACAL, for #5)."""
+    path = str(XACML4 / fixture)
+    assert json.loads(convert(path, to_fmt="jacal"))["Policy"]["PolicyId"]
+    assert dict(ruamel.yaml.YAML().load(convert(path, to_fmt="yacal")))["Policy"]["PolicyId"]
+
+
+def test_xacml4_conversion_is_clean():
+    """4.0 is the XML profile of ACAL 1.0, so a valid 4.0 policy should lose nothing."""
+    doc, report = load_with_report(str(XACML4 / "simple-policy.xml"), "xacml")
+    assert "Policy" in doc
+    assert not report.lossy, f"unexpected fidelity loss: {report.notes}"
+
+
+# ---------------------------------------------------------------------------
+# Rule-level Target — regression tests.
+#
+# _rule() never read <Target>, so a Rule's Target was silently discarded in every
+# XACML version. A Rule Target scopes *when the rule applies*: dropping it turns
+# "permit doctors" into "permit everyone". No fixture had a Rule Target, so nothing
+# caught it. The unknown-child guard is the structural fix — the Target vanished
+# quietly precisely because unrecognised Rule children were never rejected.
+# ---------------------------------------------------------------------------
+
+def test_xacml3_rule_target_is_not_dropped():
+    doc = load_xacml(str(XACML3 / "rule-target.xml"))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    assert "Target" in rule, "Rule Target was dropped — the rule now applies to everyone"
+    apply_ = rule["Target"]["Apply"]
+    assert apply_["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-equal"
+    assert {"Value": "doctor"} in apply_["Argument"]
+
+
+def test_xacml4_rule_target_is_not_dropped():
+    doc = load_xacml(str(XACML4 / "target-boolean-expr.xml"))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    assert "Target" in rule
+    assert rule["Target"]["Apply"]["FunctionId"] == (
+        "urn:oasis:names:tc:acal:1.0:function:string-equal"
+    )
+
+
+def test_xacml_unknown_rule_child_raises():
+    """No-silent-drops: an unrecognised Rule child must fail, not be ignored."""
+    with pytest.raises(XACMLUnsupportedFeatureError, match="SomeFutureRuleConstruct"):
+        load_xacml(str(XACML3 / "unknown-rule-child.xml"))

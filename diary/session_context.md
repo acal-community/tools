@@ -17,6 +17,27 @@ are stale checkpoints fully contained in `acal-explain`. The merged branches
 
 ## Most Recent Session (July 13, 2026)
 
+### XACML 4.0 fixtures — and the shipped bug they exposed
+
+Closing GitHub issue #2 (cdanger's XACML → JACAL request) meant verifying the claim first.
+XACML 4.0 conversion *worked*, but `tests/fixtures/xacml4/` was an **empty directory** and no
+test referenced 4.0 at all — the support was real but had never been executed.
+(→ empty-fixture-directory-is-a-coverage-lie)
+
+Writing the missing 4.0 fixtures immediately turned up a shipped, security-relevant bug —
+**in XACML 3.0, not 4.0**. `_rule()` never read `<Target>`. A Rule's Target scopes when the
+rule applies, so a rule that permitted only doctors was converting into a rule that permitted
+**everyone**, across all three XACML versions. The root cause is structural: `_rule()` is
+built from targeted `find()` calls with no allowlist, so any element it does not explicitly
+ask for disappears in silence. `Policy` already had such a guard, which made the codebase look
+like it enforced no-silent-drops when `Rule` did not.
+(→ find-based-readers-drop-what-they-do-not-ask-for)
+
+Fixed by reading `Target` in `_rule()` and adding a `_RULE_KNOWN_CHILDREN` allowlist that
+raises on anything unrecognised. Issue #2 is now closeable on verified behaviour rather than
+an assumption.
+
+
 ### Direction: the next languages, and why not Rego
 
 A `/grill-me` session set the next phase. The imports are **Cedar, then AWS IAM JSON**. Rego

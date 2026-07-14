@@ -1,5 +1,53 @@
 # Lessons Learned
 
+## find-based-readers-drop-what-they-do-not-ask-for (July 2026)
+
+**Rule**: A reader built from targeted `find()` / `findall()` calls silently ignores every
+element it does not explicitly look for. Pair every such reader with an explicit
+known-children allowlist that **raises** on anything unrecognised. Do not rely on "we handle
+all the elements" — rely on the parser refusing the ones you don't.
+
+**Why**: `_rule()` in the XACML reader read `Description`, `VariableDefinition`, `Condition`,
+and the notice elements — and never read `<Target>`. A Rule's Target scopes *when the rule
+applies*, so a rule that permitted only doctors converted into a rule that permits
+**everyone**. This affected XACML 2.0, 3.0, and 4.0, and had shipped.
+
+Two things kept it invisible. First, the `Policy` element already had a
+`_POLICY_NON_COMBINER_CHILDREN` allowlist that raises on unknown children — so the codebase
+*looked* like it enforced no-silent-drops, and the missing guard on `Rule` did not stand out.
+Second, not one XACML fixture had a Rule-level Target: every rule in the suite was either
+bare or condition-only, so the whole class of bug was invisible to a passing test suite.
+
+The lesson generalises past XACML. Any `find`-based reader is a silent-drop machine by
+default; the allowlist is not a nicety, it is the only thing that converts "we forgot to
+handle X" from a wrong answer into an error message. Found only because a *fixture-coverage*
+gap (an empty `xacml4/` directory) was being closed — the bug was in 3.0, not 4.0.
+(→ empty-fixture-directory-is-a-coverage-lie)
+
+---
+
+## empty-fixture-directory-is-a-coverage-lie (July 2026)
+
+**Rule**: An empty fixture directory, or a supported format with no test referencing it, is
+an untested code path wearing the costume of a tested one. Check that every value in a
+version/format enum has at least one fixture exercising its *distinctive* branches — not just
+the branches it shares with its siblings.
+
+**Why**: `XACMLVersion` declared `V2_0`, `V3_0`, and `V4_0`, and the reader had genuine
+4.0-only branches (no identifier remapping, `Target` as a BooleanExpression, unified
+`NoticeExpression`, `PolicyReference`, no `PolicySet`). `tests/fixtures/xacml4/` was an
+**empty directory** and no test mentioned 4.0. XACML 4.0 support was claimed in the README,
+the docs, and the capability matrix — and never once executed.
+
+It happened to work, which is the trap: a 4.0 document using only constructs shared with 3.0
+converts correctly through the shared paths and looks fine, so nobody notices that the
+4.0-specific paths have never run. The failure mode is not "the feature is broken", it is
+"nobody knows whether the feature is broken." Writing the missing fixtures immediately
+surfaced a shipped security-relevant bug in a *different* version.
+(→ find-based-readers-drop-what-they-do-not-ask-for)
+
+---
+
 ## strict-must-be-threaded-through-every-pass (July 2026)
 
 **Rule**: In a multi-pass reader, `strict` must reach *every* pass. A disposition-(b)

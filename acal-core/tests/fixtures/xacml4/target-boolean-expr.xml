@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- XACML 4.0 replaced 3.0's <AnyOf>/<AllOf>/<Match> Target structure with a plain
+     BooleanExpression. This is a reader branch that only 4.0 reaches. -->
+<Policy xmlns="urn:oasis:names:tc:xacml:4.0:core:schema"
+        PolicyId="urn:example:acal-convert:xacml4:target-expr"
+        Version="1.0"
+        CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides">
+  <Target>
+    <Apply FunctionId="urn:oasis:names:tc:acal:1.0:function:string-equal">
+      <AttributeDesignator
+          Category="urn:oasis:names:tc:acal:1.0:attribute-category:resource"
+          AttributeId="urn:example:attribute:resource-type"
+          DataType="urn:oasis:names:tc:acal:1.0:data-type:string"
+          MustBePresent="true"/>
+      <Value DataType="urn:oasis:names:tc:acal:1.0:data-type:string">medical-record</Value>
+    </Apply>
+  </Target>
+  <Rule Id="permit-read" Effect="Permit">
+    <Target>
+      <Apply FunctionId="urn:oasis:names:tc:acal:1.0:function:string-equal">
+        <AttributeDesignator
+            Category="urn:oasis:names:tc:acal:1.0:attribute-category:action"
+            AttributeId="urn:oasis:names:tc:acal:1.0:action:action-id"
+            DataType="urn:oasis:names:tc:acal:1.0:data-type:string"
+            MustBePresent="true"/>
+        <Value DataType="urn:oasis:names:tc:acal:1.0:data-type:string">read</Value>
+      </Apply>
+    </Target>
+  </Rule>
+</Policy>

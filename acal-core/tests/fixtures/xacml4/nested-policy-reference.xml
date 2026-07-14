@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ACAL 1.0 absorbed PolicySet into Policy, so XACML 4.0 has no <PolicySet>: a policy
+     nests Policy elements directly, and cross-references use <PolicyReference> rather than
+     3.0's <PolicyIdReference> / <PolicySetIdReference>. Both are 4.0-only reader branches. -->
+<Policy xmlns="urn:oasis:names:tc:xacml:4.0:core:schema"
+        PolicyId="urn:example:acal-convert:xacml4:root"
+        Version="1.0"
+        CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:first-applicable">
+  <Policy PolicyId="urn:example:acal-convert:xacml4:nested"
+          Version="1.0"
+          CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides">
+    <Rule Id="deny-after-hours" Effect="Deny"/>
+  </Policy>
+  <PolicyReference PolicyId="urn:example:policy:external" Version="2.1"/>
+</Policy>

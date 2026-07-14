@@ -364,6 +364,15 @@ class _Converter:
     # Rule
     # -----------------------------------------------------------------------
 
+    # Every child element a <Rule> may legally carry, across all supported versions.
+    # Anything outside this set is rejected rather than ignored: a Rule child that is
+    # read by no branch below would otherwise be dropped in silence, and a dropped
+    # Rule child can change which requests the rule applies to.
+    _RULE_KNOWN_CHILDREN = frozenset({
+        "Description", "Target", "Condition", "VariableDefinition",
+        "Obligations", "ObligationExpressions", "AdviceExpressions", "NoticeExpression",
+    })
+
     def _rule(self, elem: ET.Element) -> dict:
         r: dict = {
             # XACML 3.0 uses RuleId; XACML 4.0 uses Id
@@ -371,6 +380,18 @@ class _Converter:
             "Effect": elem.get("Effect"),
         }
         _set_if(r, "Description", self._text(elem, "Description"))
+
+        for child in elem:
+            name = _local(child)
+            if name not in self._RULE_KNOWN_CHILDREN:
+                raise XACMLUnsupportedFeatureError(
+                    f"<{name}> is not a recognised child element of <Rule>. "
+                    "If this is a valid XACML construct, it is not yet implemented in acal-convert."
+                )
+
+        target = elem.find(self._t("Target"))
+        if target is not None:
+            _set_if(r, "Target", self._target(target))
 
         var_defs = [self._variable_definition(v)
                     for v in elem.findall(self._t("VariableDefinition"))]
