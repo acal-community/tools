@@ -29,19 +29,41 @@ The `acal-convert` tool therefore expresses this asymmetry directly:
 
 ## XACML 2.0–4.0
 
-### Why XACML is input-only
+### XACML 4.0 is the hub. XACML 2.0 and 3.0 are spokes.
 
-XACML output would require generating well-formed XML against the XACML 4.0
-schema. In Python, that is straightforward for simple documents but becomes
-entangled with OASIS licensing requirements for full schema-aware validation and
-serialization. The toolchain recommended by the XACML TC for authoritative XML
-generation (Saxon EE) is commercially licensed and not available as a Python
-library.
+These are not three versions of one input language. They are two different things that
+happen to share a file extension:
 
-This is a **toolchain constraint**, not a semantic one. XACML 4.0 and ACAL share the same data model. XACML 2.0 and 3.0 require additional
-identifier remapping. Round-tripping is lossless in principle for supported constructs.
-If a fully open Python XML serializer satisfying OASIS licensing becomes available,
-XACML output can be added without changes to the neutral ACAL dict.
+- **XACML 4.0 is the XML serialization of ACAL 1.0 itself.** It is *native*: it expresses the
+  whole ACAL model by construction, identifiers are already ACAL URNs (the reader does no
+  remapping), and it carries `Bundle` and `SharedVariableDefinition` natively. It has no
+  capability matrix, because there is nothing it cannot say.
+- **XACML 2.0 and 3.0 are foreign dialects**, in exactly the sense ALFA and Cedar are. They
+  predate ACAL, their identifiers are remapped on import, and each has its own capability
+  matrix under [`../capabilities/`](../capabilities/).
+
+Capability is a property of the **dialect**, not the file extension. Treating "XACML" as one
+language produced a matrix asserting that XACML cannot express `SharedVariableDefinition` —
+true of 3.0, false of 4.0.
+
+### Why there is no XACML *writer* (yet)
+
+Only that XACML 4.0 output has not been built. It is **not** blocked, and it is **not** the
+hard export problem.
+
+An earlier version of this document said XACML output was blocked because the toolchain for
+authoritative XML generation (Saxon EE) is commercially licensed. That repeats a conflation
+this project has already caught once (→ `xml-parsing-vs-xml-schema-validation` in the diary):
+**Saxon EE is required to *validate* XML against XSD 1.1, not to *write* it.** Generating
+XACML 4.0 XML is `xml.etree.ElementTree`, exactly as reading it is.
+
+Because XACML 4.0 is a serialization of the hub rather than a foreign target, an
+`writers/xacml.py` belongs beside the YACAL and JACAL writers — not in the `acal-export` tool,
+which exists to solve the genuinely hard problem of emitting into *less expressive* languages.
+
+Writing it would also settle GitHub issue #1 ("Automatic conversion from XACML 3.0 to XACML
+4.0"), which is just `load(xacml-3.0) → neutral dict → write(xacml-4.0)`: import a spoke,
+serialize the hub. Tracked in [`../../ROADMAP.md`](../../ROADMAP.md).
 
 ### The no-silent-drops requirement
 

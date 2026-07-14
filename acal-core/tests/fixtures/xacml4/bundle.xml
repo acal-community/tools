@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Bundle is an ACAL 1.0 construct with no XACML 2.0/3.0 equivalent, so it appears only in
+     XACML 4.0 (ACAL's XML serialization). _bundle() had zero fixtures before this. -->
+<Bundle xmlns="urn:oasis:names:tc:xacml:4.0:core:schema">
+  <SharedVariableDefinition Id="urn:example:shared:editor-check">
+    <Apply FunctionId="urn:oasis:names:tc:acal:1.0:function:string-equal">
+      <AttributeDesignator Category="urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+                           AttributeId="urn:example:attribute:role"
+                           DataType="urn:oasis:names:tc:acal:1.0:data-type:string"
+                           MustBePresent="true"/>
+      <Value DataType="urn:oasis:names:tc:acal:1.0:data-type:string">editor</Value>
+    </Apply>
+  </SharedVariableDefinition>
+  <Policy PolicyId="urn:example:policy:docs" Version="1.0"
+          CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides">
+    <Rule Id="permit-editors" Effect="Permit"/>
+  </Policy>
+</Bundle>

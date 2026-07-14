@@ -15,7 +15,53 @@ are stale checkpoints fully contained in `acal-explain`. The merged branches
 (`jacal-validator`, `xacml-to-yacal`, `yacal-validator`) were deleted this session.
 `origin/revert-7-acal-converter` is a stale remote branch that never merged.
 
-## Most Recent Session (July 13, 2026)
+## Most Recent Session (July 14, 2026)
+
+### Pre-Cedar audit — five gaps, three of them shipped bugs
+
+Asked "what else should we fix before Cedar", the honest answer required an audit rather than
+a recollection. It found five things, and the audit paid for itself several times over.
+
+**The converter was emitting documents our own validator rejects.** An XACML 3.0 policy with
+no `Version` attribute — optional in XACML — produced `Version:` as a YAML null, which YACAL
+prohibits. Omitting it wasn't the fix either, since ACAL *requires* Version. The faithful
+answer is the XACML schema default: an absent Version *means* "1.0".
+(→ converter-output-must-be-fed-to-our-own-validator)
+
+**The silent-drop class was wider than `Rule`.** `_bundle`, `_request`, `_response`, `_result`,
+`_status`, and `_notice_expr` were all `find()`-based with no allowlist. `_result` was
+discarding Obligations, AssociatedAdvice, Attributes, and PolicyIdentifierList outright — an
+obligation lost from a Result is an enforcement requirement the PEP never sees. All of them now
+raise. (→ unconverted-constructs-raise-they-do-not-vanish)
+
+**`Bundle` and `Response` had zero fixtures.** Written; they worked.
+
+**My own capability matrix was wrong.** `xacml.yaml` asserted XACML cannot express
+`SharedVariableDefinition`. XACML 4.0 carries it natively — the reader parses it.
+(→ capability-claims-must-be-checked-against-the-reader)
+
+**Exportability was never wired into acal-explain**, despite being half of a decision taken in
+the grill session. Now shipped: `export_gaps()` lives in acal-core (it is the export tool's
+precondition gate in embryo), and explain asks the round-trip question automatically.
+
+### The model correction that made it all cohere
+
+The user's framing, and it is the right one: **ACAL is a hub, not a dialect of XACML.** Three
+native serializations — XACML 4.0 (XML), YACAL, JACAL — and everything else, *including XACML
+2.0 and 3.0*, is a foreign spoke importing into it.
+
+This dissolved the matrix problem: native dialects need no matrix (they express all of ACAL by
+construction), and foreign dialects each get their own. The code had believed this all along —
+`_remap` is False for V4_0 because 4.0 identifiers *are* ACAL URNs — but the registry hadn't
+caught up. (→ acal-is-a-hub-not-a-xacml-dialect)
+
+It also exposed a live misconception: **XACML 4.0 output is serialization, not export**, and it
+is not blocked by Saxon licensing — that argument conflates writing XML with validating it, the
+very conflation this project already caught once for reading. An XACML 4.0 writer belongs beside
+the YACAL/JACAL writers, would enable `XACML 4.0 → YACAL → XACML 4.0` round-trip tests, and
+closes issue #1 outright. (→ xacml-writer-is-not-blocked)
+
+## Previous Session (July 13, 2026)
 
 ### XACML 4.0 fixtures — and the shipped bug they exposed
 

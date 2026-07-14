@@ -33,6 +33,10 @@ class ConversionReport:
     """What the reader had to compromise on to produce the neutral document."""
 
     source_format: str
+    # The dialect actually detected, e.g. "xacml-3.0" vs "xacml-4.0". The format alone is
+    # not enough: an .xml file may be a foreign XACML 3.0 policy or the native ACAL XML
+    # serialization, and only the dialect says which capability matrix applies.
+    source_dialect: str | None = None
     strict: bool = False
     notes: list[ConversionNote] = field(default_factory=list)
 
@@ -46,6 +50,7 @@ class ConversionReport:
     def as_dict(self) -> dict:
         return {
             "source_format": self.source_format,
+            "source_dialect": self.source_dialect,
             "strict": self.strict,
             "lossy": self.lossy,
             "notes": [

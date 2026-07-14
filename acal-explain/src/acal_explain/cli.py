@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from acal_core.languages import READ_FORMATS
+from acal_core.languages import DIALECTS, READ_FORMATS
 from acal_core.readers import detect_format, load_with_report
 
 from .analyzer import analyze
@@ -54,6 +54,17 @@ from .output import render
     help="Fail on any construct the source language cannot express faithfully in ACAL.",
 )
 @click.option(
+    "--check-export",
+    "export_targets",
+    multiple=True,
+    type=click.Choice([d.id for d in DIALECTS if not d.native]),
+    help=(
+        "Also report which ACAL features in this policy the named dialect could NOT express. "
+        "May be repeated. Defaults to the policy's own source dialect, which answers whether "
+        "it could round-trip back to where it came from."
+    ),
+)
+@click.option(
     "--model",
     default=None,
     help=(
@@ -68,6 +79,7 @@ def main(
     output: str,
     include_files: tuple[str, ...],
     strict: bool,
+    export_targets: tuple[str, ...],
     model: str | None,
 ) -> None:
     """Explain what an ACAL policy does in plain English.
@@ -111,7 +123,15 @@ def main(
     except Exception as exc:
         raise click.ClickException(f"Failed to load policy: {exc}") from exc
 
-    analysis = analyze(doc, fmt, report=report)
+    # With no explicit target, ask the round-trip question: can this policy go back to the
+    # language it came from? Native input has no gaps by construction, so we skip it.
+    targets = export_targets
+    if not targets and report.source_dialect:
+        from acal_core.languages import get_dialect
+        if not get_dialect(report.source_dialect).native:
+            targets = (report.source_dialect,)
+
+    analysis = analyze(doc, fmt, report=report, export_targets=targets)
     resolved_fmt = output_fmt or cfg.default_format
 
     try:

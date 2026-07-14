@@ -1,7 +1,7 @@
 import warnings
 from pathlib import Path
 
-from ..languages import EXT_TO_FORMAT, READ_FORMATS
+from ..languages import EXT_TO_FORMAT, READ_FORMATS, detect_dialect
 from ..report import LOSSY, ConversionReport
 
 # Re-export language-specific errors so callers can catch them by name.
@@ -92,7 +92,11 @@ def load_with_report(
     printed to stderr are returned as structured notes instead. Warnings that
     are not about conversion fidelity are re-emitted so nothing is swallowed.
     """
-    report = ConversionReport(source_format=fmt, strict=strict)
+    try:
+        dialect = detect_dialect(path, fmt)
+    except (ValueError, OSError):
+        dialect = None
+    report = ConversionReport(source_format=fmt, source_dialect=dialect, strict=strict)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         doc = load(path, fmt, strict=strict, include=include, debug=debug)

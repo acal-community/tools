@@ -29,15 +29,36 @@ Order is chosen by how cleanly a language imports, not by popularity:
 
 Each lands via `/import-model <LANGUAGE>` on its own branch.
 
+## Next: an XACML 4.0 writer
+
+**Not** the export tool. XACML 4.0 is the XML *serialization of ACAL 1.0* — one of the three
+native encodings alongside YACAL and JACAL — so writing it sits beside the YACAL and JACAL
+writers, not in `acal-export`.
+
+It was long believed blocked on Saxon EE licensing. That is a conflation: Saxon EE is needed
+to **validate** XML against XSD 1.1, not to **write** it. Emitting XACML 4.0 XML is
+`ElementTree`, exactly as reading it is.
+
+It pays for itself twice:
+
+- **Round-trip tests.** `XACML 4.0 → YACAL → XACML 4.0` is the strongest correctness check
+  this codebase could have, and it is currently impossible to write.
+- **It closes [#1](https://github.com/acal-community/tools/issues/1)** ("Automatic conversion
+  from XACML 3.0 to XACML 4.0"), which is simply `load(xacml-3.0) → neutral dict →
+  write(xacml-4.0)`: import a spoke, serialize the hub. #1 is not blocked on export at all.
+
 ## Long-term
 
 ### ACAL export (`acal-export`)
 
 **Tracking: [#10](https://github.com/acal-community/tools/issues/10)**
 
-Today every foreign language is **input-only**: ACAL is a superset of the languages we read,
-so emitting a policy *into* one of them means deciding what to discard — and discarding
+Every **foreign** language is input-only: ACAL is a superset of the languages we read, so
+emitting a policy *into* one of them means deciding what to discard — and discarding
 access-control semantics silently is dangerous.
+
+This is about *foreign* targets only. Writing XACML 4.0 is serialization, not export (see
+above), and does not belong here.
 
 Export becomes tractable once each language has a capability matrix in
 [`acal-core/capabilities/`](acal-core/capabilities/) declaring which ACAL features it can and

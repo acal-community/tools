@@ -29,9 +29,15 @@ def _render_text(summary: str, observations: str, analysis: AnalysisResult, stre
     stream.write(observations)
     stream.write("\n")
     if analysis.import_notes:
-        stream.write(f"\nImport fidelity ({analysis.format} → ACAL)\n")
+        stream.write(f"\nImport fidelity ({analysis.source_dialect or analysis.format} → ACAL)\n")
         for note in analysis.import_notes:
             stream.write(f"  - {note}\n")
+    for target, gaps in analysis.export_gaps.items():
+        if not gaps:
+            continue
+        stream.write(f"\nCannot be expressed in {target}\n")
+        for feature, why in gaps.items():
+            stream.write(f"  - {feature}: {why}\n")
 
 
 def _render_markdown(summary: str, observations: str, analysis: AnalysisResult, stream: IO[str]) -> None:
@@ -48,9 +54,16 @@ def _render_markdown(summary: str, observations: str, analysis: AnalysisResult, 
     stream.write(observations)
     stream.write("\n")
     if analysis.import_notes:
-        stream.write(f"\n## Import Fidelity ({analysis.format} → ACAL)\n\n")
+        src = analysis.source_dialect or analysis.format
+        stream.write(f"\n## Import Fidelity ({src} → ACAL)\n\n")
         for note in analysis.import_notes:
             stream.write(f"- {note}\n")
+    for target, gaps in analysis.export_gaps.items():
+        if not gaps:
+            continue
+        stream.write(f"\n## Cannot Be Expressed in `{target}`\n\n")
+        for feature, why in gaps.items():
+            stream.write(f"- **{feature}** — {why}\n")
 
 
 def _render_json(summary: str, observations: str, analysis: AnalysisResult, stream: IO[str]) -> None:
@@ -70,7 +83,9 @@ def _render_json(summary: str, observations: str, analysis: AnalysisResult, stre
         "shadowed_rules": analysis.shadowed_rules,
         "obligation_gaps": analysis.obligation_gaps,
         "unresolved_attrs": analysis.unresolved_attrs,
+        "source_dialect": analysis.source_dialect,
         "import_notes": analysis.import_notes,
+        "export_gaps": analysis.export_gaps,
         "summary": summary,
         "observations": observations,
     }

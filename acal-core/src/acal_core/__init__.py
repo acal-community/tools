@@ -6,7 +6,18 @@ format list from there.
 
 __version__ = "0.1.0"
 
-from .languages import LANGUAGES, READ_FORMATS, WRITE_FORMATS, Language
+from .languages import (
+    DIALECTS,
+    LANGUAGES,
+    READ_FORMATS,
+    WRITE_FORMATS,
+    Dialect,
+    Language,
+    capabilities,
+    detect_dialect,
+    unexportable_features,
+)
+from .features import export_gaps, used_features
 from .readers import detect_format, detect_format_from_bytes, load, load_with_report
 from .report import ConversionNote, ConversionReport
 from .writers import write, write_to_string

@@ -1,11 +1,35 @@
 # Capability matrices
 
-One YAML file per source language, naming which **ACAL features** that language can
+One YAML file per **foreign dialect**, naming which **ACAL features** that dialect can
 express. This is the machine-readable form of the gap analysis in
 [`../docs/policy-language-expressiveness.md`](../docs/policy-language-expressiveness.md).
 
 The prose doc explains *why* to a human. These files are the same knowledge in a form a
 tool can execute. When the two disagree, these files win — they are the ones that run.
+
+## Hub and spoke — and why there is no `xacml.yaml`
+
+ACAL 1.0 is a **hub**, not a dialect of XACML. It has three serializations of the same
+neutral model:
+
+| Serialization | Format |
+|---|---|
+| **XACML 4.0** | XML |
+| **YACAL 1.0** | YAML |
+| **JACAL 1.0** | JSON |
+
+These are **native**. They express the whole ACAL model by construction, so they have **no
+matrix at all** — there is nothing they cannot say.
+
+Everything else is a **spoke**: a foreign dialect that imports *into* the hub. XACML 2.0,
+XACML 3.0, ALFA, and in future Cedar, AWS IAM, Rego. Only spokes get matrices.
+
+**Capability is a property of the dialect, not the file extension.** An earlier version of
+this directory had a single `xacml.yaml` covering "XACML 2.0–4.0", which asserted that XACML
+cannot express `SharedVariableDefinition`. That is true of 3.0 and **false of 4.0** — the
+reader parses `<Bundle><SharedVariableDefinition>` natively. A matrix keyed on the language
+has to pick one answer and is wrong half the time. Hence `xacml-2.0.yaml` and
+`xacml-3.0.yaml`, and no matrix for `xacml-4.0`.
 
 ## Why it is keyed by ACAL feature, not by source construct
 
@@ -27,7 +51,8 @@ audit three times in three places is what makes it not.
 ## Schema
 
 ```yaml
-language: cedar              # must match the `name` in languages.py
+language: cedar              # the format, per LANGUAGES in languages.py
+dialect: cedar               # the dialect id, per DIALECTS in languages.py
 direction: import-only       # import-only | bidirectional
 reference: https://…         # authoritative spec/dialect reference
 
@@ -51,8 +76,24 @@ acal_features:
 | `d` | Supplementary transformation — ACAL equivalent synthesized, not directly present in source |
 | `e` | ACAL model extension required — stop and flag; do not implement around it |
 
+## Consuming a matrix
+
+```python
+from acal_core import export_gaps, load
+
+doc = load("policy.yaml", "yacal")
+export_gaps(doc, "cedar")   # {feature: why-not} for features this doc actually uses
+```
+
+`acal-explain` calls this to report what a policy could never say in a given language. The
+future `acal-export` tool calls the same function as its precondition gate.
+
 ## Adding a language
 
 `/import-model <LANGUAGE>` writes this file in Phase 3, **before** any reader code exists.
 That ordering is deliberate: the gap analysis is a design decision, and design decisions
 that get made while writing the parser get made badly.
+
+Most languages have exactly one dialect, so `language` and `dialect` are the same string and
+you can ignore the distinction. Add a second dialect only when one format genuinely carries
+two different models — as XML does.

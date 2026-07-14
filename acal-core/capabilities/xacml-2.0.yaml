@@ -1,0 +1,111 @@
+# Which ACAL 1.0 features XACML 2.0 can express.
+#
+# XACML 2.0 is a FOREIGN dialect — a spoke, not the hub. It is the weakest of the XACML
+# family: no Advice, no AnyOf/AllOf, no shared variables, no Bundle.
+#
+# Do not confuse this with XACML 4.0, which IS the hub: 4.0 is the XML serialization of
+# ACAL 1.0, expresses the whole model by construction, and has no matrix at all.
+
+language: xacml
+dialect: xacml-2.0
+direction: import-only
+reference: http://docs.oasis-open.org/xacml/2.0/access_control-xacml-2.0-core-spec-os.pdf
+
+acal_features:
+
+  PolicyId:
+    exportable: true
+    disposition: a
+
+  Version:
+    exportable: true
+    disposition: d
+    note: >
+      Optional in XACML 2.0 with a schema default of "1.0", but required by ACAL. An absent
+      Version is imported as "1.0" — the schema default, so this is faithful rather than
+      invented.
+
+  CombiningAlgId:
+    exportable: true
+    disposition: a
+    note: XACML 1.0/2.0 algorithm URNs are remapped to ACAL 1.0 URNs on import.
+
+  Rule:
+    exportable: true
+    disposition: a
+
+  Target:
+    exportable: true
+    disposition: d
+    note: >
+      XACML 2.0 expresses a Target as four fixed sections (Subjects, Resources, Actions,
+      Environments) of typed Match elements. ACAL uses a single boolean expression over
+      arbitrary category URNs. Import rewrites the sections into an Apply tree; export could
+      reconstruct them only for the four built-in categories, and not at all for a policy
+      using a custom category URN.
+
+  Condition:
+    exportable: true
+    disposition: d
+    note: >
+      In XACML 2.0 the Condition element is itself an implicit Apply — it carries the
+      FunctionId and its children are the arguments. ACAL (and XACML 3.0+) treat Condition as
+      a transparent wrapper around a nested expression.
+
+  Apply:
+    exportable: true
+    disposition: a
+
+  AttributeDesignator:
+    exportable: partial
+    disposition: d
+    note: >
+      XACML 2.0 has no generic AttributeDesignator: it uses four element names
+      (SubjectAttributeDesignator, ResourceAttributeDesignator, …), so the category is implied
+      by the element rather than named. An ACAL policy using any category outside the four
+      built-ins cannot be expressed.
+
+  AttributeSelector:
+    exportable: partial
+    disposition: c
+    note: ACAL 1.0 moved XPath into a dedicated profile; the mapping is not implemented.
+
+  NoticeExpression:
+    exportable: partial
+    disposition: c
+    note: >
+      XACML 2.0 has Obligations but NO Advice — Advice arrived in XACML 3.0. A notice with
+      IsObligation false (advice) has no XACML 2.0 representation at all. Obligations also
+      carry only literal AttributeAssignment values, not expressions, so an ACAL
+      AttributeAssignmentExpression containing an Apply cannot be expressed either.
+
+  VariableDefinition:
+    exportable: true
+    disposition: a
+
+  SharedVariableDefinition:
+    exportable: false
+    disposition: c
+    note: >
+      ACAL 1.0 introduced Bundle-level shared variables. XACML 2.0 has no cross-policy
+      variable sharing.
+
+  Bundle:
+    exportable: false
+    disposition: c
+    note: XACML 2.0 has no Bundle construct. ACAL 1.0 introduced it.
+
+  RequestEntity:
+    exportable: partial
+    disposition: c
+    note: >
+      XACML 2.0 request bodies use <Subject>/<Resource>/<Action> sections. Import of 2.0
+      requests is not implemented and raises.
+
+  ResultEntity:
+    exportable: partial
+    disposition: b
+    note: >
+      XACML 2.0 used the per-attribute IncludeInResult flag, which ACAL 1.0 replaced with the
+      explicit ResultEntity model. It carries no evaluation semantics, so it warns rather than
+      erroring.

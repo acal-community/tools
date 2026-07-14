@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- XACML 4.0 requests use <RequestEntity>, unlike 2.0/3.0's <Attributes> nesting
+     (which is unimplemented and raises). -->
+<Request xmlns="urn:oasis:names:tc:xacml:4.0:core:schema" ReturnPolicyIdList="true">
+  <RequestEntity Category="urn:oasis:names:tc:acal:1.0:subject-category:access-subject">
+    <RequestAttribute AttributeId="urn:example:attribute:role"
+                      DataType="urn:oasis:names:tc:acal:1.0:data-type:string">
+      <Value>doctor</Value>
+    </RequestAttribute>
+  </RequestEntity>
+</Request>

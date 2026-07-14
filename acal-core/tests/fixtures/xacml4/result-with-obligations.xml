@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Obligations inside a Result are not converted yet. They must RAISE, not vanish:
+     an obligation dropped from a Result is an enforcement requirement the PEP never sees. -->
+<Response xmlns="urn:oasis:names:tc:xacml:4.0:core:schema">
+  <Result Decision="Permit">
+    <Status><StatusCode Value="urn:oasis:names:tc:acal:1.0:status:ok"/></Status>
+    <Obligations>
+      <Obligation ObligationId="urn:example:obligation:audit"/>
+    </Obligations>
+  </Result>
+</Response>

@@ -197,3 +197,32 @@ def test_from_choices_track_the_registry():
     params = {p.name: p for p in main.params}
     assert tuple(params["from_fmt"].type.choices) == READ_FORMATS
     assert "alfa" in params["from_fmt"].type.choices
+
+
+def test_cli_reports_export_gaps_for_the_source_dialect(runner):
+    """With no --check-export, explain asks the round-trip question automatically."""
+    with patch("acal_explain.llm.litellm") as mock_litellm:
+        mock_litellm.completion.side_effect = _mock_completion()
+        result = runner.invoke(main, [
+            "--format", "json",
+            "--check-export", "xacml-3.0",
+            str(_CORE_FIXTURES / "xacml4" / "bundle.xml"),
+        ])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["source_dialect"] == "xacml-4.0"
+    gaps = payload["export_gaps"]["xacml-3.0"]
+    assert "SharedVariableDefinition" in gaps
+
+
+def test_cli_native_xacml4_input_reports_no_round_trip_gaps(runner):
+    """XACML 4.0 is ACAL's XML serialization, so there is nothing it cannot round-trip."""
+    with patch("acal_explain.llm.litellm") as mock_litellm:
+        mock_litellm.completion.side_effect = _mock_completion()
+        result = runner.invoke(
+            main, ["--format", "json", str(_CORE_FIXTURES / "xacml4" / "bundle.xml")]
+        )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["source_dialect"] == "xacml-4.0"
+    assert payload["export_gaps"] == {}

@@ -3,6 +3,7 @@
 # See README.md in this directory for the schema and disposition codes.
 
 language: alfa
+dialect: alfa
 direction: import-only
 reference: https://alfa.guide/
 
@@ -92,6 +93,11 @@ acal_features:
       ALFA has no cross-policy variable sharing — variables are strictly scoped to the
       enclosing policy block. A Bundle-level SharedVariableDefinition cannot be expressed
       without duplicating the declaration into every consuming policy.
+
+  Bundle:
+    exportable: false
+    disposition: c
+    note: ALFA has no Bundle construct. ACAL 1.0 introduced it.
 
   RequestEntity:
     exportable: false

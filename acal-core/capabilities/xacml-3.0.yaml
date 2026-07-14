@@ -1,0 +1,106 @@
+# Which ACAL 1.0 features XACML 3.0 can express.
+#
+# XACML 3.0 is a FOREIGN dialect — a spoke, not the hub. It predates ACAL, and its
+# identifiers are remapped to ACAL 1.0 URNs on import.
+#
+# Do not confuse this with XACML 4.0, which IS the hub: 4.0 is the XML serialization of
+# ACAL 1.0, expresses the whole model by construction, and therefore has no matrix at all.
+# An earlier version of this file conflated the two and asserted that "XACML" cannot express
+# SharedVariableDefinition — false for 4.0, which carries it natively.
+
+language: xacml
+dialect: xacml-3.0
+direction: import-only
+reference: http://docs.oasis-open.org/xacml/3.0/xacml-3.0-core-spec-os-en.html
+
+acal_features:
+
+  PolicyId:
+    exportable: true
+    disposition: a
+
+  Version:
+    exportable: true
+    disposition: d
+    note: >
+      Optional in XACML 3.0 with a schema default of "1.0", but required by ACAL. An absent
+      Version is imported as "1.0" — the schema default, so this is faithful rather than
+      invented.
+
+  CombiningAlgId:
+    exportable: true
+    disposition: a
+    note: >
+      Every ACAL combining algorithm has an XACML 3.0 equivalent. The converse fails:
+      XACML's CombinerParameters have no ACAL equivalent and are a hard error on import.
+
+  Rule:
+    exportable: true
+    disposition: a
+
+  Target:
+    exportable: true
+    disposition: d
+    note: >
+      XACML 3.0 expresses a Target as an AnyOf/AllOf/Match tree; ACAL uses a boolean
+      expression. Import rewrites the tree into an Apply. Export would have to invert that,
+      which is only possible for expressions shaped like a disjunction of conjunctions of
+      matches.
+
+  Condition:
+    exportable: true
+    disposition: a
+
+  Apply:
+    exportable: true
+    disposition: a
+
+  AttributeDesignator:
+    exportable: true
+    disposition: a
+
+  AttributeSelector:
+    exportable: partial
+    disposition: c
+    note: >
+      ACAL 1.0 moved XPath into a dedicated profile. XPathVersion in PolicyDefaults is a
+      hard error on import — the XPath profile mapping is not implemented.
+
+  NoticeExpression:
+    exportable: true
+    disposition: a
+    note: >
+      Maps to ObligationExpression / AdviceExpression, chosen by IsObligation. XACML 3.0
+      keeps them as two separate element families; ACAL 1.0 unified them.
+
+  VariableDefinition:
+    exportable: true
+    disposition: a
+
+  SharedVariableDefinition:
+    exportable: false
+    disposition: c
+    note: >
+      ACAL 1.0 introduced Bundle-level shared variables. XACML 3.0 has no cross-policy
+      variable sharing — VariableDefinition is scoped to a single Policy — so a shared
+      variable cannot be expressed without duplicating it into every consuming policy.
+
+  Bundle:
+    exportable: false
+    disposition: c
+    note: XACML 3.0 has no Bundle construct. ACAL 1.0 introduced it.
+
+  RequestEntity:
+    exportable: partial
+    disposition: c
+    note: >
+      XACML 3.0 request bodies use <Attributes> nesting rather than <RequestEntity>. Import
+      of 3.0 requests is not implemented and raises.
+
+  ResultEntity:
+    exportable: partial
+    disposition: b
+    note: >
+      XACML 3.0 used the per-attribute IncludeInResult flag, which ACAL 1.0 replaced with the
+      explicit ResultEntity model. IncludeInResult carries no evaluation semantics, so it
+      warns rather than erroring; the intent must be re-expressed as ResultEntity.

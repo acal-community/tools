@@ -131,17 +131,47 @@ def load(path: str, strict: bool = False) -> dict[str, Any]:
     tree = ET.parse(path)
     root = tree.getroot()
     ns = _extract_ns(root)
+    version = _version_for_namespace(ns)
+    doc = _Converter(ns, version, strict=strict).convert_root(root)
+    return _strip_nulls(doc)
 
+
+def _version_for_namespace(ns: str) -> XACMLVersion:
     if ns == XACML2_NS:
-        version = XACMLVersion.V2_0
-    elif ns == XACML3_NS:
-        version = XACMLVersion.V3_0
-    elif ns == XACML4_NS:
-        version = XACMLVersion.V4_0
-    else:
-        raise ValueError(f"Unrecognised XACML namespace: {ns!r}")
+        return XACMLVersion.V2_0
+    if ns == XACML3_NS:
+        return XACMLVersion.V3_0
+    if ns == XACML4_NS:
+        return XACMLVersion.V4_0
+    raise ValueError(f"Unrecognised XACML namespace: {ns!r}")
 
-    return _Converter(ns, version, strict=strict).convert_root(root)
+
+def detect_version(path: str) -> XACMLVersion:
+    """Which XACML version a document is written in, from its namespace.
+
+    XACML 4.0 is the XML serialization of ACAL 1.0 itself; 2.0 and 3.0 are foreign
+    dialects that get remapped on import. Callers need the distinction to know which
+    capability matrix (if any) applies.
+    """
+    for _, elem in ET.iterparse(path, events=("start",)):
+        return _version_for_namespace(_extract_ns(elem))
+    raise ValueError(f"Empty XACML document: {path!r}")
+
+
+def _strip_nulls(value):
+    """Drop keys whose value is None.
+
+    An absent optional XACML attribute (`Version`, `Issuer`, …) reaches the builders as
+    None. Emitting it produces `Version:` — a YAML null — and YACAL prohibits nulls
+    outright, so the converter would be writing documents that our own yacal-validate
+    rejects. Omitting the key is also the more useful failure: a genuinely required field
+    then surfaces as "required property missing" rather than as a confusing null error.
+    """
+    if isinstance(value, dict):
+        return {k: _strip_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_strip_nulls(v) for v in value]
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -194,17 +224,30 @@ class _Converter:
     # Policy (XACML 2.0/3.0/4.0)
     # -----------------------------------------------------------------------
 
+    def _version_attr(self, elem: ET.Element) -> str | None:
+        """Policy/PolicySet Version, applying the XACML 2.0/3.0 schema default.
+
+        ACAL requires Version. XACML 2.0/3.0 declare it optional with a schema default of
+        "1.0", so an absent attribute *means* 1.0 and supplying it is faithful, not invented.
+        XACML 4.0 declares Version use="required", so an absent one means the input is
+        malformed — we return None rather than fabricating a value, and the missing required
+        field surfaces downstream (`acal-convert --validate`) instead of being papered over.
+        """
+        version = elem.get("Version")
+        if version is None and self._version in (XACMLVersion.V2_0, XACMLVersion.V3_0):
+            return "1.0"
+        return version
+
     def _policy(self, elem: ET.Element) -> dict:
         self._check_xpath_version(elem)
 
-        p: dict = {
-            "PolicyId": elem.get("PolicyId"),
-            "Version": elem.get("Version"),
-            # XACML 3.0 uses RuleCombiningAlgId; 4.0 uses CombiningAlgId
-            "CombiningAlgId": self._ident(
-                elem.get("CombiningAlgId") or elem.get("RuleCombiningAlgId")
-            ),
-        }
+        p: dict = {}
+        _set_if(p, "PolicyId", elem.get("PolicyId"))
+        _set_if(p, "Version", self._version_attr(elem))
+        # XACML 3.0 uses RuleCombiningAlgId; 4.0 uses CombiningAlgId
+        _set_if(p, "CombiningAlgId", self._ident(
+            elem.get("CombiningAlgId") or elem.get("RuleCombiningAlgId")
+        ))
         _set_if(p, "Description", self._text(elem, "Description"))
         _set_if(p, "MaxDelegationDepth", _int_attr(elem, "MaxDelegationDepth"))
 
@@ -228,11 +271,10 @@ class _Converter:
     def _policyset(self, elem: ET.Element) -> dict:
         self._check_xpath_version(elem)
 
-        p: dict = {
-            "PolicyId": elem.get("PolicySetId"),
-            "Version": elem.get("Version"),
-            "CombiningAlgId": self._ident(elem.get("PolicyCombiningAlgId")),
-        }
+        p: dict = {}
+        _set_if(p, "PolicyId", elem.get("PolicySetId"))
+        _set_if(p, "Version", self._version_attr(elem))
+        _set_if(p, "CombiningAlgId", self._ident(elem.get("PolicyCombiningAlgId")))
         _set_if(p, "Description", self._text(elem, "Description"))
 
         target = elem.find(self._t("Target"))
@@ -374,11 +416,10 @@ class _Converter:
     })
 
     def _rule(self, elem: ET.Element) -> dict:
-        r: dict = {
-            # XACML 3.0 uses RuleId; XACML 4.0 uses Id
-            "Id": elem.get("Id") or elem.get("RuleId"),
-            "Effect": elem.get("Effect"),
-        }
+        r: dict = {}
+        # XACML 3.0 uses RuleId; XACML 4.0 uses Id
+        _set_if(r, "Id", elem.get("Id") or elem.get("RuleId"))
+        _set_if(r, "Effect", elem.get("Effect"))
         _set_if(r, "Description", self._text(elem, "Description"))
 
         for child in elem:
@@ -721,7 +762,10 @@ class _Converter:
 
         return notices
 
+    _NOTICE_KNOWN_CHILDREN = frozenset({"Condition", "AttributeAssignmentExpression"})
+
     def _notice_expr(self, elem: ET.Element) -> dict:
+        self._guard_children(elem, self._NOTICE_KNOWN_CHILDREN, "NoticeExpression")
         notice: dict = {"Id": self._ident(elem.get("Id"))}
         if _bool_attr(elem, "IsObligation"):
             notice["IsObligation"] = True
@@ -750,7 +794,30 @@ class _Converter:
     # Bundle
     # -----------------------------------------------------------------------
 
+    def _guard_children(self, elem: ET.Element, known: frozenset, container: str) -> None:
+        """Reject any child element no branch below will read.
+
+        These builders are written as targeted find()/findall() calls, which means an
+        element nobody asks for is dropped in silence. That is how Rule-level <Target> went
+        missing in every XACML version: a rule scoped to doctors converted into a rule that
+        permitted everyone. Every find()-based builder needs one of these.
+        """
+        for child in elem:
+            name = _local(child)
+            if name not in known:
+                raise XACMLUnsupportedFeatureError(
+                    f"<{name}> is not a recognised child element of <{container}>. "
+                    "If this is a valid XACML construct, it is not yet implemented in "
+                    "acal-convert. It is rejected rather than ignored: silently dropping "
+                    "policy content produces a different policy from the one you wrote."
+                )
+
+    _BUNDLE_KNOWN_CHILDREN = frozenset({
+        "Description", "ShortIdSet", "SharedVariableDefinition", "Policy", "PolicyReference",
+    })
+
     def _bundle(self, elem: ET.Element) -> dict:
+        self._guard_children(elem, self._BUNDLE_KNOWN_CHILDREN, "Bundle")
         bundle: dict = {}
 
         short_id_sets = [self._short_id_set(s)
@@ -787,7 +854,9 @@ class _Converter:
         return sid
 
     def _shared_var_def(self, elem: ET.Element) -> dict:
-        svd: dict = {"Id": elem.get("Id"), "Version": elem.get("Version")}
+        svd: dict = {}
+        _set_if(svd, "Id", elem.get("Id"))
+        _set_if(svd, "Version", elem.get("Version"))
         _set_if(svd, "Expression", self._expr_child(elem))
         return svd
 
@@ -829,7 +898,10 @@ class _Converter:
         _set_if(req, "RequestEntity", entities or None)
         return req
 
+    _REQUEST_ENTITY_KNOWN_CHILDREN = frozenset({"RequestAttribute", "Content"})
+
     def _request_entity(self, elem: ET.Element) -> dict:
+        self._guard_children(elem, self._REQUEST_ENTITY_KNOWN_CHILDREN, "RequestEntity")
         entity: dict = {"Category": self._ident(elem.get("Category"))}
         _set_if(entity, "Id", elem.get("Id"))
         attrs = [self._request_attribute(ra)
@@ -848,20 +920,34 @@ class _Converter:
             attr["Value"] = values
         return attr
 
+    _RESPONSE_KNOWN_CHILDREN = frozenset({"Result"})
+
     def _response(self, elem: ET.Element) -> dict:
+        self._guard_children(elem, self._RESPONSE_KNOWN_CHILDREN, "Response")
         resp: dict = {}
         results = [self._result(r) for r in elem.findall(self._t("Result"))]
         _set_if(resp, "Result", results or None)
         return resp
 
+    # A <Result> may also carry Obligations, AssociatedAdvice, Attributes, and
+    # PolicyIdentifierList. None of those are converted yet, and all four were being
+    # dropped without a word — an obligation that vanishes from a Result is an
+    # enforcement requirement the PEP will never see. They raise until implemented.
+    _RESULT_KNOWN_CHILDREN = frozenset({"Status"})
+
     def _result(self, elem: ET.Element) -> dict:
-        result: dict = {"Decision": elem.get("Decision")}
+        self._guard_children(elem, self._RESULT_KNOWN_CHILDREN, "Result")
+        result: dict = {}
+        _set_if(result, "Decision", elem.get("Decision"))
         status = elem.find(self._t("Status"))
         if status is not None:
             result["Status"] = self._status(status)
         return result
 
+    _STATUS_KNOWN_CHILDREN = frozenset({"StatusCode", "StatusMessage", "StatusDetail"})
+
     def _status(self, elem: ET.Element) -> dict:
+        self._guard_children(elem, self._STATUS_KNOWN_CHILDREN, "Status")
         status: dict = {}
         sc = elem.find(self._t("StatusCode"))
         if sc is not None:

@@ -814,48 +814,88 @@ def test_load_with_report_does_not_swallow_non_user_warnings():
 _DISPOSITIONS = {"a", "b", "c", "d", "e"}
 
 
-def test_every_foreign_language_has_a_capability_matrix():
-    """A foreign (non-native) language with no matrix is an unaudited export gap."""
-    from acal_core.languages import LANGUAGES, CAPABILITIES_DIR
+def test_every_foreign_dialect_has_a_capability_matrix():
+    """A foreign dialect with no matrix is an unaudited export gap.
 
-    for lang in LANGUAGES:
-        if lang.native:
-            assert lang.capabilities is None, f"{lang.name} is native; it needs no matrix"
+    Native dialects (the three ACAL serializations) must have NO matrix: they are the ACAL
+    model itself, so there is nothing they cannot express.
+    """
+    from acal_core.languages import CAPABILITIES_DIR, DIALECTS
+
+    for d in DIALECTS:
+        if d.native:
+            assert d.capabilities is None, f"{d.id} is native; it can express all of ACAL"
         else:
-            assert lang.capabilities, f"{lang.name} has no capability matrix"
-            assert (CAPABILITIES_DIR / lang.capabilities).is_file()
+            assert d.capabilities, f"{d.id} has no capability matrix"
+            assert (CAPABILITIES_DIR / d.capabilities).is_file()
+
+
+def test_xacml_4_is_native_and_2_3_are_not():
+    """The hub/spoke split: XACML 4.0 IS ACAL's XML serialization; 2.0/3.0 are foreign.
+
+    A single 'xacml' matrix once asserted that XACML cannot express SharedVariableDefinition.
+    That is true of 3.0 and false of 4.0 — the reader parses <Bundle><SharedVariableDefinition>
+    natively. Capability is a property of the dialect, not the file extension.
+    """
+    from acal_core.languages import get_dialect
+
+    assert get_dialect("xacml-4.0").native is True
+    assert get_dialect("xacml-4.0").capabilities is None
+    assert get_dialect("xacml-3.0").native is False
+    assert get_dialect("xacml-2.0").native is False
 
 
 def test_capability_matrices_are_well_formed():
-    from acal_core.languages import LANGUAGES, capabilities
+    from acal_core.languages import DIALECTS, capabilities
 
-    for lang in (l for l in LANGUAGES if not l.native):
-        matrix = capabilities(lang.name)
-        assert matrix["language"] == lang.name, "matrix `language` must match the registry name"
+    for d in (x for x in DIALECTS if not x.native):
+        matrix = capabilities(d.id)
+        assert matrix["dialect"] == d.id, "matrix `dialect` must match the registry id"
+        assert matrix["language"] == d.language
         assert matrix["direction"] in {"import-only", "bidirectional"}
         features = matrix["acal_features"]
-        assert features, f"{lang.name} matrix declares no ACAL features"
+        assert features, f"{d.id} matrix declares no ACAL features"
         for feature, spec in features.items():
             assert spec["exportable"] in (True, False, "partial"), feature
             assert spec["disposition"] in _DISPOSITIONS, feature
             if spec["exportable"] is not True:
-                assert spec.get("note"), f"{lang.name}.{feature} limits export but says nothing about why"
+                assert spec.get("note"), f"{d.id}.{feature} limits export but says nothing about why"
 
 
-def test_native_languages_have_no_export_gaps():
+def test_native_dialects_have_no_export_gaps():
     from acal_core.languages import unexportable_features
 
-    assert unexportable_features("yacal") == {}
-    assert unexportable_features("jacal") == {}
+    for native in ("yacal-1.0", "jacal-1.0", "xacml-4.0"):
+        assert unexportable_features(native) == {}
 
 
 def test_unexportable_features_are_reported():
     from acal_core.languages import unexportable_features
 
-    alfa_gaps = unexportable_features("alfa")
-    # ALFA has no cross-policy variable sharing — the canonical ACAL-only feature.
-    assert "SharedVariableDefinition" in alfa_gaps
-    assert alfa_gaps["SharedVariableDefinition"]
+    # ALFA and XACML 3.0 both lack cross-policy variable sharing — the canonical ACAL-only
+    # feature. XACML 4.0 has it, which is the whole point of the dialect split.
+    for dialect in ("alfa", "xacml-3.0", "xacml-2.0"):
+        gaps = unexportable_features(dialect)
+        assert "SharedVariableDefinition" in gaps
+        assert gaps["SharedVariableDefinition"]
+    assert "SharedVariableDefinition" not in unexportable_features("xacml-4.0")
+
+
+def test_detect_dialect_resolves_xacml_version():
+    from acal_core.languages import detect_dialect
+
+    assert detect_dialect(str(XACML2 / "simple-policy.xml"), "xacml") == "xacml-2.0"
+    assert detect_dialect(str(XACML3 / "simple-policy.xml"), "xacml") == "xacml-3.0"
+    assert detect_dialect(str(XACML4 / "simple-policy.xml"), "xacml") == "xacml-4.0"
+    assert detect_dialect(str(FIXTURES / "ex01-simple-permit.yaml"), "yacal") == "yacal-1.0"
+
+
+def test_report_carries_the_dialect_not_just_the_format():
+    _, r3 = load_with_report(str(XACML3 / "simple-policy.xml"), "xacml")
+    _, r4 = load_with_report(str(XACML4 / "simple-policy.xml"), "xacml")
+    assert r3.source_format == r4.source_format == "xacml"
+    assert r3.source_dialect == "xacml-3.0"
+    assert r4.source_dialect == "xacml-4.0"
 
 
 def test_alfa_xpath_datatype_raises_under_strict():
@@ -1009,3 +1049,199 @@ def test_xacml_unknown_rule_child_raises():
     """No-silent-drops: an unrecognised Rule child must fail, not be ignored."""
     with pytest.raises(XACMLUnsupportedFeatureError, match="SomeFutureRuleConstruct"):
         load_xacml(str(XACML3 / "unknown-rule-child.xml"))
+
+
+# ---------------------------------------------------------------------------
+# No-nulls invariant.
+#
+# An absent optional attribute (Version, Issuer, …) reaches the builders as None.
+# Emitted, it becomes a YAML null — and YACAL prohibits nulls, so acal-convert was
+# producing documents that our own yacal-validate rejected. An ordinary XACML 3.0
+# policy with no Version attribute was enough to trigger it.
+#
+# This sweeps every fixture through its reader, so it protects readers that do not
+# exist yet (Cedar, IAM) as soon as their fixtures land.
+# ---------------------------------------------------------------------------
+
+def _find_nulls(node, path="$"):
+    if isinstance(node, dict):
+        out = []
+        for k, v in node.items():
+            out.extend([f"{path}.{k}"] if v is None else _find_nulls(v, f"{path}.{k}"))
+        return out
+    if isinstance(node, list):
+        return [p for i, v in enumerate(node) for p in _find_nulls(v, f"{path}[{i}]")]
+    return []
+
+
+def _all_loadable_fixtures():
+    for path in sorted(FIXTURES.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".xml", ".yaml", ".yml", ".json", ".alfa"}:
+            continue
+        fmt = detect_format(str(path))
+        if fmt is None:
+            continue
+        yield path, fmt
+
+
+@pytest.mark.parametrize(
+    "path,fmt",
+    [pytest.param(p, f, id=f"{f}/{p.name}") for p, f in _all_loadable_fixtures()],
+)
+def test_no_reader_ever_emits_a_null(path, fmt):
+    try:
+        doc = load(str(path), fmt)
+    except (ValueError, Warning):
+        return  # invalid-by-design fixture; its rejection is covered elsewhere
+    nulls = _find_nulls(doc)
+    assert not nulls, f"{fmt} reader emitted null(s) at: {nulls} — YACAL prohibits nulls"
+
+
+def test_versionless_xacml3_policy_gets_the_schema_default(tmp_path):
+    """XACML 2.0/3.0 declare Version optional with a schema default of "1.0"; ACAL requires it.
+
+    Before this, an absent Version became `Version: null`, which YACAL rejects outright —
+    acal-convert was emitting documents that our own yacal-validate refused. Omitting the key
+    was not enough either: ACAL requires Version, so the document was still invalid. The
+    schema default is the faithful value.
+    """
+    src = tmp_path / "no-version.xml"
+    src.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Policy xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"\n'
+        '        PolicyId="urn:example:no-version"\n'
+        '        RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-overrides">\n'
+        '  <Rule RuleId="r1" Effect="Permit"/>\n'
+        "</Policy>\n"
+    )
+    doc = load_xacml(str(src))
+    assert doc["Policy"]["Version"] == "1.0"
+    assert _find_nulls(doc) == []
+
+
+def test_versionless_xacml4_policy_does_not_invent_a_version(tmp_path):
+    """XACML 4.0 declares Version use="required" — no schema default to fall back on.
+
+    Fabricating "1.0" would turn a malformed 4.0 document into a valid-looking ACAL one.
+    The field stays absent so `--validate` reports the real problem.
+    """
+    src = tmp_path / "no-version-4.xml"
+    src.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Policy xmlns="urn:oasis:names:tc:xacml:4.0:core:schema"\n'
+        '        PolicyId="urn:example:no-version-4"\n'
+        '        CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides">\n'
+        '  <Rule Id="r1" Effect="Permit"/>\n'
+        "</Policy>\n"
+    )
+    doc = load_xacml(str(src))
+    assert "Version" not in doc["Policy"]
+    assert _find_nulls(doc) == []
+
+
+def test_detect_version_reads_the_namespace():
+    from acal_core.readers.xacml import XACMLVersion, detect_version
+
+    assert detect_version(str(XACML2 / "simple-policy.xml")) is XACMLVersion.V2_0
+    assert detect_version(str(XACML3 / "simple-policy.xml")) is XACMLVersion.V3_0
+    assert detect_version(str(XACML4 / "simple-policy.xml")) is XACMLVersion.V4_0
+
+
+# ---------------------------------------------------------------------------
+# Bundle / Request / Response — these builders had ZERO fixtures. Bundle and
+# Response are ACAL 1.0 constructs, so they appear only in XACML 4.0.
+# ---------------------------------------------------------------------------
+
+def test_xacml4_bundle_with_shared_variable():
+    """Bundle + SharedVariableDefinition is exactly what the capability matrix
+    wrongly claimed XACML could not express."""
+    doc = load_xacml(str(XACML4 / "bundle.xml"))
+    bundle = doc["Bundle"]
+
+    svd = bundle["SharedVariableDefinition"][0]
+    assert svd["Id"] == "urn:example:shared:editor-check"
+    assert "Version" not in svd, "absent Version must not surface as a null"
+    assert svd["Expression"]["Apply"]["FunctionId"] == (
+        "urn:oasis:names:tc:acal:1.0:function:string-equal"
+    )
+
+    policy = bundle["Policy"][0]
+    assert policy["PolicyId"] == "urn:example:policy:docs"
+    assert policy["CombinerInput"][0]["Rule"]["Id"] == "permit-editors"
+
+
+def test_xacml4_response_and_status():
+    doc = load_xacml(str(XACML4 / "response.xml"))
+    results = doc["Response"]["Result"]
+    assert [r["Decision"] for r in results] == ["Permit", "Deny"]
+    assert results[0]["Status"]["StatusCode"]["Value"] == "urn:oasis:names:tc:acal:1.0:status:ok"
+    assert results[0]["Status"]["StatusMessage"] == "Access granted"
+    # Second result has no StatusMessage — it must be absent, not null.
+    assert "StatusMessage" not in results[1]["Status"]
+
+
+def test_xacml4_request_with_request_entity():
+    doc = load_xacml(str(XACML4 / "request.xml"))
+    req = doc["Request"]
+    assert req["ReturnPolicyIdList"] is True
+    entity = req["RequestEntity"][0]
+    assert entity["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
+    assert entity["RequestAttribute"][0]["Value"] == "doctor"
+
+
+def test_xacml_result_obligations_raise_rather_than_vanish():
+    """No-silent-drops: an unconverted Result child must fail loudly.
+
+    Obligations, AssociatedAdvice, Attributes, and PolicyIdentifierList inside a Result
+    were all being discarded without a word.
+    """
+    with pytest.raises(XACMLUnsupportedFeatureError, match="Obligations"):
+        load_xacml(str(XACML4 / "result-with-obligations.xml"))
+
+
+@pytest.mark.parametrize("fixture", ["bundle.xml", "response.xml", "request.xml"])
+def test_xacml4_bundle_request_response_convert_cleanly(fixture):
+    doc, report = load_with_report(str(XACML4 / fixture), "xacml")
+    assert not report.lossy, f"unexpected fidelity loss: {report.notes}"
+    assert _find_nulls(doc) == []
+
+
+# ---------------------------------------------------------------------------
+# export_gaps — the export tool's precondition gate, in embryo.
+# ---------------------------------------------------------------------------
+
+def test_export_gaps_are_dialect_specific_not_language_specific():
+    """The bug this whole model exists to prevent.
+
+    A Bundle with a SharedVariableDefinition CAN be expressed in XACML 4.0 (which is ACAL's
+    own XML serialization) and CANNOT be expressed in XACML 3.0. A capability matrix keyed on
+    the *language* 'xacml' has to pick one answer, and whichever it picks is wrong half the
+    time. Keyed on the dialect, both are right.
+    """
+    from acal_core.features import export_gaps
+
+    doc = load_xacml(str(XACML4 / "bundle.xml"))
+
+    assert export_gaps(doc, "xacml-4.0") == {}, "4.0 IS ACAL XML — it can express everything"
+
+    for foreign in ("xacml-3.0", "xacml-2.0", "alfa"):
+        gaps = export_gaps(doc, foreign)
+        assert "SharedVariableDefinition" in gaps
+        assert "Bundle" in gaps
+        assert all(why for why in gaps.values()), "every gap must say why"
+
+
+def test_export_gaps_empty_when_document_stays_in_the_subset():
+    """A simple policy uses nothing exotic, so it can go anywhere."""
+    from acal_core.features import export_gaps
+
+    doc = load_xacml(str(XACML3 / "simple-policy.xml"))
+    assert export_gaps(doc, "xacml-3.0") == {}
+
+
+def test_used_features_sweeps_nested_documents():
+    from acal_core.features import used_features
+
+    doc = load_xacml(str(XACML4 / "bundle.xml"))
+    found = used_features(doc)
+    assert {"Bundle", "SharedVariableDefinition", "Policy", "Rule", "Apply"} <= found

@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from acal_core.features import export_gaps as compute_export_gaps
 from acal_core.report import ConversionReport
 
 
@@ -50,8 +51,17 @@ class AnalysisResult:
     deny_count: int
 
     # What the source language could not express faithfully in ACAL. Empty for
-    # native inputs (YACAL/JACAL), which are the neutral model already.
+    # native inputs, which are the neutral model already.
     import_notes: list[str] = field(default_factory=list)
+
+    # The dialect actually detected — "xacml-3.0" vs "xacml-4.0" matters, since 4.0 IS
+    # ACAL's XML serialization while 3.0 is a foreign language.
+    source_dialect: str | None = None
+
+    # ACAL features this document uses that the target dialect cannot express, keyed by
+    # dialect id. Answers "could this policy be written in language X?" — which, for the
+    # source dialect, is the round-trip question.
+    export_gaps: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +200,12 @@ def _obligation_gaps(policy: PolicyInfo) -> list[str]:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def analyze(doc: dict, fmt: str, report: ConversionReport | None = None) -> AnalysisResult:
+def analyze(
+    doc: dict,
+    fmt: str,
+    report: ConversionReport | None = None,
+    export_targets: tuple[str, ...] = (),
+) -> AnalysisResult:
     """Analyze a loaded ACAL neutral dict and return structured observations."""
     top_policy: PolicyInfo | None = None
     bundle_policies: list[PolicyInfo] = []
@@ -228,4 +243,6 @@ def analyze(doc: dict, fmt: str, report: ConversionReport | None = None) -> Anal
         permit_count=permit_count,
         deny_count=deny_count,
         import_notes=[n.message for n in report.notes] if report else [],
+        source_dialect=report.source_dialect if report else None,
+        export_gaps={t: compute_export_gaps(doc, t) for t in export_targets},
     )

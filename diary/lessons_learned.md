@@ -1,5 +1,43 @@
 # Lessons Learned
 
+## converter-output-must-be-fed-to-our-own-validator (July 2026)
+
+**Rule**: A converter that has a validator in the same repo must be tested by *piping its
+output into that validator*, on ordinary inputs — not just by asserting on the intermediate
+dict. Passing unit tests on the dict prove nothing about whether the emitted document is
+valid.
+
+**Why**: `acal-convert` was emitting YACAL that `yacal-validate` **rejects**, for an input as
+ordinary as an XACML 3.0 policy with no `Version` attribute (optional in XACML). Two distinct
+faults stacked: the builders assigned `elem.get("Version")` straight into a dict literal, so an
+absent attribute became `None` and serialized as a YAML null — which YACAL prohibits outright;
+and even omitting it left the document invalid, because ACAL *requires* Version. The faithful
+answer was neither: XACML 2.0/3.0 declare `Version` optional **with a schema default of
+"1.0"**, so the absent attribute *means* 1.0.
+
+Every unit test passed throughout. The `--validate` flag existed and nobody had pointed it at
+a versionless policy. The invariant now has a test that sweeps every fixture through its reader
+asserting no nulls anywhere, which will protect Cedar and IAM before their readers are written.
+
+---
+
+## capability-claims-must-be-checked-against-the-reader (July 2026)
+
+**Rule**: When authoring a capability/gap matrix from a prose design doc, verify each claim
+against the *code that actually parses the language*. Prose describes intent; the reader
+describes reality, and where they differ the reader is what ships.
+
+**Why**: I wrote `capabilities/xacml.yaml` from the expressiveness doc and asserted
+`SharedVariableDefinition: exportable: false` — "XACML has no cross-policy variable sharing."
+The reader parses `<Bundle><SharedVariableDefinition>` and emits it correctly. The claim was
+false for XACML 4.0, and the matrix is supposed to be the *export tool's precondition gate*,
+so the error would have silently mis-gated export later.
+
+The deeper cause was a modelling error, not a typo: one matrix was being asked to answer for
+XACML 2.0, 3.0, and 4.0 at once, and those are not one language.
+(→ acal-is-a-hub-not-a-xacml-dialect). A matrix keyed on something coarser than the thing whose
+capability varies will be wrong, and wrong *silently*, because nothing executes prose.
+
 ## find-based-readers-drop-what-they-do-not-ask-for (July 2026)
 
 **Rule**: A reader built from targeted `find()` / `findall()` calls silently ignores every

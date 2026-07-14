@@ -97,6 +97,11 @@ def _build_observations_prompt(analysis: AnalysisResult) -> str:
     elif analysis.format not in ("yacal", "jacal"):
         lines.append(f"Import fidelity: converted from {analysis.format} with no loss")
 
+    for target, gaps in analysis.export_gaps.items():
+        if gaps:
+            lines.append(f"ACAL features this policy uses that {target} cannot express:")
+            lines.extend(f"  - {feature}: {why}" for feature, why in gaps.items())
+
     analysis_block = "\n".join(f"  {l}" for l in lines)
 
     return f"""You are an access-control policy analyst reviewing a policy for correctness and completeness.

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- _response/_result/_status had zero fixtures before this. -->
+<Response xmlns="urn:oasis:names:tc:xacml:4.0:core:schema">
+  <Result Decision="Permit">
+    <Status>
+      <StatusCode Value="urn:oasis:names:tc:acal:1.0:status:ok"/>
+      <StatusMessage>Access granted</StatusMessage>
+    </Status>
+  </Result>
+  <Result Decision="Deny">
+    <Status>
+      <StatusCode Value="urn:oasis:names:tc:acal:1.0:status:ok"/>
+    </Status>
+  </Result>
+</Response>

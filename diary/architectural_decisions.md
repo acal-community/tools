@@ -1,5 +1,63 @@
 # Architectural Decisions
 
+## acal-is-a-hub-not-a-xacml-dialect (July 2026)
+
+ACAL 1.0 is a hub with three *native serializations* — XACML 4.0 (XML), YACAL (YAML), JACAL
+(JSON). Every other language, **including XACML 2.0 and 3.0**, is a foreign spoke that imports
+into it. Capability matrices hang off **dialects**, not languages; native dialects have no
+matrix at all.
+
+**WHY**: The registry originally had one `xacml` entry spanning 2.0–4.0, marked foreign. That
+forced a single capability matrix to answer for three languages that differ enormously, and it
+answered wrong: it asserted XACML "cannot express SharedVariableDefinition", which is true of
+3.0 and false of 4.0 — the reader parses `<Bundle><SharedVariableDefinition>` natively. Since
+the matrix is meant to be the export tool's precondition gate, an export tool built on it would
+have refused to emit something it can emit perfectly well.
+
+The code already believed the hub model before the registry did: `_remap` is False for V4_0
+precisely because 4.0 identifiers are *already* ACAL URNs. The registry was the thing lagging.
+
+Consequence worth stating plainly: **XACML 4.0 output is serialization, not export.** A
+`writers/xacml.py` belongs beside the YACAL and JACAL writers. (→ xacml-writer-is-not-blocked)
+
+---
+
+## xacml-writer-is-not-blocked (July 2026)
+
+An XACML 4.0 writer is not blocked by Saxon EE licensing, and is not part of the hard
+`acal-export` problem.
+
+**WHY**: The expressiveness doc claimed XACML output was blocked because the toolchain for
+authoritative XML generation (Saxon EE) is commercially licensed. That is the same conflation
+this project already caught once for *reading* (→ xml-parsing-vs-xml-schema-validation): Saxon
+EE is required to **validate** XML against XSD 1.1, not to **write** it. Generating XACML 4.0
+XML is `ElementTree`, exactly as parsing it is.
+
+Two payoffs make this worth doing early: it enables `XACML 4.0 → YACAL → XACML 4.0` round-trip
+tests, which are the strongest correctness check available to this codebase and are currently
+impossible to write; and it closes GitHub issue #1 (XACML 3.0 → XACML 4.0), which is just
+import-a-spoke then serialize-the-hub, and was wrongly believed to depend on the export tool.
+
+---
+
+## unconverted-constructs-raise-they-do-not-vanish (July 2026)
+
+Every `find()`-based builder in a reader carries an explicit known-children allowlist and
+raises `XACMLUnsupportedFeatureError` on anything outside it — including valid constructs that
+are simply not implemented yet.
+
+**WHY**: A reader assembled from targeted `find()` / `findall()` calls silently ignores every
+element nobody asked for. That is not a hypothetical: `_rule()` never read `<Target>`, so a
+Rule's Target was dropped in every XACML version and a rule scoped to doctors converted into a
+rule permitting **everyone**. `_result()` was likewise dropping Obligations, AssociatedAdvice,
+Attributes, and PolicyIdentifierList — an obligation lost from a Result is an enforcement
+requirement the PEP never sees.
+
+The allowlist is the only thing that turns "we forgot to handle X" from a wrong answer into an
+error message. Raising on the *unimplemented* (not merely the invalid) is the deliberate part:
+a user who hits it files a bug; a user who does not hit it gets a policy that means something
+other than what they wrote. (→ find-based-readers-drop-what-they-do-not-ask-for)
+
 ## capability-matrix-is-the-delta-list (July 2026)
 
 Each non-native source language gets a machine-readable capability matrix at
