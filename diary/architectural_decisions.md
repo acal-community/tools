@@ -2,10 +2,21 @@
 
 ## acal-is-a-hub-not-a-xacml-dialect (July 2026)
 
-ACAL 1.0 is a hub with three *native serializations* — XACML 4.0 (XML), YACAL (YAML), JACAL
-(JSON). Every other language, **including XACML 2.0 and 3.0**, is a foreign spoke that imports
-into it. Capability matrices hang off **dialects**, not languages; native dialects have no
-matrix at all.
+**The hub is ACAL itself, in every serialization it has or will have** — today XACML 4.0
+(XML), YACAL (YAML), JACAL (JSON); tomorrow any further ACAL version or encoding, which joins
+the hub by definition rather than by review.
+
+**Everything else is a spoke, permanently.** XACML 2.0, XACML 3.0, ALFA, Cedar, AWS IAM,
+Rego. Lineage confers nothing: XACML 1–3 are spokes, not "earlier hub." ACAL is a new,
+independent endpoint that happens to have an XML serialization — it is not a dialect of XACML,
+and the XML serialization being *called* XACML 4.0 is an accident of naming that has already
+misled this codebase once.
+
+Capability matrices hang off **dialects**, not languages; native dialects have no matrix at
+all.
+
+The frame is stated for future contributors in [`CLAUDE.md`](../CLAUDE.md), because it must be
+read before designing anything, not discovered afterwards.
 
 **WHY**: The registry originally had one `xacml` entry spanning 2.0–4.0, marked foreign. That
 forced a single capability matrix to answer for three languages that differ enormously, and it
