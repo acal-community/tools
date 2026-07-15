@@ -290,28 +290,12 @@ def _composed_root(ids: dict[str, str], profiles: list[str]) -> dict:
     }
 
 
+# NB: a former _patch_core_schema_shape_bugs() removed `unevaluatedProperties: false` from
+# AttributeSelectorType / EntityAttributeSelectorType so the XPath profile could add
+# ContextSelectorId. The spec schema was since refactored (a BaseAttributeSelectorType was split
+# out) and those types no longer carry unevaluatedProperties, so the patch became a no-op and was
+# removed. The XPath fixtures' real problem was PolicyDefaults/RequestDefaults cardinality (object
+# vs the schema's required array), fixed in the fixtures themselves.
 def _load_json_schema(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
-        schema = json.load(f)
-    _patch_core_schema_shape_bugs(schema)
-    return schema
-
-
-def _patch_core_schema_shape_bugs(schema: dict) -> None:
-    """Patch known JACAL core-schema shape bugs that block spec-aligned validation."""
-    if schema.get("$id") != "urn:oasis:names:tc:jacal:1.0:core:schema":
-        return
-
-    defs = schema.get("$defs")
-    if not isinstance(defs, dict):
-        return
-
-    # AttributeSelectorType and EntityAttributeSelectorType use unevaluatedProperties: false.
-    # This prevents profile-specific subtypes (XPathAttributeSelectorType) from adding extra
-    # properties (e.g. ContextSelectorId) because the base type's unevaluatedProperties
-    # rejects them before the subtype schema can evaluate them.
-    # Fix: remove unevaluatedProperties from the abstract intermediate types.
-    for type_name in ("AttributeSelectorType", "EntityAttributeSelectorType"):
-        t = defs.get(type_name)
-        if isinstance(t, dict):
-            t.pop("unevaluatedProperties", None)
+        return json.load(f)
