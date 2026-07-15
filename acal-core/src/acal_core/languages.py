@@ -63,6 +63,7 @@ LANGUAGES: tuple[Language, ...] = (
     Language("yacal", "YACAL (YAML)", (".yaml", ".yml"), can_read=True, can_write=True),
     Language("jacal", "JACAL (JSON)", (".json",), can_read=True, can_write=True),
     Language("alfa", "ALFA (Axiomatics PDP 7.x dialect)", (".alfa",), can_read=True, can_write=False),
+    Language("cedar", "Cedar (AWS)", (".cedar",), can_read=True, can_write=False),
 )
 
 DIALECTS: tuple[Dialect, ...] = (
@@ -75,6 +76,7 @@ DIALECTS: tuple[Dialect, ...] = (
     Dialect("xacml-2.0", "xacml", "XACML 2.0", native=False, capabilities="xacml-2.0.yaml"),
     Dialect("xacml-3.0", "xacml", "XACML 3.0", native=False, capabilities="xacml-3.0.yaml"),
     Dialect("alfa", "alfa", "ALFA (Axiomatics PDP 7.x)", native=False, capabilities="alfa.yaml"),
+    Dialect("cedar", "cedar", "Cedar (AWS)", native=False, capabilities="cedar.yaml"),
 )
 
 _BY_NAME: dict[str, Language] = {lang.name: lang for lang in LANGUAGES}

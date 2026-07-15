@@ -1,5 +1,41 @@
 # Lessons Learned
 
+## verify-the-input-can-reach-the-code-path (July 2026)
+
+**Rule**: Before mapping a source-language construct, confirm the construct can actually appear
+in the input you accept. A handler for something the parser never emits on your input path is
+dead code — and worse, its mere presence implies a feature works when it cannot.
+
+**Why**: The Cedar reader had a `_template_link` handler mapping `templateLinks` to
+`PolicyReference`s. Cedar template *links* are runtime instantiations supplied through the
+policy-set / entities API; `policies_to_json_str` on policy *text* always returns
+`templateLinks: []`. So the handler was unreachable via the reader's only input path, its EST
+key names (`templateId`, `values`) were guessed and unverified, and — the real damage — the
+Phase 2 design had assumed links would arrive *with* the template, which shaped the whole
+template mapping. Once that premise was falsified, an uninstantiated template (dormant in
+Cedar) was being emitted as a top-level `Bundle.Policy` with no entry point, an ambiguous
+structure that a review caught before merge. The fix hinged on a fact about the *runtime
+model*, not the syntax: a construct's existence in the grammar does not mean it reaches your
+parser's output. (→ empty-fixture-directory-is-a-coverage-lie)
+
+
+## merge-conflict-markers-can-be-committed (July 2026)
+
+**Rule**: A merge can be finalized with unresolved `<<<<<<<` / `=======` / `>>>>>>>` markers
+still in a file if the conflict is resolved by hand carelessly or a tool auto-adds and commits.
+Grep the tree for markers after any non-trivial merge — especially in prose files, where no
+test or compiler will ever catch them.
+
+**Why**: PR #9's merge committed conflict markers into `diary/session_context.md`, the file
+that is the primary context source for every future session and for `/grill-me`. They sat
+there through several later commits because nothing executes a diary — a broken `.py` fails
+import, a broken markdown file just renders wrong, silently. The markers had wrapped the whole
+pre-rewrite version of the file inside one conflict hunk, so the "current state" section was
+duplicated and contradictory, and a future session would have started from a file that argued
+with itself. The fix is trivial once seen; seeing it requires looking, because the working
+tree reported the file as clean (the markers were in HEAD, not a pending change).
+
+
 ## converter-output-must-be-fed-to-our-own-validator (July 2026)
 
 **Rule**: A converter that has a validator in the same repo must be tested by *piping its

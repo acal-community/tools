@@ -369,6 +369,248 @@ This ACAL policy cannot be expressed in ALFA because:
 
 ---
 
+## Cedar (AWS)
+
+*Reader: `acal-core/src/acal_core/readers/cedar.py`. Capability matrix and datatype map:
+[`../capabilities/cedar.yaml`](../capabilities/cedar.yaml).*
+
+Cedar is Amazon's policy language for fine-grained authorization. It is typed, attribute-based,
+and deliberately kept simple so that policies can be formally analyzed. That simplicity is the
+source of every gap below: the things Cedar cannot say, it declines to say *on purpose*.
+
+**Parser**: Cedar's own. `cedarpy` wraps the upstream Rust `cedar-policy` crate and exposes
+`policies_to_json_str()`, which produces Cedar's official JSON AST (the EST). We map that AST;
+we do not parse Cedar ourselves. This is a deliberate correctness choice — a hand-written
+grammar's idea of Cedar can drift from Cedar's as the language evolves, and it would drift
+*silently*. Cedar parses; we only translate.
+
+### Why Cedar is input-only
+
+Two of the gaps are not edge cases, they are central to Cedar's design:
+
+- **No combining algorithms.** Cedar has exactly one, implicit strategy — forbid overrides
+  permit, and anything unmatched is denied. ACAL's `permit-overrides`, `first-applicable`,
+  `only-one-applicable` and custom algorithm URNs have no Cedar expression at all.
+- **No obligations.** Cedar has no post-decision side-effect model. An ACAL policy that
+  *mandates* the PEP log, notify, or redact as a condition of enforcement cannot carry that
+  requirement into Cedar; the obligation would have to move into application code, losing the
+  enforceable guarantee.
+
+### Combining semantics — the exact encoding
+
+Cedar allows a request iff **some `permit` matches and no `forbid` matches**; otherwise it
+denies. Reproducing that faithfully takes two nested policies:
+
+```yaml
+Policy:                                    # outer
+  CombiningAlgId: '{deny-unless-permit}'
+  CombinerInput:
+    - Policy:                              # inner
+        CombiningAlgId: '{deny-overrides}'
+        CombinerInput:
+          - Rule: { Effect: Deny,   ... }  # forbid
+          - Rule: { Effect: Permit, ... }  # permit
+```
+
+| Cedar situation | inner (`deny-overrides`) | outer (`deny-unless-permit`) | Cedar |
+|---|---|---|---|
+| a `forbid` matches | Deny | **Deny** | Deny |
+| a `permit` matches, no forbid | Permit | **Permit** | Permit |
+| nothing matches | NotApplicable | **Deny** | Deny |
+
+The naive choice — a single `deny-unless-permit` policy — is **wrong**: it returns Permit if
+*any* permit applies, even when a `forbid` also applies, which silently turns every `forbid`
+into a no-op. The naive alternative — a single `deny-overrides` policy — is *nearly* right but
+returns `NotApplicable` where Cedar returns Deny, leaving the default-deny to the PEP's bias
+rather than stating it in the policy.
+
+### Entity model — a PDP attribute contract
+
+Cedar has typed entities and an entity hierarchy (`principal == User::"alice"`,
+`principal is User`, `principal in Group::"doctors"`). ACAL has flat attribute categories: no
+entity types, no hierarchy. The import maps them onto three reserved attributes:
+
+| Cedar | ACAL attribute | Function |
+|---|---|---|
+| `principal == User::"alice"` | `urn:cedar:1.0:entity-uid` | `{string-equal}` |
+| `principal is User` | `urn:cedar:1.0:entity-type` | `{string-equal}` |
+| `principal in Group::"doctors"` | `urn:cedar:1.0:entity-ancestors` (bag) | `{string-is-in}` |
+
+### Missing attributes — Cedar fails open, and so do we
+
+This was settled by asking Cedar's own evaluator rather than by reasoning about it:
+
+```
+forbid (principal, action, resource) when { principal.banned == true };
+   ...evaluated against a principal with no `banned` attribute
+
+Cedar's decision:  ALLOW
+Cedar's diagnostic: error while evaluating policy `policy1`:
+                    `User::"alice"` does not have the attribute `banned`
+```
+
+**Cedar skips a policy it cannot evaluate.** A `forbid` that references an absent attribute
+does not fire, and the request is allowed. Cedar's compensating control is its *schema
+validator*, which catches the missing attribute at authoring time — and that control does not
+exist on the ACAL side.
+
+Every synthesized `AttributeDesignator` is therefore emitted with **`MustBePresent: false`**,
+which reproduces Cedar exactly: an absent attribute yields an empty bag, the condition is
+false, the rule does not fire. Setting `true` would be *safer* than Cedar — an absent attribute
+would become Indeterminate and deny — but it would also **change the decision**, and a
+converter that changes decisions is not a converter. The deviation is offered, not imposed:
+
+- **default** — faithful. The conversion emits a fidelity note stating that the policy inherits
+  Cedar's fail-open behaviour on missing attributes and should be paired with a PDP that
+  populates every attribute the policy reads.
+- **`--fail-closed`** — rewrites every synthesized designator to `MustBePresent: true`, so a
+  `forbid` whose attribute is missing **denies** instead of being skipped. A deliberate,
+  declared deviation from the source.
+
+One exception, and it is not a safety hole: inside a `has` operand, `MustBePresent` is always
+`false` even under `--fail-closed`, because "is this attribute present?" is precisely the
+question `has` asks. Making it Indeterminate would break the guard that Cedar policies use to
+*avoid* the missing-attribute error in the first place.
+
+This generalizes past Cedar (→ `presence-semantics-must-be-explicit`): every reader states
+`MustBePresent` explicitly and sets it to reproduce the source language's real runtime
+behaviour. Leaving it unstated — as the ALFA reader did — makes the converted policy's
+behaviour depend on a schema default rather than on anything the source language meant.
+
+### Datatypes — the resolution ladder
+
+Cedar's extension types (`decimal`, `ipaddr`, `datetime`) are a different type system from
+ACAL's, and this is where a careless converter does real damage. Resolution walks a ladder
+defined in [`../capabilities/cedar.yaml`](../capabilities/cedar.yaml):
+
+1. a **built-in direct mapping** exists (`bool`, `long`, `string`, `set`) → proceed, exact;
+2. else a **`datatypes:` entry** exists → proceed; if `fidelity: approximate`, warn (b);
+3. else → **hard error** (c), naming the missing entry.
+
+Two types ship deliberately **unmapped**, and the reasoning matters more than the verdict:
+
+- **`ipaddr`** — ACAL 1.0 has no IP-address datatype and no CIDR/range function. Mapping
+  `isInRange` onto string comparison would silently turn a subnet check into a text match: a
+  different policy, and one that fails open. We decline to guess. Supply an `acal_type` and a
+  `functions:` map and the reader will use it.
+- **`record`** — Cedar records are nested structural values; ACAL attributes are flat.
+  Flattening into dotted names would invent attributes the PDP was never told about.
+
+**`decimal` maps to `double` but is marked `approximate`**, and warns on every use: Cedar
+decimal is fixed-point to 4 places, ACAL double is IEEE-754 binary float. A comparison at a
+precision boundary can decide differently — which, in an authorization policy, means someone
+gets access they should not. `--strict` turns it into a hard error.
+
+### Templates, and the shape of the output
+
+A Cedar *template link* — the thing that binds `?principal` to a concrete entity — is a
+**runtime instantiation**, supplied through Cedar's policy-set / entities API. It is never
+present in policy *text*: `policies_to_json_str` on a `.cedar` file always returns
+`templateLinks: []`. So a template in a file is **uninstantiated** — it binds to nothing and,
+in Cedar, participates in no decision until a link is created elsewhere.
+
+The reader reproduces exactly that. A template converts to a parameterized `Policy` (its
+`?slot` becomes a `Parameter`, referenced by a `VariableReference`), but it is placed **inert
+in the Bundle's definition pool** — reachable only by reference, and nothing in a text file
+ever references it. It carries a disposition-(b) warning that it is uninstantiated; `--strict`
+rejects it.
+
+This drives the output shape, which is chosen so the *active* policy is never ambiguous:
+
+| Input | Output |
+|---|---|
+| static policies only | a single top-level `Policy` (the combining wrapper) — no Bundle, no pool |
+| templates + static policies | a `Bundle` whose `PolicyReference` **names the active policy as the entry point**; templates sit inert in `Bundle.Policy[]` |
+| templates only | a `Bundle` of inert definitions with **no entry point**, plus a warning that the document expresses no active policy |
+
+The entry point matters: `Bundle.Policy[]` is a *definition pool*, not a set of independently
+active policies, and `Bundle.PolicyReference` names the one that decides. Emitting a multi-policy
+Bundle without it would leave the decision root ambiguous.
+
+### Gap table
+
+| Source construct | ACAL mapping | Disposition | Strict behavior |
+|---|---|---|---|
+| `permit` / `forbid` | `Rule` with `Effect: Permit` / `Deny` | (a) Direct | N/A |
+| Cedar policy-set semantics | outer `deny-unless-permit` ▸ inner `deny-overrides` | (d) Supplementary | N/A |
+| `@id("x")` | `Rule.Id` / `PolicyId` | (a) Direct | N/A |
+| Any other `@annotation` | none — no evaluation semantics | (b) Lossy/warn | Error |
+| Scope `op: All` | no Target contribution | (a) Direct | N/A |
+| Scope `== Entity::"x"` | `{string-equal}` on `entity-uid`, `MustBePresent: false` | (d) Supplementary | N/A |
+| Scope `is Type` | `{string-equal}` on `entity-type`, `MustBePresent: false` | (d) Supplementary | N/A |
+| Scope `in Entity::"x"` | `{string-is-in}` over `entity-ancestors`, `MustBePresent: false` | (d) Supplementary | N/A |
+| `when { … }` | `Condition` | (a) Direct | N/A |
+| `unless { … }` | `Condition` wrapped in `{not}` | (d) Supplementary | N/A |
+| `&&` `\|\|` `!` | `{and}` / `{or}` / `{not}` | (a) Direct | N/A |
+| `==` `!=` | `{<type>-equal}`, type inferred from the literal operand | (d) Supplementary | N/A |
+| `<` `<=` `>` `>=` | `{integer-*}` comparisons | (a) Direct | N/A |
+| `+` `-` `*` | `{integer-add}` / `{integer-subtract}` / `{integer-multiply}` | (a) Direct | N/A |
+| `.attr` | `AttributeDesignator` | (a) Direct | N/A |
+| `has attr` | `{<type>-bag-size}(…) > 0` | (d) Supplementary | N/A |
+| `contains` | `{<type>-is-in}` | (a) Direct | N/A |
+| `containsAll` | `{<type>-subset}` | (d) Supplementary | N/A |
+| `containsAny` | `{<type>-at-least-one-member-of}` | (a) Direct | N/A |
+| `like "a*"` | `{string-regexp-match}`, glob translated to an anchored regex | (d) Supplementary | N/A |
+| Set literal | `Apply {<type>-bag}` | (a) Direct | N/A |
+| Template + `?slot` | inert parameterized `Policy` in the Bundle pool + warning | (b) Lossy/warn | Error |
+| `if-then-else` (boolean position) | `(c && t) \|\| (!c && e)` | (d) Supplementary | N/A |
+| `if-then-else` (non-boolean) | none | (c) Hard error | Error |
+| `decimal` and its functions | `{double}` family | (b) Lossy/warn | Error |
+| `ipaddr`, `record`, unmapped extension fns | none — see the ladder | (c) Hard error | Error |
+| Missing attribute at evaluation | `MustBePresent: false` — reproduces Cedar's fail-open | (b) Lossy/warn | Error |
+
+### Auto-detection
+
+- **Extension**: `.cedar`.
+- **Content sniff**: a Cedar document's first significant token is `permit`, `forbid`, or an
+  `@annotation`, after optional `//` comments. None of those collide with YACAL, whose root
+  keys are a closed capitalized set (`Policy`, `Bundle`, `Request`, `Response`, `ShortIdSet`),
+  nor with ALFA, which opens with `namespace` or `import`.
+
+### Example: an ACAL policy that cannot round-trip back to Cedar
+
+```yaml
+Policy:
+  PolicyId: urn:example:rationale:cedar-gap
+  Version: '1.0'
+  CombiningAlgId: '{permit-unless-deny}'
+  CombinerInput:
+    - Rule:
+        Id: permit-doctors
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: '{string-is-in}'
+            Argument:
+              - Value: doctor
+              - AttributeDesignator:
+                  Category: '{access-subject}'
+                  AttributeId: urn:example:attribute:role
+  NoticeExpression:
+    - Id: urn:example:notice:audit-log
+      IsObligation: true
+      AppliesTo: Permit
+      AttributeAssignmentExpression:
+        - AttributeId: urn:example:attribute:decision-reason
+          Expression:
+            Value: permitted-by-role
+```
+
+Cedar cannot express this, for two independent reasons:
+
+1. **`CombiningAlgId: permit-unless-deny`** — Cedar has one implicit strategy and no way to
+   select another. There is no Cedar text that means "permit unless explicitly denied."
+2. **`NoticeExpression` with `IsObligation: true`** — Cedar has no obligation model. The
+   audit-log requirement would have to be re-implemented in the application layer, where it is
+   no longer enforced by the policy.
+
+**Verdict:** Cedar is input-only. The gaps are not oversights to be patched; they are the
+deliberate cost Cedar pays for being analyzable. ACAL takes the opposite trade — richer
+semantics, harder formal analysis — and that asymmetry is exactly why the conversion is
+one-way.
+
+---
+
 ## Future languages
 
 Each section below follows this template:
@@ -386,90 +628,8 @@ Sections are added here as each reader is implemented in `acal-convert`.
 
 ---
 
-### Cedar (AWS)
 
-*Reader: not yet implemented. This section documents the expressiveness analysis
-that will inform the implementation.*
 
-Cedar is Amazon's policy language for fine-grained authorization. It uses a
-typed, attribute-based model and is designed to be analyzable (policies can be
-formally verified). It is deliberately simple.
-
-**What Cedar can express (maps to ACAL)**
-
-| Cedar concept | ACAL equivalent |
-|---|---|
-| `permit` / `forbid` with `when` clause | `Rule` with `Effect: Permit` / `Effect: Deny` and `Condition` |
-| Entity type hierarchy (`principal is User`) | `AttributeDesignator` with type-filtered category |
-| Attribute access (`principal.role`) | `AttributeDesignator` |
-| Set membership (`resource.tags.contains(...)`) | `Apply` with `string-is-in` or similar function |
-| Namespace scoping | `PolicyId` URI prefix conventions |
-
-**What Cedar cannot express**
-
-| Missing concept | ACAL feature | Example |
-|---|---|---|
-| Combining algorithms | `CombiningAlgId` | Cedar uses an implicit `forbid`-overrides-`permit` ordering; ACAL allows `permit-unless-deny`, `first-applicable`, custom algorithms, etc. |
-| Obligation / notice expressions | `NoticeExpression` | Cedar has no post-decision side-effect model; ACAL can mandate that a PEP perform an action (log, notify, redact) as a condition of enforcement |
-| Policy-scoped variables | `VariableDefinition` | Cedar has no let-binding for reusing expressions inside a policy |
-| Quantified expressions | `ForAny`, `ForAll`, `Map`, `Select` | Cedar's set operations are limited; ACAL can universally or existentially quantify over attribute collections |
-| Shared variable definitions | `SharedVariableDefinition` in `Bundle` | Cedar has no cross-policy variable sharing |
-| Nested policies with independent combining | `Policy` with nested `CombinerInput` | Cedar has flat policy sets; the combining semantics of nested policies cannot be expressed |
-
-**Example: an ACAL policy that cannot round-trip back to Cedar**
-
-```yaml
-Policy:
-  PolicyId: urn:example:rationale:cedar-gap
-  Version: '1.0'
-  CombiningAlgId: urn:oasis:names:tc:acal:1.0:combining-algorithm:permit-unless-deny
-  CombinerInput:
-    - Rule:
-        Id: permit-doctors
-        Effect: Permit
-        Condition:
-          Apply:
-            FunctionId: urn:oasis:names:tc:acal:1.0:function:string-is-in
-            Argument:
-              - Value: doctor
-              - AttributeDesignator:
-                  Category: urn:oasis:names:tc:acal:1.0:subject-category:access-subject
-                  AttributeId: urn:example:attribute:role
-    - Rule:
-        Id: deny-after-hours
-        Effect: Deny
-        Condition:
-          Apply:
-            FunctionId: urn:oasis:names:tc:acal:1.0:function:integer-greater-than
-            Argument:
-              - AttributeDesignator:
-                  Category: urn:oasis:names:tc:acal:1.0:attribute-category:environment
-                  AttributeId: urn:oasis:names:tc:acal:1.0:environment:current-time
-              - Value: 17
-  NoticeExpression:
-    - Id: urn:example:notice:audit-log
-      IsObligation: true
-      AppliesTo: Permit
-      AttributeAssignmentExpression:
-        - AttributeId: urn:example:attribute:decision-reason
-          Expression:
-            Value: permitted-by-role
-```
-
-This policy cannot be expressed in Cedar because:
-
-1. `CombiningAlgId: permit-unless-deny` — Cedar only supports its built-in
-   `forbid`-overrides ordering. There is no way to express "permit unless
-   explicitly denied" as a combining strategy.
-
-2. `NoticeExpression` with `IsObligation: true` — Cedar has no obligation model.
-   The audit-log requirement would have to be handled by the application layer,
-   outside the policy, losing the enforceable guarantee.
-
-**Verdict:** Cedar is input-only. The combining-algorithm and obligation gaps
-are not edge cases — they are central to Cedar's design philosophy of keeping
-the policy language simple and analyzable. ACAL accepts this tradeoff going the
-other way: richer semantics at the cost of more complex formal analysis.
 
 ---
 

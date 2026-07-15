@@ -1,6 +1,133 @@
 # Architectural Decisions
 
-## acal-is-a-hub-not-a-xacml-dialect (July 2026)
+> **Cross-cutting structural decisions have a public home: [`docs/design/`](../docs/design/) (ADRs).**
+> This file is the internal working log — dated entries, the session-level "why". The ADRs are
+> the durable, contributor-facing statement with explicit consequences. When a decision here is
+> structural enough to shape the whole toolchain, write or update the ADR and keep this entry as
+> the log record; the ADRs cite these slugs back. Entries with an ADR are tagged `(→ ADR-NNNN)`.
+
+## conversion-decisions-are-data-not-flags (July 2026) (→ ADR-0006)
+
+Every judgment call a *user* may legitimately make during conversion is enumerated as data, in
+the `decisions:` block of `capabilities/<dialect>.yaml`: question, options, the consequence of
+each, a default, the CLI flag that sets it, and a `triggers` condition. Three front-ends
+consume that one definition — `--profile` (replay), `--interactive` (prompt), and the web UI
+(form + download/upload).
+
+Conversion becomes two-phase: `plan()` collects the decision points the *document actually
+reaches*; `execute()` runs once they are resolved.
+
+**WHY**: Cedar alone produced five user-facing decisions (presence fidelity, approximate
+datatypes, unmapped datatypes, annotation loss, template handling). ALFA and XACML have their
+own; Rego and IAM will add more. Expressing them as CLI flags leads to
+`--strict --fail-closed --allow-approximate --expand-templates …` — a matrix nobody can hold in
+their head, with undefined interactions, and no record of what was chosen.
+
+The `triggers` field is what makes this better than flags rather than merely different: a
+decision is raised only if the document reaches it. A Cedar policy with no decimals and no
+attribute access asks nothing.
+
+The durable artifact is a **decision profile** — an org answers once, replays across every
+conversion, and can later answer "why was this policy converted this way?". For access control
+that provenance is worth more than the convenience.
+
+**What is deliberately NOT a decision**: correctness requirements. The Cedar combining
+encoding (outer deny-unless-permit over inner deny-overrides) is not offered as a choice,
+because the alternatives are simply wrong — offering them would be offering the user a way to
+silently disable every `forbid` in their policy. A decision point is where a *reasonable person
+could differ*, not where one answer is a bug.
+
+---
+
+## acal-web-is-stateless (July 2026) (→ ADR-0006)
+
+The planned web UI (FastAPI + Jinja2 + HTMX) persists nothing. Policies and decision profiles
+are uploaded and downloaded; neither is stored server-side. No database.
+
+**WHY**: Two reasons, and the second is the real one.
+
+Deployment: no DB means one process, `pip install` + `uvicorn`, ~60MB resident — it runs on a
+Pi or a $5 VPS, which was a stated requirement.
+
+Security: the documents this tool handles are **customers' authorization rules**. They describe
+exactly who can reach what. A server that never stores them cannot leak them, and that property
+is far cheaper to design in at the first commit than to retrofit after someone asks where their
+policies are kept.
+
+Stack rationale: FastAPI because the endpoint the web form POSTs to *is* the batch API,
+auto-documented — the batch story falls out of the UI work rather than being a second parallel
+implementation. HTMX because it is one script tag: no npm, no bundler, no Node in the deploy
+path. Pyodide/WASM was considered and rejected — `cedarpy` is a Rust extension and Pyodide
+cannot load arbitrary compiled wheels. Streamlit was rejected for ~300MB of dependencies and no
+usable API.
+
+---
+
+## presence-semantics-must-be-explicit (July 2026) (→ ADR-0003)
+
+Every reader emits `MustBePresent` **explicitly** on every `AttributeDesignator` it
+synthesizes, set to whatever reproduces the **source language's real runtime behaviour**.
+Never omit it and never silently harden it. Where the faithful value means the policy can fail
+open, that is reported as a fidelity note; `--fail-closed` offers the hardened variant as a
+deliberate, declared deviation.
+
+**WHY**: Three readers, three different behaviours, only one of them defensible.
+
+- **XACML** carries `MustBePresent` from the source — correct: the author decided.
+- **ALFA** *omitted it entirely*, so the converted policy's behaviour fell back to an ACAL
+  schema default that reflects nothing ALFA meant. Every ALFA-converted deny rule referencing
+  an attribute the PDP does not supply could fail open, silently, with no diagnostic.
+- **Cedar** was going to be hardened to `MustBePresent: true` on the reasoning that a `forbid`
+  with a missing attribute should deny. Asking Cedar's own evaluator killed that: Cedar
+  **skips** a policy it cannot evaluate, so the `forbid` does not fire and the decision is
+  **Allow**. Cedar fails open. `true` would have been *safer than Cedar* — and therefore a
+  different policy.
+
+The line that resolves it: **a converter that changes decisions is not a converter.** Fidelity
+is the job. Cedar's compensating control (its schema validator, which catches missing
+attributes at authoring time) does not exist on the ACAL side, so the hazard is real — but the
+answer is to *report* it, and to offer `--fail-closed` for users who want hardening, not to
+impose a decision change on everyone by default.
+
+One exception, and it is not a hole: inside a `has` operand `MustBePresent` stays `false` even
+under `--fail-closed`, because "is this attribute present?" is exactly what `has` asks.
+
+The general rule this replaces: presence semantics were never stated anywhere, so each reader
+improvised. Improvising a fail-open in an access-control converter is how you ship a hole.
+(→ find-based-readers-drop-what-they-do-not-ask-for)
+
+---
+
+## datatype-resolution-ladder (July 2026) (→ ADR-0005)
+
+Source datatypes and extension functions resolve through a three-step ladder, defined per
+dialect in the `datatypes:` section of `capabilities/<dialect>.yaml`:
+
+1. a **built-in direct mapping** exists → proceed (exact);
+2. else a **datamap entry** exists → proceed; if `fidelity: approximate`, warn (b), error under
+   `--strict`;
+3. else → **hard error** (c), and the message names the missing entry.
+
+**WHY**: Datatype mismatch is the recurring headache across every spoke, and the two obvious
+policies are both wrong. Hard-erroring on every unmapped type makes the tool unusable — Cedar's
+`decimal`, `ipaddr` and `datetime` are common, and refusing them refuses most real policies.
+Best-effort mapping is worse: a near-miss on a comparison operator silently changes who gets
+access. Cedar `decimal` is fixed-point to 4 places and ACAL `double` is IEEE-754 binary float,
+so a comparison at a precision boundary decides differently — in an authorization policy, that
+means someone gets in who should not.
+
+The ladder makes the unmapped case *actionable* rather than terminal: the error names the one
+YAML entry that would fix it. `acal_type: null` in a shipped map is a deliberate refusal to
+guess, not an absence of thought — Cedar's `ipaddr` is null because mapping `isInRange` onto
+string comparison would turn a subnet check into a text match that fails open.
+
+This also fixes an existing blind spot: the XACML reader remaps datatypes by regex passthrough
+(`XMLSchema#foo` → `acal:data-type:foo`) and will happily emit an ACAL datatype that does not
+exist, unchecked. Retrofitting XACML and ALFA onto the ladder is follow-up work.
+
+---
+
+## acal-is-a-hub-not-a-xacml-dialect (July 2026) (→ ADR-0001)
 
 **The hub is ACAL itself, in every serialization it has or will have** — today XACML 4.0
 (XML), YACAL (YAML), JACAL (JSON); tomorrow any further ACAL version or encoding, which joins
@@ -51,7 +178,7 @@ import-a-spoke then serialize-the-hub, and was wrongly believed to depend on the
 
 ---
 
-## unconverted-constructs-raise-they-do-not-vanish (July 2026)
+## unconverted-constructs-raise-they-do-not-vanish (July 2026) (→ ADR-0002)
 
 Every `find()`-based builder in a reader carries an explicit known-children allowlist and
 raises `XACMLUnsupportedFeatureError` on anything outside it — including valid constructs that
@@ -69,7 +196,7 @@ error message. Raising on the *unimplemented* (not merely the invalid) is the de
 a user who hits it files a bug; a user who does not hit it gets a policy that means something
 other than what they wrote. (→ find-based-readers-drop-what-they-do-not-ask-for)
 
-## capability-matrix-is-the-delta-list (July 2026)
+## capability-matrix-is-the-delta-list (July 2026) (→ ADR-0005)
 
 Each non-native source language gets a machine-readable capability matrix at
 `acal-core/capabilities/<lang>.yaml`, keyed by **ACAL feature** (not by source construct),
@@ -108,7 +235,7 @@ conversion exists solely in memory for the duration of the call.
 
 ---
 
-## conversion-report-never-enters-the-document (July 2026)
+## conversion-report-never-enters-the-document (July 2026) (→ ADR-0004)
 
 `load_with_report(path, fmt) -> (doc, ConversionReport)` returns import-fidelity information
 *beside* the neutral document. Provenance, source language, and lossy-mapping notes are never

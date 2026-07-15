@@ -1245,3 +1245,359 @@ def test_used_features_sweeps_nested_documents():
     doc = load_xacml(str(XACML4 / "bundle.xml"))
     found = used_features(doc)
     assert {"Bundle", "SharedVariableDefinition", "Policy", "Rule", "Apply"} <= found
+
+
+# ---------------------------------------------------------------------------
+# Cedar (AWS) — foreign spoke, parsed via Cedar's own EST (cedarpy).
+# ---------------------------------------------------------------------------
+
+CEDAR = Path(__file__).parent / "fixtures" / "cedar"
+
+try:
+    import cedarpy as _cedarpy  # noqa: F401
+    _HAS_CEDAR = True
+except ImportError:  # pragma: no cover
+    _HAS_CEDAR = False
+
+cedar_required = pytest.mark.skipif(not _HAS_CEDAR, reason="cedarpy not installed")
+
+from acal_core.readers import CedarSyntaxError, CedarUnsupportedFeatureError  # noqa: E402
+from acal_core.readers.cedar import load as load_cedar  # noqa: E402
+
+
+@cedar_required
+def _cedar_main(doc):
+    """The active policy, whether emitted as a bare Policy (static-only) or as the
+    entry-point of a Bundle (templates present)."""
+    if "Policy" in doc:
+        return doc["Policy"]
+    bundle = doc["Bundle"]
+    entry = bundle["PolicyReference"]["Id"]
+    return next(p for p in bundle["Policy"] if p["PolicyId"] == entry)
+
+
+def test_cedar_simple_permit():
+    """A static-only Cedar file is a single top-level Policy — no Bundle, no pool."""
+    doc = load_cedar(str(CEDAR / "simple-permit.cedar"))
+    assert "Policy" in doc and "Bundle" not in doc
+    main = _cedar_main(doc)
+    assert main["CombiningAlgId"].endswith("deny-unless-permit")
+    inner = main["CombinerInput"][0]["Policy"]
+    assert inner["CombiningAlgId"].endswith("deny-overrides")
+    assert inner["CombinerInput"][0]["Rule"]["Id"] == "allow-all"
+
+
+@cedar_required
+def test_cedar_combining_is_nested_deny_unless_permit_over_deny_overrides():
+    """Cedar = some permit AND no forbid, else deny. The naive flat encoding would silently
+    turn a forbid into a no-op; the nested one traces Cedar exactly."""
+    main = _cedar_main(load_cedar(str(CEDAR / "forbid-overrides.cedar")))
+    assert main["CombiningAlgId"].endswith("deny-unless-permit")
+    inner = main["CombinerInput"][0]["Policy"]
+    assert inner["CombiningAlgId"].endswith("deny-overrides")
+    effects = [r["Rule"]["Effect"] for r in inner["CombinerInput"]]
+    assert "Permit" in effects and "Deny" in effects
+
+
+@cedar_required
+def test_cedar_entity_scope_maps_to_reserved_attributes():
+    doc = load_cedar(str(CEDAR / "entity-scope.cedar"))
+    s = json.dumps(doc)
+    assert "urn:cedar:1.0:entity-ancestors" in s  # `in`
+    assert "urn:cedar:1.0:entity-uid" in s        # `==`
+    assert "urn:cedar:1.0:entity-type" in s       # `is`
+
+
+@cedar_required
+def test_cedar_missing_attribute_is_fail_open_by_default():
+    """Faithful to Cedar: a synthesized designator is MustBePresent: false (fail-open),
+    verified against Cedar's own evaluator in the design phase."""
+    doc = load_cedar(str(CEDAR / "entity-scope.cedar"))
+    s = json.dumps(doc)
+    assert '"MustBePresent": true' not in s
+    assert '"MustBePresent": false' in s
+
+
+@cedar_required
+def test_cedar_fail_closed_hardens_presence():
+    doc = load_cedar(str(CEDAR / "entity-scope.cedar"), fail_closed=True)
+    s = json.dumps(doc)
+    assert '"MustBePresent": false' not in s
+    assert '"MustBePresent": true' in s
+
+
+@cedar_required
+def test_cedar_has_operand_stays_fail_open_even_when_fail_closed():
+    """`has` asks 'is this attribute present?' — making its designator MustBePresent would
+    turn the guard itself Indeterminate. It stays false even under fail_closed."""
+    doc = load_cedar(str(CEDAR / "operators.cedar"), fail_closed=True)
+    # locate the bag-size designator (the `has` translation) and confirm it is false
+    found = _find_bagsize_designator(doc)
+    assert found is not None, "expected a bag-size designator from `has`"
+    assert found["MustBePresent"] is False
+
+
+def _find_bagsize_designator(node):
+    if isinstance(node, dict):
+        apply = node.get("Apply")
+        if apply and apply["FunctionId"].endswith("string-bag-size"):
+            arg = apply["Argument"][0]
+            return arg.get("AttributeDesignator")
+        for v in node.values():
+            r = _find_bagsize_designator(v)
+            if r is not None:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = _find_bagsize_designator(v)
+            if r is not None:
+                return r
+    return None
+
+
+@cedar_required
+def test_cedar_like_glob_becomes_anchored_regex():
+    doc = load_cedar(str(CEDAR / "operators.cedar"))
+    s = json.dumps(doc)
+    assert "string-regexp-match" in s
+    assert "^dr_.*$" in s  # underscore stays literal; only * becomes .*
+
+
+@cedar_required
+def test_cedar_template_becomes_parameterized_policy():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        doc = load_cedar(str(CEDAR / "template.cedar"))
+    tmpl = [p for p in doc["Bundle"]["Policy"] if "Parameter" in p]
+    assert len(tmpl) == 1
+    assert tmpl[0]["Parameter"] == [{"Name": "principal", "DataType": "{string}"}]
+    assert "VariableReference" in json.dumps(tmpl[0])
+
+
+@cedar_required
+def test_cedar_uninstantiated_template_warns_and_has_no_entry_point():
+    """A template link is a runtime instantiation absent from policy text, so a template in a
+    .cedar file is inert. It must be reported (not silently emitted as active) and the Bundle
+    must have no decision entry point."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_cedar(str(CEDAR / "template.cedar"))
+    assert "PolicyReference" not in doc["Bundle"], "an uninstantiated template is not a root"
+    assert any("uninstantiated" in str(w.message) for w in caught)
+
+
+@cedar_required
+def test_cedar_template_is_a_pool_entry_gated_by_an_explicit_entry_point():
+    """With an active static policy present, the template sits inert in the definition pool and
+    the active policy is named explicitly by Bundle.PolicyReference — no ambiguity about which
+    policy decides, and the template participates only if referenced (which text links never do)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        doc = load_cedar(str(CEDAR / "template-plus-static.cedar"))
+    bundle = doc["Bundle"]
+    assert bundle["PolicyReference"]["Id"] == "urn:cedar:policy:main"
+    ids = [p["PolicyId"] for p in bundle["Policy"]]
+    assert "urn:cedar:policy:main" in ids           # the active entry point
+    assert any(i.startswith("urn:cedar:template:") for i in ids)  # inert pool entry
+    # The entry point resolves to a real policy in the pool.
+    assert _cedar_main(doc)["CombiningAlgId"].endswith("deny-unless-permit")
+
+
+@cedar_required
+def test_cedar_template_strict_errors():
+    with pytest.raises(CedarUnsupportedFeatureError, match="uninstantiated"):
+        load_cedar(str(CEDAR / "template.cedar"), strict=True)
+
+
+@cedar_required
+def test_cedar_decimal_is_approximate_and_warns():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_cedar(str(CEDAR / "decimal-approximate.cedar"))
+    assert "double-greater-than" in json.dumps(doc)
+    assert any("approximate" in str(w.message) for w in caught)
+
+
+@cedar_required
+def test_cedar_decimal_raises_under_strict():
+    with pytest.raises(CedarUnsupportedFeatureError, match="approximate"):
+        load_cedar(str(CEDAR / "decimal-approximate.cedar"), strict=True)
+
+
+@cedar_required
+def test_cedar_non_id_annotation_warns():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        load_cedar(str(CEDAR / "extra-annotation.cedar"))
+    assert any("@department" in str(w.message) for w in caught)
+
+
+@cedar_required
+def test_cedar_ipaddr_hard_errors_naming_the_fix():
+    with pytest.raises(CedarUnsupportedFeatureError):
+        load_cedar(str(CEDAR / "ipaddr-unmapped.cedar"))
+
+
+@cedar_required
+def test_cedar_nonboolean_conditional_hard_errors():
+    with pytest.raises(CedarUnsupportedFeatureError, match="if-then-else"):
+        load_cedar(str(CEDAR / "conditional-nonbool.cedar"))
+
+
+@cedar_required
+def test_cedar_syntax_error_is_distinct_type():
+    with pytest.raises(CedarSyntaxError):
+        load_cedar(str(CEDAR / "malformed.cedar"))
+
+
+@cedar_required
+@pytest.mark.parametrize("fixture", [
+    "simple-permit", "entity-scope", "forbid-overrides", "operators",
+    "template", "template-plus-static", "decimal-approximate", "extra-annotation",
+])
+def test_cedar_fixtures_convert_without_nulls(fixture):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        doc = load_cedar(str(CEDAR / f"{fixture}.cedar"))
+    assert _find_nulls(doc) == []
+
+
+@cedar_required
+def test_cedar_dialect_and_matrix_registered():
+    from acal_core.languages import get_dialect, unexportable_features
+    d = get_dialect("cedar")
+    assert d.native is False
+    assert d.capabilities == "cedar.yaml"
+    gaps = unexportable_features("cedar")
+    assert "NoticeExpression" in gaps  # Cedar has no obligation model
+
+
+# ---------------------------------------------------------------------------
+# presence-semantics-must-be-explicit — a cross-reader invariant.
+#
+# ALFA previously omitted MustBePresent entirely, so its converted deny rules fell
+# back to a schema default and could fail open with no diagnostic. Every reader must
+# now state presence explicitly, set to reproduce the source's real runtime behaviour.
+# ---------------------------------------------------------------------------
+
+def _designators(node):
+    if isinstance(node, dict):
+        d = node.get("AttributeDesignator")
+        if d is not None:
+            yield d
+        for v in node.values():
+            yield from _designators(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _designators(v)
+
+
+def test_alfa_designators_state_mustbepresent_explicitly():
+    """Regression: ALFA omitted MustBePresent, leaving fail-open behaviour to a schema default."""
+    doc = load_alfa(str(ALFA / "condition.alfa"))
+    desigs = list(_designators(doc))
+    assert desigs, "expected at least one AttributeDesignator"
+    for d in desigs:
+        assert "MustBePresent" in d, f"designator omits MustBePresent: {d}"
+    # ALFA compiles to XACML 3.0 (default false) -> fail-open is the faithful value.
+    assert all(d["MustBePresent"] is False for d in desigs)
+
+
+def test_alfa_fail_closed_hardens_presence():
+    doc = load_alfa(str(ALFA / "condition.alfa"), fail_closed=True)
+    desigs = list(_designators(doc))
+    assert desigs and all(d["MustBePresent"] is True for d in desigs)
+
+
+@cedar_required
+def test_no_reader_omits_mustbepresent_where_it_synthesizes_designators():
+    """Neither Cedar nor ALFA may emit a designator without a MustBePresent key."""
+    for doc in (
+        load_cedar(str(CEDAR / "entity-scope.cedar")),
+        load_alfa(str(ALFA / "condition.alfa")),
+    ):
+        for d in _designators(doc):
+            assert "MustBePresent" in d, f"silent presence default: {d}"
+
+
+# ---------------------------------------------------------------------------
+# Cedar review findings #3–#6: id disambiguation, type inference, datamap guard.
+# ---------------------------------------------------------------------------
+
+@cedar_required
+def test_cedar_duplicate_annotation_id_is_disambiguated():
+    """Cedar @id is not unique across policies; ACAL rule ids must be unique within a policy.
+    A collision is renamed (with a legal separator) and reported, not silently emitted."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_cedar(str(CEDAR / "duplicate-id.cedar"))
+    inner = _cedar_main(doc)["CombinerInput"][0]["Policy"]
+    ids = [r["Rule"]["Id"] for r in inner["CombinerInput"]]
+    assert len(ids) == len(set(ids)), f"rule ids not unique: {ids}"
+    assert any("unique" in str(w.message) for w in caught)
+
+
+@cedar_required
+def test_cedar_integer_operators_are_typed_not_string():
+    """Literals and homogeneous sets carry type in the EST; the reader must use it rather than
+    defaulting every membership/equality/bag to string."""
+    doc = load_cedar(str(CEDAR / "typed-operators.cedar"))
+    s = json.dumps(doc)
+    for fn in ("integer-equal", "integer-is-in", "integer-subset", "integer-bag"):
+        assert f"function:{fn}" in s, f"expected {fn}"
+    assert "function:string-equal" not in s
+    assert "function:string-is-in" not in s
+
+
+@cedar_required
+def test_cedar_equality_infers_type_from_either_side():
+    from acal_core.readers.cedar import _equality_fn
+    lit = {"Value": 5}
+    attr = {".": {"left": {"Var": "principal"}, "attr": "age"}}
+    assert _equality_fn(attr, lit) == "integer-equal"   # literal on the right
+    assert _equality_fn(lit, attr) == "integer-equal"   # literal on the left
+    assert _equality_fn(attr, attr) == "string-equal"   # neither knowable → documented default
+
+
+@cedar_required
+def test_cedar_typed_operators_convert_and_validate(tmp_path):
+    doc = load_cedar(str(CEDAR / "typed-operators.cedar"))
+    assert _find_nulls(doc) == []
+
+
+@cedar_required
+def test_cedar_datamap_rejects_ambiguous_function_names(monkeypatch):
+    """Two datatypes claiming the same Cedar method name is unresolvable (the EST carries no
+    type at the call site); the reader must fail loudly at construction, not mis-map silently."""
+    import acal_core.readers.cedar as cedar_mod
+    bad = {
+        "decimal": {"acal_type": "{double}", "fidelity": "approximate",
+                    "functions": {"lessThan": "{double-less-than}"}},
+        "datetime": {"acal_type": "{dateTime}", "fidelity": "exact",
+                     "functions": {"lessThan": "{dateTime-less-than}"}},
+    }
+    monkeypatch.setattr(cedar_mod, "_load_datamap", lambda: bad)
+    with pytest.raises(CedarUnsupportedFeatureError, match="both"):
+        cedar_mod._Converter()
+
+
+@cedar_required
+def test_cedar_invalid_annotation_id_is_sanitized_and_reported():
+    """Cedar @id is arbitrary text; an ACAL Rule Id is LocalIdentifierType. An @id with illegal
+    characters is coerced to a legal id (and reported), not emitted as an invalid document."""
+    from acal_core.readers.cedar import _LOCAL_ID_RE
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_cedar(str(CEDAR / "invalid-id.cedar"))
+    rid = _cedar_main(doc)["CombinerInput"][0]["Policy"]["CombinerInput"][0]["Rule"]["Id"]
+    assert _LOCAL_ID_RE.match(rid), f"emitted an illegal Rule Id: {rid!r}"
+    assert ":" not in rid
+    assert any("not a valid ACAL identifier" in str(w.message) for w in caught)
+
+
+@cedar_required
+def test_cedar_id_sanitizer_always_yields_a_legal_id():
+    from acal_core.readers.cedar import _sanitize_local_id, _LOCAL_ID_RE
+    for raw in ["my policy", "urn:x:y", "123", "", "日本語", "$#@", "ok.id-v2", "_x"]:
+        sid, _ = _sanitize_local_id(raw, fallback="policy0")
+        assert _LOCAL_ID_RE.match(sid), f"{raw!r} -> {sid!r} is not legal"

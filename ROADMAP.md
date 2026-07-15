@@ -47,6 +47,36 @@ It pays for itself twice:
   from XACML 3.0 to XACML 4.0"), which is simply `load(xacml-3.0) → neutral dict →
   write(xacml-4.0)`: import a spoke, serialize the hub. #1 is not blocked on export at all.
 
+## Next: interactive conversion (acal-decisions + acal-web)
+
+**Tracking: [#13](https://github.com/acal-community/tools/issues/13)**
+
+Conversion involves real judgment calls — reproduce Cedar's fail-open on missing attributes or
+harden it? accept a fixed-point→float datatype mapping that can flip a comparison? — and
+expressing them as CLI flags does not scale past one language.
+
+They are captured as **data** instead, in the `decisions:` block of each dialect's capability
+matrix, and consumed three ways from one definition:
+
+- **`acal-convert --profile p.yaml`** — replay saved answers, reproducibly
+- **`acal-convert --interactive`** — prompt for whatever is unanswered
+- **`acal-web`** — render a form; download and re-upload the profile
+
+The durable artifact is the **decision profile**: an org answers once, replays everywhere, and
+can later answer *"why was this policy converted this way?"* — provenance that matters more
+than convenience in access control.
+
+**Shape:** a new `acal-decisions` library (registry, profile schema, two-phase
+`plan()` / `execute()`), then `acal-web` (FastAPI + Jinja2 + HTMX) as a thin skin over it. The
+web form's POST endpoint *is* the batch API, so batch falls out for free. Stateless: policies
+and profiles are uploaded/downloaded, never stored — a server that never holds your
+authorization rules cannot leak them.
+
+Grows later into a policy editor, and into batch conversion via API.
+
+Starts after Cedar, so the abstraction is drawn from a real corpus (Cedar + ALFA + XACML)
+rather than from one example.
+
 ## Long-term
 
 ### ACAL export (`acal-export`)
