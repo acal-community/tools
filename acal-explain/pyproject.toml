@@ -8,7 +8,6 @@ license = {text = "Apache-2.0"}
 dependencies = [
     "acal-core",
     "click>=8.1",
-    "litellm>=1.40",
     "tomli>=2.0; python_version < '3.11'",
 ]
 
@@ -16,7 +15,12 @@ dependencies = [
 acal-explain = "acal_explain.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-mock>=3.12"]
+# litellm is heavy (openai, tokenizers, tiktoken, aiohttp) and is only needed to make actual
+# LLM calls. The code imports it lazily (try/except ImportError) and raises a clear install
+# hint if a real call is attempted without it, mirroring the acal-core[cedar] pattern. Install
+# `acal-explain[llm]` to run explanations against a live model; the test suite mocks it.
+llm = ["litellm>=1.40"]
+dev = ["pytest>=8.0"]
 
 [build-system]
 requires = ["setuptools>=68"]

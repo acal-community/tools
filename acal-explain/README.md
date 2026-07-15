@@ -28,18 +28,22 @@ For ALFA policies: ALFA (Abbreviated Language for Authorization) was submitted t
 ```bash
 git clone https://github.com/acal-community/tools
 cd tools/acal-explain
-pip install -e .
+pip install -e '.[llm]'      # includes litellm, needed to call a live model
 ```
+
+`pip install -e .` (without `[llm]`) installs a lighter build that can load, analyze, and
+report on policies but cannot make LLM calls — it raises a clear install hint if you try. The
+`[llm]` extra is required for actual explanations against a model.
 
 After installation, `acal-explain` is on your `PATH`.
 
-**Dependencies installed automatically:**
+**Dependencies:**
 
-| Package | Purpose |
-|---------|---------|
-| `acal-core` | Policy loading and format detection |
-| `click` | CLI framework |
-| `litellm` | LLM provider abstraction |
+| Package | Purpose | Required? |
+|---------|---------|-----------|
+| `acal-core` | Policy loading and format detection | always |
+| `click` | CLI framework | always |
+| `litellm` | LLM provider abstraction (heavy: openai, tokenizers, …) | `[llm]` extra only |
 
 ---
 

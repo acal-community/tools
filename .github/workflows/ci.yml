@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# CI runners start with an empty ~/.cache, so the validators resolve schemas fresh every
+# run — which is the point. A warm schema cache once masked real drift (see the Drift A/B
+# work); a fresh runner cannot be fooled that way.
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Check out tools
+        uses: actions/checkout@v4
+
+      # The validators test against the ACAL spec schemas. Until spec issue #94
+      # (oasis-tcs/xacml-spec PR #100, "Notice Id is not required to be unique") merges to
+      # the spec's main branch, the tools track the #94 branch — the direction they are built
+      # for. When #100 merges, change `ref` below to the spec's default branch.
+      - name: Check out ACAL spec (#94 branch)
+        uses: actions/checkout@v4
+        with:
+          repository: oasis-tcs/xacml-spec
+          ref: issue-94-notice-id-nonunique
+          path: xacml-spec
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # acal-convert and acal-explain declare `acal-core` as a dependency by name, so acal-core
+      # must be installed (editable) first or pip would try to fetch it from PyPI. The [dev]
+      # extra of acal-core pulls cedarpy (Cedar's parser), so the Cedar reader tests actually
+      # run instead of skipping.
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./acal-core[dev]
+          pip install -e ./acal-converter[dev]
+          pip install -e ./acal-explain[dev]
+          pip install -e ./yacal-validator
+          pip install -e ./jacal-validator
+
+      - name: Guard — Cedar parser must be importable (or Cedar tests silently skip)
+        run: python -c "import cedarpy; print('cedarpy', getattr(cedarpy, '__version__', '?'))"
+
+      - name: acal-core
+        run: pytest -q acal-core
+
+      - name: acal-converter
+        run: pytest -q acal-converter
+
+      - name: acal-explain
+        run: pytest -q acal-explain
+
+      - name: yacal-validator
+        env:
+          ACAL_SPEC_DIR: ${{ github.workspace }}/xacml-spec
+        run: pytest -q yacal-validator
+
+      - name: jacal-validator
+        env:
+          ACAL_SPEC_DIR: ${{ github.workspace }}/xacml-spec
+        run: pytest -q jacal-validator
