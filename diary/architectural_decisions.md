@@ -1,6 +1,12 @@
 # Architectural Decisions
 
-## conversion-decisions-are-data-not-flags (July 2026)
+> **Cross-cutting structural decisions have a public home: [`docs/design/`](../docs/design/) (ADRs).**
+> This file is the internal working log — dated entries, the session-level "why". The ADRs are
+> the durable, contributor-facing statement with explicit consequences. When a decision here is
+> structural enough to shape the whole toolchain, write or update the ADR and keep this entry as
+> the log record; the ADRs cite these slugs back. Entries with an ADR are tagged `(→ ADR-NNNN)`.
+
+## conversion-decisions-are-data-not-flags (July 2026) (→ ADR-0006)
 
 Every judgment call a *user* may legitimately make during conversion is enumerated as data, in
 the `decisions:` block of `capabilities/<dialect>.yaml`: question, options, the consequence of
@@ -33,7 +39,7 @@ could differ*, not where one answer is a bug.
 
 ---
 
-## acal-web-is-stateless (July 2026)
+## acal-web-is-stateless (July 2026) (→ ADR-0006)
 
 The planned web UI (FastAPI + Jinja2 + HTMX) persists nothing. Policies and decision profiles
 are uploaded and downloaded; neither is stored server-side. No database.
@@ -57,7 +63,7 @@ usable API.
 
 ---
 
-## presence-semantics-must-be-explicit (July 2026)
+## presence-semantics-must-be-explicit (July 2026) (→ ADR-0003)
 
 Every reader emits `MustBePresent` **explicitly** on every `AttributeDesignator` it
 synthesizes, set to whatever reproduces the **source language's real runtime behaviour**.
@@ -92,7 +98,7 @@ improvised. Improvising a fail-open in an access-control converter is how you sh
 
 ---
 
-## datatype-resolution-ladder (July 2026)
+## datatype-resolution-ladder (July 2026) (→ ADR-0005)
 
 Source datatypes and extension functions resolve through a three-step ladder, defined per
 dialect in the `datatypes:` section of `capabilities/<dialect>.yaml`:
@@ -121,7 +127,7 @@ exist, unchecked. Retrofitting XACML and ALFA onto the ladder is follow-up work.
 
 ---
 
-## acal-is-a-hub-not-a-xacml-dialect (July 2026)
+## acal-is-a-hub-not-a-xacml-dialect (July 2026) (→ ADR-0001)
 
 **The hub is ACAL itself, in every serialization it has or will have** — today XACML 4.0
 (XML), YACAL (YAML), JACAL (JSON); tomorrow any further ACAL version or encoding, which joins
@@ -172,7 +178,7 @@ import-a-spoke then serialize-the-hub, and was wrongly believed to depend on the
 
 ---
 
-## unconverted-constructs-raise-they-do-not-vanish (July 2026)
+## unconverted-constructs-raise-they-do-not-vanish (July 2026) (→ ADR-0002)
 
 Every `find()`-based builder in a reader carries an explicit known-children allowlist and
 raises `XACMLUnsupportedFeatureError` on anything outside it — including valid constructs that
@@ -190,7 +196,7 @@ error message. Raising on the *unimplemented* (not merely the invalid) is the de
 a user who hits it files a bug; a user who does not hit it gets a policy that means something
 other than what they wrote. (→ find-based-readers-drop-what-they-do-not-ask-for)
 
-## capability-matrix-is-the-delta-list (July 2026)
+## capability-matrix-is-the-delta-list (July 2026) (→ ADR-0005)
 
 Each non-native source language gets a machine-readable capability matrix at
 `acal-core/capabilities/<lang>.yaml`, keyed by **ACAL feature** (not by source construct),
@@ -229,7 +235,7 @@ conversion exists solely in memory for the duration of the call.
 
 ---
 
-## conversion-report-never-enters-the-document (July 2026)
+## conversion-report-never-enters-the-document (July 2026) (→ ADR-0004)
 
 `load_with_report(path, fmt) -> (doc, ConversionReport)` returns import-fidelity information
 *beside* the neutral document. Provenance, source language, and lossy-mapping notes are never
