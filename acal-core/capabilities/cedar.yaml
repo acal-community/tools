@@ -117,22 +117,11 @@ decisions:
       reject:
         consequence: Refuse to convert rather than lose any metadata.
 
-  template-handling:
-    question: >
-      Cedar templates are parameterized policies. Keep them parameterized in ACAL, or expand
-      each link into a concrete policy?
-    triggers: the document contains a template
-    default: parameterize
-    flag: "--expand-templates"
-    options:
-      parameterize:
-        consequence: >
-          Template becomes a Policy with Parameter; each templateLink becomes a
-          PolicyReference with Argument. One template stays one policy.
-      expand:
-        consequence: >
-          Each link is inlined as a concrete policy. Flatter output, but one template with 50
-          links becomes 50 near-identical policies, and an unlinked template has nowhere to go.
+# Note: there is deliberately no `template-handling` decision. A template *link* is a runtime
+# instantiation supplied through Cedar's policy-set / entities API, never present in policy
+# text, so a template in a .cedar file is always uninstantiated. There is nothing to expand
+# and no value to bind — the only lever is warn vs. error, which --strict already provides.
+# See the `template` row below.
 
 # ---------------------------------------------------------------------------
 # Datatype map (import direction)

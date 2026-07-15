@@ -165,30 +165,38 @@ class _Converter:
 
     # -- top level --------------------------------------------------------------------------
 
+    _MAIN_ID = "urn:cedar:policy:main"
+
     def convert(self, est: dict) -> dict:
         templates = est.get("templates") or {}
         static = est.get("staticPolicies") or {}
-        links = est.get("templateLinks") or []
 
-        policies: list[dict] = []
+        # NB: `templateLinks` is intentionally not read. Cedar template *links* are runtime
+        # instantiations supplied through the policy-set / entities API, never present in
+        # policy *text* — policies_to_json_str() always returns templateLinks: []. So a
+        # template in a .cedar file is uninstantiated: it binds to nothing and participates
+        # in no decision. It is carried across as an inert parameterized definition (disp. b).
 
-        # Templates become parameterized ACAL policies; links become PolicyReferences.
+        template_policies: list[dict] = []
         for pid, tmpl in templates.items():
-            policies.append(self._template_policy(pid, tmpl))
+            template_policies.append(self._template_policy(pid, tmpl))
+            self._warn_or_raise(
+                f"Cedar template {tmpl.get('annotations', {}).get('id', pid)!r} is "
+                "uninstantiated — template links are runtime instantiations absent from policy "
+                "text. It is converted as a parameterized definition that participates in no "
+                "decision until referenced."
+            )
 
         rules: list[dict] = []
         for pid, pol in static.items():
             rules.append({"Rule": self._rule(pid, pol)})
-        for link in links:
-            rules.append({"PolicyReference": self._template_link(link)})
 
-        # Cedar's combining semantics: outer deny-unless-permit ▸ inner deny-overrides.
-        # See the truth table in docs/policy-language-expressiveness.md. Only emitted when
-        # there is something to combine — a templates-only file has no active rules, and an
-        # empty CombinerInput is structurally invalid (minItems).
+        # The active policy: Cedar's combining semantics, outer deny-unless-permit ▸ inner
+        # deny-overrides. See the truth table in docs/policy-language-expressiveness.md.
+        main = None
         if rules:
-            policies.append({
-                "PolicyId": "urn:cedar:policy:main",
+            main = {
+                "PolicyId": self._MAIN_ID,
                 "Version": "1.0",
                 "CombiningAlgId": _DENY_UNLESS_PERMIT,
                 "CombinerInput": [
@@ -201,14 +209,33 @@ class _Converter:
                         }
                     }
                 ],
-            })
+            }
 
-        if not policies:
-            raise CedarUnsupportedFeatureError(
-                "The Cedar document contains no policies to convert."
+        # Structure by what is present:
+        #  - active rules, no templates  → a single top-level Policy (no pool, no ambiguity)
+        #  - templates present           → a Bundle: templates are the definition pool, and the
+        #                                   entry point is named explicitly by PolicyReference
+        #                                   so there is no ambiguity about which policy decides
+        if not template_policies:
+            if main is None:
+                raise CedarUnsupportedFeatureError(
+                    "The Cedar document contains no policies to convert."
+                )
+            return {"Policy": main}
+
+        pool = list(template_policies)
+        bundle: dict[str, Any] = {"Policy": pool}
+        if main is not None:
+            pool.append(main)
+            bundle["PolicyReference"] = {"Id": self._MAIN_ID, "Version": "1.0"}
+        else:
+            # Templates only: a definition library with no active policy. Faithful to a Cedar
+            # file of uninstantiated templates, which likewise decides nothing.
+            self._warn_or_raise(
+                "The Cedar document contains only uninstantiated templates and expresses no "
+                "active policy; the converted Bundle has no decision entry point."
             )
-
-        return {"Bundle": {"Policy": policies}}
+        return {"Bundle": bundle}
 
     # -- rules ------------------------------------------------------------------------------
 
@@ -246,16 +273,6 @@ class _Converter:
             policy["Parameter"] = params
         policy["CombinerInput"] = [{"Rule": inner_rule}]
         return policy
-
-    def _template_link(self, link: dict) -> dict:
-        ref: dict[str, Any] = {
-            "PolicyId": f"urn:cedar:template:{link.get('templateId', '')}",
-        }
-        values = link.get("values") or {}
-        args = [{"Value": _entity_uid_string(v)} for _, v in sorted(values.items())]
-        if args:
-            ref["Argument"] = args
-        return ref
 
     # -- scope + when/unless ----------------------------------------------------------------
 

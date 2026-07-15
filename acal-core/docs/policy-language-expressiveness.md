@@ -501,6 +501,32 @@ decimal is fixed-point to 4 places, ACAL double is IEEE-754 binary float. A comp
 precision boundary can decide differently — which, in an authorization policy, means someone
 gets access they should not. `--strict` turns it into a hard error.
 
+### Templates, and the shape of the output
+
+A Cedar *template link* — the thing that binds `?principal` to a concrete entity — is a
+**runtime instantiation**, supplied through Cedar's policy-set / entities API. It is never
+present in policy *text*: `policies_to_json_str` on a `.cedar` file always returns
+`templateLinks: []`. So a template in a file is **uninstantiated** — it binds to nothing and,
+in Cedar, participates in no decision until a link is created elsewhere.
+
+The reader reproduces exactly that. A template converts to a parameterized `Policy` (its
+`?slot` becomes a `Parameter`, referenced by a `VariableReference`), but it is placed **inert
+in the Bundle's definition pool** — reachable only by reference, and nothing in a text file
+ever references it. It carries a disposition-(b) warning that it is uninstantiated; `--strict`
+rejects it.
+
+This drives the output shape, which is chosen so the *active* policy is never ambiguous:
+
+| Input | Output |
+|---|---|
+| static policies only | a single top-level `Policy` (the combining wrapper) — no Bundle, no pool |
+| templates + static policies | a `Bundle` whose `PolicyReference` **names the active policy as the entry point**; templates sit inert in `Bundle.Policy[]` |
+| templates only | a `Bundle` of inert definitions with **no entry point**, plus a warning that the document expresses no active policy |
+
+The entry point matters: `Bundle.Policy[]` is a *definition pool*, not a set of independently
+active policies, and `Bundle.PolicyReference` names the one that decides. Emitting a multi-policy
+Bundle without it would leave the decision root ambiguous.
+
 ### Gap table
 
 | Source construct | ACAL mapping | Disposition | Strict behavior |
@@ -526,8 +552,7 @@ gets access they should not. `--strict` turns it into a hard error.
 | `containsAny` | `{<type>-at-least-one-member-of}` | (a) Direct | N/A |
 | `like "a*"` | `{string-regexp-match}`, glob translated to an anchored regex | (d) Supplementary | N/A |
 | Set literal | `Apply {<type>-bag}` | (a) Direct | N/A |
-| Template + `?slot` | `Policy` with `Parameter` | (d) Supplementary | N/A |
-| templateLink | `PolicyReference` with `Argument` | (d) Supplementary | N/A |
+| Template + `?slot` | inert parameterized `Policy` in the Bundle pool + warning | (b) Lossy/warn | Error |
 | `if-then-else` (boolean position) | `(c && t) \|\| (!c && e)` | (d) Supplementary | N/A |
 | `if-then-else` (non-boolean) | none | (c) Hard error | Error |
 | `decimal` and its functions | `{double}` family | (b) Lossy/warn | Error |

@@ -1,5 +1,24 @@
 # Lessons Learned
 
+## verify-the-input-can-reach-the-code-path (July 2026)
+
+**Rule**: Before mapping a source-language construct, confirm the construct can actually appear
+in the input you accept. A handler for something the parser never emits on your input path is
+dead code — and worse, its mere presence implies a feature works when it cannot.
+
+**Why**: The Cedar reader had a `_template_link` handler mapping `templateLinks` to
+`PolicyReference`s. Cedar template *links* are runtime instantiations supplied through the
+policy-set / entities API; `policies_to_json_str` on policy *text* always returns
+`templateLinks: []`. So the handler was unreachable via the reader's only input path, its EST
+key names (`templateId`, `values`) were guessed and unverified, and — the real damage — the
+Phase 2 design had assumed links would arrive *with* the template, which shaped the whole
+template mapping. Once that premise was falsified, an uninstantiated template (dormant in
+Cedar) was being emitted as a top-level `Bundle.Policy` with no entry point, an ambiguous
+structure that a review caught before merge. The fix hinged on a fact about the *runtime
+model*, not the syntax: a construct's existence in the grammar does not mean it reaches your
+parser's output. (→ empty-fixture-directory-is-a-coverage-lie)
+
+
 ## merge-conflict-markers-can-be-committed (July 2026)
 
 **Rule**: A merge can be finalized with unresolved `<<<<<<<` / `=======` / `>>>>>>>` markers

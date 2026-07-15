@@ -1266,10 +1266,21 @@ from acal_core.readers.cedar import load as load_cedar  # noqa: E402
 
 
 @cedar_required
+def _cedar_main(doc):
+    """The active policy, whether emitted as a bare Policy (static-only) or as the
+    entry-point of a Bundle (templates present)."""
+    if "Policy" in doc:
+        return doc["Policy"]
+    bundle = doc["Bundle"]
+    entry = bundle["PolicyReference"]["Id"]
+    return next(p for p in bundle["Policy"] if p["PolicyId"] == entry)
+
+
 def test_cedar_simple_permit():
+    """A static-only Cedar file is a single top-level Policy — no Bundle, no pool."""
     doc = load_cedar(str(CEDAR / "simple-permit.cedar"))
-    assert "Bundle" in doc
-    main = doc["Bundle"]["Policy"][-1]
+    assert "Policy" in doc and "Bundle" not in doc
+    main = _cedar_main(doc)
     assert main["CombiningAlgId"].endswith("deny-unless-permit")
     inner = main["CombinerInput"][0]["Policy"]
     assert inner["CombiningAlgId"].endswith("deny-overrides")
@@ -1280,8 +1291,7 @@ def test_cedar_simple_permit():
 def test_cedar_combining_is_nested_deny_unless_permit_over_deny_overrides():
     """Cedar = some permit AND no forbid, else deny. The naive flat encoding would silently
     turn a forbid into a no-op; the nested one traces Cedar exactly."""
-    doc = load_cedar(str(CEDAR / "forbid-overrides.cedar"))
-    main = doc["Bundle"]["Policy"][-1]
+    main = _cedar_main(load_cedar(str(CEDAR / "forbid-overrides.cedar")))
     assert main["CombiningAlgId"].endswith("deny-unless-permit")
     inner = main["CombinerInput"][0]["Policy"]
     assert inner["CombiningAlgId"].endswith("deny-overrides")
@@ -1355,11 +1365,48 @@ def test_cedar_like_glob_becomes_anchored_regex():
 
 @cedar_required
 def test_cedar_template_becomes_parameterized_policy():
-    doc = load_cedar(str(CEDAR / "template.cedar"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        doc = load_cedar(str(CEDAR / "template.cedar"))
     tmpl = [p for p in doc["Bundle"]["Policy"] if "Parameter" in p]
     assert len(tmpl) == 1
     assert tmpl[0]["Parameter"] == [{"Name": "principal", "DataType": "{string}"}]
     assert "VariableReference" in json.dumps(tmpl[0])
+
+
+@cedar_required
+def test_cedar_uninstantiated_template_warns_and_has_no_entry_point():
+    """A template link is a runtime instantiation absent from policy text, so a template in a
+    .cedar file is inert. It must be reported (not silently emitted as active) and the Bundle
+    must have no decision entry point."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_cedar(str(CEDAR / "template.cedar"))
+    assert "PolicyReference" not in doc["Bundle"], "an uninstantiated template is not a root"
+    assert any("uninstantiated" in str(w.message) for w in caught)
+
+
+@cedar_required
+def test_cedar_template_is_a_pool_entry_gated_by_an_explicit_entry_point():
+    """With an active static policy present, the template sits inert in the definition pool and
+    the active policy is named explicitly by Bundle.PolicyReference — no ambiguity about which
+    policy decides, and the template participates only if referenced (which text links never do)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        doc = load_cedar(str(CEDAR / "template-plus-static.cedar"))
+    bundle = doc["Bundle"]
+    assert bundle["PolicyReference"]["Id"] == "urn:cedar:policy:main"
+    ids = [p["PolicyId"] for p in bundle["Policy"]]
+    assert "urn:cedar:policy:main" in ids           # the active entry point
+    assert any(i.startswith("urn:cedar:template:") for i in ids)  # inert pool entry
+    # The entry point resolves to a real policy in the pool.
+    assert _cedar_main(doc)["CombiningAlgId"].endswith("deny-unless-permit")
+
+
+@cedar_required
+def test_cedar_template_strict_errors():
+    with pytest.raises(CedarUnsupportedFeatureError, match="uninstantiated"):
+        load_cedar(str(CEDAR / "template.cedar"), strict=True)
 
 
 @cedar_required
@@ -1405,11 +1452,13 @@ def test_cedar_syntax_error_is_distinct_type():
 
 @cedar_required
 @pytest.mark.parametrize("fixture", [
-    "simple-permit", "entity-scope", "forbid-overrides",
-    "operators", "template", "decimal-approximate", "extra-annotation",
+    "simple-permit", "entity-scope", "forbid-overrides", "operators",
+    "template", "template-plus-static", "decimal-approximate", "extra-annotation",
 ])
 def test_cedar_fixtures_convert_without_nulls(fixture):
-    doc = load_cedar(str(CEDAR / f"{fixture}.cedar"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        doc = load_cedar(str(CEDAR / f"{fixture}.cedar"))
     assert _find_nulls(doc) == []
 
 
