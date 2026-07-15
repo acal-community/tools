@@ -1,5 +1,40 @@
 # Lessons Learned
 
+## a-content-blind-cache-makes-a-test-suite-lie (July 2026)
+
+**Rule**: A cache keyed by *source identity* (path, URL, branch) but not by *content* will serve
+stale results after the source changes — and if a test suite reads through it, the suite reports
+green on the developer's machine while failing on a clean one. Verify anything cache-backed with
+the cache cleared, and treat CI's empty-cache runner as the only trustworthy signal.
+
+**Why**: The yacal/jacal validators cache resolved spec schemas at `~/.cache/{y,j}acal-validator`,
+keyed by `sha256(source@branch)`, with no content check. The local spec working copy had changed
+(spec #94), but the cache kept serving the pre-#94 schema, so warm-cache runs reported
+`yacal 88/88, jacal 90/90` for an entire session — inflated by ~11 tests. The true fresh-cache
+state was `85/88` and `82/90`, hiding two independent, pre-existing drifts (a #94 alignment gap
+and stale XPath fixtures). Every "452 passing" report made against a warm cache was fiction. The
+cost was a session of false confidence; the tell was invisible precisely because a validator
+*should* be deterministic, so nobody thought to clear a cache. Only a fresh clone (or CI) exposes
+it. (→ empty-fixture-directory-is-a-coverage-lie)
+
+## simulate-a-ci-workflow-in-a-clean-env-before-committing-it (July 2026)
+
+**Rule**: Before committing a CI workflow, run its exact install-and-test sequence in a throwaway
+clean environment (fresh venv, isolated `$HOME` for an empty cache, freshly cloned dependencies).
+A dependency already present on the dev machine hides an install failure that a fresh runner will
+hit on the first run.
+
+**Why**: The CI setup installed `acal-explain`, whose `litellm` dependency pulls a heavy sdist
+stack (openai, tokenizers, tiktoken, aiohttp). On the dev machine litellm was already installed
+(anaconda), so `pip install -e ./acal-explain[dev]` "worked". In a fresh venv it failed to build,
+and — because it is a hard dependency — took acal-explain's own install down with it, which would
+have been a red first CI run debugged in the Actions UI instead of locally. The simulation caught
+it, and the fix was better than a workaround: litellm became an optional `[llm]` extra, since the
+code already imports it lazily and the tests mock it. The general trap: "it installs on my
+machine" is not evidence it installs on a clean one. (→ conversion-report-never-enters-the-document
+is unrelated; this pairs with a-content-blind-cache-makes-a-test-suite-lie — both are "green here,
+red there" failures.)
+
 ## verify-the-input-can-reach-the-code-path (July 2026)
 
 **Rule**: Before mapping a source-language construct, confirm the construct can actually appear

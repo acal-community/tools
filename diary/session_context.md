@@ -4,14 +4,49 @@
 
 Work spans two repos:
 
-- **`xacml-spec/`** (the OASIS spec repo) — spec issue #94 cleanup. Branch `issue-94-notice-id-nonunique` is ready but **unmerged**, pending TC sign-off.
-- **`tools/`** — five packages: `acal-core` (readers/writers + language registry + capability matrices), `acal-convert`, `acal-explain`, `yacal-validator`, `jacal-validator`. **441 tests pass across all five.**
+- **`xacml-spec/`** (the OASIS spec repo) — spec issue #94 is public PR #100 (branch `issue-94-notice-id-nonunique`), **not yet merged** to spec `main`. The tools now track this branch (see below).
+- **`tools/`** — five packages: `acal-core`, `acal-convert`, `acal-explain`, `yacal-validator`, `jacal-validator`. **452 tests pass across all five — verified by CI on a clean runner**, not on a warm cache.
 
-**Branch state.** Everything through the hub/spoke re-model is merged to `main` (PR #9 and follow-ups). Active work is on branch **`cedar`**, cut from a clean main, carrying the Cedar reader. Nothing else is outstanding; the old stacked-branch backlog is gone.
+**Branch state.** Cedar is merged to `main` (PR #15). The **first CI in the repo** and the spec-#94 alignment are in PR #16 (branch `ci-and-spec-alignment`), CI-green, awaiting merge. Once #16 lands, `main` is again the single source of truth.
 
-**`cedarpy` is an optional dependency** (`pip install acal-core[cedar]`). It is a compiled Rust wheel, so the base install stays light; the Cedar reader raises a clear install hint if a `.cedar` file is loaded without it, and the Cedar tests skip when it is absent.
+**Two optional heavy dependencies** (→ heavy-runtime-dependencies-are-optional-extras): `acal-core[cedar]` (cedarpy, Cedar's parser) and `acal-explain[llm]` (litellm, for live model calls). Both import lazily and the suites mock/skip them. **CI must install `acal-core[dev]`** (which pulls cedarpy) or the Cedar tests silently skip.
 
-## Most Recent Session (July 14, 2026 — later) — Cedar import
+**Spec-source coupling to know:** the validator tests and CI now resolve schemas against the **#94 branch** of `oasis-tcs/xacml-spec` (the direction the tools are built for). The `acal-convert`/validator CLIs still default to public spec `main` (pre-#94). This split is deliberate during the transition and resolves when PR #100 merges.
+
+## Most Recent Session (July 15, 2026) — first CI, and the cache that had been lying
+
+The goal was to add CI. Standing it up exposed that the picture we thought was consistent was
+not — and the reason is a lesson worth its own entry (→ a-content-blind-cache-makes-a-test-suite-lie).
+
+**The validators' green was a cache artifact.** They cache resolved spec schemas keyed by
+`source@branch` with no content check, so a changed local spec kept serving stale schemas.
+Warm-cache runs reported `yacal 88/88, jacal 90/90` all session; the true fresh-cache state was
+`85/88` and `82/90`. Every "452 passing" report made against a warm cache was fiction. A fresh
+clone — or CI's empty-cache runner — is the only trustworthy signal.
+
+The masked failures were two independent, pre-existing drifts:
+
+- **Notice-Id uniqueness (#94).** Spec PR #100 removed the requirement that notice Ids be unique.
+  Six error fixtures asserting the old behaviour were stale; they moved to the *valid* sets and
+  now affirmatively test that duplicates are permitted.
+- **Stale XPath fixtures.** The jacal XPath failures were *not* the `ContextSelectorId` /
+  `unevaluatedProperties` issue the code comment and the diary claimed — that diagnosis had gone
+  stale. The real cause: the schema now models `PolicyDefaults`/`RequestDefaults` as arrays, but
+  the jacal fixtures still used the pre-collection object shape (yacal's were already arrays). The
+  `_patch_core_schema_shape_bugs` workaround was removed — a schema refactor had made it a dead
+  no-op. (→ find-based-readers-drop-what-they-do-not-ask-for is a cousin: a workaround outliving
+  the thing it worked around.)
+
+**CI, and simulating it first.** The workflow runs all five packages on ubuntu 3.11/3.12, installs
+acal-core[dev] first so cedarpy is present (with an import guard, or Cedar tests would skip), and
+clones the spec at the #94 branch for the validators. A fresh runner has an empty cache, so the
+masking above cannot recur. The whole workflow was simulated in a clean venv before committing —
+which caught that acal-explain's litellm dependency would fail a fresh install and take the
+package down with it. That became a real improvement rather than a workaround: litellm is now an
+optional `[llm]` extra. (→ simulate-a-ci-workflow-in-a-clean-env-before-committing-it,
+→ heavy-runtime-dependencies-are-optional-extras)
+
+## Previous Session (July 14, 2026 — later) — Cedar import
 
 Cedar is **not** the first spoke — ALFA, and XACML 2.0/3.0, are older spokes. It is the first
 spoke *designed as one from the start*: the earlier spokes had the hub/spoke frame, the
@@ -176,18 +211,29 @@ enforcement gap, filed as spec issue #99.
 
 ## Open Items for Next Session
 
-**Cedar — finish the branch:**
+**Blocking on spec PR #100 (a reminder is set to track it):**
 
-- **PR `cedar` → main.** The reader, matrix, fixtures, `--fail-closed`, and the ALFA presence fix are done and green; run `/code-review` (import-model Phase 7) and open the PR.
-- **CI must install `acal-core[cedar]`**, or the Cedar suite silently skips (the `cedar_required` marker). A skipped Cedar suite is the empty-fixture-directory trap in a new costume. (→ empty-fixture-directory-is-a-coverage-lie)
-- **AWS IAM JSON** is the next spoke after Cedar (per ROADMAP), and the second matrix the interactive-decisions abstraction should be drawn from before `acal-decisions` starts.
-- Consider retrofitting the datatype ladder onto XACML and ALFA — the XACML reader still remaps datatypes by unchecked regex passthrough. (→ datatype-resolution-ladder)
+- **When #100 merges to `oasis-tcs/xacml-spec` main**, switch the `ref` in `.github/workflows/ci.yml`
+  from `issue-94-notice-id-nonunique` back to the default branch, and re-run CI to confirm.
+- **Reconcile the CLI default spec source with the tests.** The validator/convert CLIs default to
+  public spec `main` (pre-#94); the tests use the #94 branch. This split is intentional until #100
+  merges, then both should point at `main`. A user running the CLI today gets notice-Id uniqueness
+  enforced; the tests do not — that is the transition state, not a bug.
+
+**Immediate:**
+
+- **Merge PR #16** (CI + spec-#94 alignment), then `main` is the single source of truth again.
+- **AWS IAM JSON** is the next spoke (per ROADMAP), and the second matrix the interactive-decisions
+  abstraction should be drawn from before `acal-decisions` starts.
+- Retrofit the datatype ladder onto XACML and ALFA — the XACML reader still remaps datatypes by
+  unchecked regex passthrough. (→ datatype-resolution-ladder)
+- **Consider content-hashing the validators' schema cache** (or a `--refresh` in test setup). The
+  current `source@branch` key is what let stale schemas mask real failures for a whole session.
+  (→ a-content-blind-cache-makes-a-test-suite-lie)
 
 **Spec:**
 
-- **Issue #94 branch awaiting TC sign-off.** Do not merge without agreement — normative change.
 - **Issue #99**: normative examples violate the `AttributeAssignmentExpression (AttributeId, Category)` uniqueness constraint and the XSD cannot catch it.
-- **Tooling impact of #94**: if it lands, any validator enforcing notice-Id uniqueness must drop it. Check `yacal-validator` / `jacal-validator`.
 
 **Known limitations, deferred:**
 
