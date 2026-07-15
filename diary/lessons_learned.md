@@ -1,5 +1,22 @@
 # Lessons Learned
 
+## merge-conflict-markers-can-be-committed (July 2026)
+
+**Rule**: A merge can be finalized with unresolved `<<<<<<<` / `=======` / `>>>>>>>` markers
+still in a file if the conflict is resolved by hand carelessly or a tool auto-adds and commits.
+Grep the tree for markers after any non-trivial merge — especially in prose files, where no
+test or compiler will ever catch them.
+
+**Why**: PR #9's merge committed conflict markers into `diary/session_context.md`, the file
+that is the primary context source for every future session and for `/grill-me`. They sat
+there through several later commits because nothing executes a diary — a broken `.py` fails
+import, a broken markdown file just renders wrong, silently. The markers had wrapped the whole
+pre-rewrite version of the file inside one conflict hunk, so the "current state" section was
+duplicated and contradictory, and a future session would have started from a file that argued
+with itself. The fix is trivial once seen; seeing it requires looking, because the working
+tree reported the file as clean (the markers were in HEAD, not a pending change).
+
+
 ## converter-output-must-be-fed-to-our-own-validator (July 2026)
 
 **Rule**: A converter that has a validator in the same repo must be tested by *piping its

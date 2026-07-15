@@ -715,12 +715,19 @@ def _process_notice_decl(
 @v_args(inline=False)
 class AlfaTransformer(Transformer):
 
-    def __init__(self, symbols: _SymbolTable, strict: bool = False) -> None:
+    def __init__(self, symbols: _SymbolTable, strict: bool = False, fail_closed: bool = False) -> None:
         super().__init__()
         self._symbols = symbols
         self._strict = strict
+        self._fail_closed = fail_closed
         self._current_vars: dict[str, str] = {}
         self._ns_parts: list[str] = list(symbols.namespace_parts)
+
+    def _must_be_present(self) -> bool:
+        """ALFA compiles to XACML 3.0, whose MustBePresent default is False, so ALFA's real
+        runtime behaviour is fail-open on a missing attribute. Emitted explicitly (never
+        omitted) per presence-semantics-must-be-explicit; fail_closed flips it to deny."""
+        return bool(self._fail_closed)
 
     def _warn_or_raise(self, msg: str) -> None:
         if self._strict:
@@ -1180,7 +1187,10 @@ class AlfaTransformer(Transformer):
         for prefix, cat_urn in _CANONICAL_PREFIXES.items():
             if dotted.startswith(prefix + "."):
                 attr_id = dotted[len(prefix) + 1:]
-                return {"AttributeDesignator": {"Category": cat_urn, "AttributeId": attr_id}}
+                return {"AttributeDesignator": {
+                    "Category": cat_urn, "AttributeId": attr_id,
+                    "MustBePresent": self._must_be_present(),
+                }}
 
         # Shorthand: declared attribute alias
         first = dotted.split(".")[0]
@@ -1191,6 +1201,7 @@ class AlfaTransformer(Transformer):
             desig: dict = {"Category": decl.category, "AttributeId": attr_id}
             if decl.type:
                 desig["DataType"] = decl.type
+            desig["MustBePresent"] = self._must_be_present()
             result: dict = {"AttributeDesignator": desig}
             if decl.is_bag:
                 # Private marker consumed by cmp_expr for bag overloading.
@@ -1203,7 +1214,10 @@ class AlfaTransformer(Transformer):
             f"Attribute path {dotted!r} could not be resolved. "
             "Declare via 'attribute { }' block or use canonical 'Attributes.<category>.<id>' form."
         )
-        return {"AttributeDesignator": {"Category": "", "AttributeId": dotted}}
+        return {"AttributeDesignator": {
+            "Category": "", "AttributeId": dotted,
+            "MustBePresent": self._must_be_present(),
+        }}
 
     # -----------------------------------------------------------------------
     # Literals
@@ -1315,6 +1329,7 @@ def load(
     strict: bool = False,
     include: Sequence[str] = (),
     debug: bool = False,
+    fail_closed: bool = False,
 ) -> dict[str, Any]:
     """Parse an ALFA policy file and return a neutral ACAL dict.
 
@@ -1351,7 +1366,7 @@ def load(
         _dump_symbol_table(combined)
 
     try:
-        doc = AlfaTransformer(combined, strict=strict).transform(tree)
+        doc = AlfaTransformer(combined, strict=strict, fail_closed=fail_closed).transform(tree)
     except VisitError as exc:
         cause = exc.__context__
         if isinstance(cause, (ALFASyntaxError, ALFAUnsupportedFeatureError)):

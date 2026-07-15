@@ -54,6 +54,16 @@ from .output import render
     help="Fail on any construct the source language cannot express faithfully in ACAL.",
 )
 @click.option(
+    "--fail-closed",
+    is_flag=True,
+    default=False,
+    help=(
+        "Harden synthesized designators (Cedar, ALFA) to MustBePresent: true, so a rule whose "
+        "attribute is missing denies rather than being skipped. Deviates from the source's "
+        "fail-open semantics; off by default."
+    ),
+)
+@click.option(
     "--check-export",
     "export_targets",
     multiple=True,
@@ -79,6 +89,7 @@ def main(
     output: str,
     include_files: tuple[str, ...],
     strict: bool,
+    fail_closed: bool,
     export_targets: tuple[str, ...],
     model: str | None,
 ) -> None:
@@ -118,7 +129,7 @@ def main(
 
     try:
         doc, report = load_with_report(
-            input_file, fmt, strict=strict, include=include_files
+            input_file, fmt, strict=strict, include=include_files, fail_closed=fail_closed
         )
     except Exception as exc:
         raise click.ClickException(f"Failed to load policy: {exc}") from exc

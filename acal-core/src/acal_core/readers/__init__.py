@@ -7,6 +7,10 @@ from ..report import LOSSY, ConversionReport
 # Re-export language-specific errors so callers can catch them by name.
 from .xacml import XACMLUnsupportedFeatureError as XACMLUnsupportedFeatureError  # noqa: E402
 from .alfa import ALFAUnsupportedFeatureError as ALFAUnsupportedFeatureError  # noqa: E402
+from .cedar import (  # noqa: E402
+    CedarSyntaxError as CedarSyntaxError,
+    CedarUnsupportedFeatureError as CedarUnsupportedFeatureError,
+)
 
 # UTF-8 BOM that some editors prepend; strip before inspecting the first byte.
 _UTF8_BOM = b"\xef\xbb\xbf"
@@ -35,6 +39,11 @@ def detect_format_from_bytes(chunk: bytes) -> str | None:
         return "xacml"
     if first == "{":
         return "jacal"
+    # Cedar opens with permit / forbid / @annotation — none of which collide with YACAL's
+    # capitalized root keys or ALFA's namespace/import.
+    from .cedar import looks_like_cedar
+    if looks_like_cedar(chunk[:256]):
+        return "cedar"
     # ALFA check — use the longer chunk (up to 256 bytes) for comment stripping.
     from .alfa import _looks_like_alfa
     if _looks_like_alfa(chunk[:256]):
@@ -61,6 +70,7 @@ def load(
     strict: bool = False,
     include: tuple[str, ...] = (),
     debug: bool = False,
+    fail_closed: bool = False,
 ) -> dict:
     if fmt not in READ_FORMATS:
         raise ValueError(
@@ -74,7 +84,10 @@ def load(
         return yacal.load(path)
     if fmt == "alfa":
         from . import alfa
-        return alfa.load(path, strict=strict, include=include, debug=debug)
+        return alfa.load(path, strict=strict, include=include, debug=debug, fail_closed=fail_closed)
+    if fmt == "cedar":
+        from . import cedar
+        return cedar.load(path, strict=strict, fail_closed=fail_closed)
     from . import jacal
     return jacal.load(path)
 
@@ -85,6 +98,7 @@ def load_with_report(
     strict: bool = False,
     include: tuple[str, ...] = (),
     debug: bool = False,
+    fail_closed: bool = False,
 ) -> tuple[dict, ConversionReport]:
     """Load a policy and report what the reader had to compromise on.
 
@@ -99,7 +113,7 @@ def load_with_report(
     report = ConversionReport(source_format=fmt, source_dialect=dialect, strict=strict)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        doc = load(path, fmt, strict=strict, include=include, debug=debug)
+        doc = load(path, fmt, strict=strict, include=include, debug=debug, fail_closed=fail_closed)
 
     for entry in caught:
         if issubclass(entry.category, UserWarning):

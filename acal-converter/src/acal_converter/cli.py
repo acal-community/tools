@@ -53,6 +53,17 @@ from acal_core.writers import write
     ),
 )
 @click.option(
+    "--fail-closed",
+    is_flag=True,
+    default=False,
+    help=(
+        "Emit MustBePresent: true on synthesized attribute designators (Cedar, ALFA), so a "
+        "rule whose attribute the PDP does not supply DENIES rather than being skipped. This "
+        "is a deliberate deviation from those languages' fail-open runtime semantics; the "
+        "default reproduces the source faithfully."
+    ),
+)
+@click.option(
     "--validate",
     is_flag=True,
     default=False,
@@ -67,7 +78,7 @@ from acal_core.writers import write
         "to stderr before converting. Useful for debugging shorthand resolution."
     ),
 )
-def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, include_files, debug):
+def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, include_files, debug, fail_closed):
     if no_strict:
         strict = False
     """Convert ACAL policy documents between formats.
@@ -101,7 +112,7 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
         )
 
     try:
-        data = load(input_file, fmt, strict=strict, include=include_files, debug=debug)
+        data = load(input_file, fmt, strict=strict, include=include_files, debug=debug, fail_closed=fail_closed)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 

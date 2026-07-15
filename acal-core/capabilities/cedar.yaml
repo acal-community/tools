@@ -93,7 +93,7 @@ decisions:
     question: >
       Cedar `decimal` is fixed-point to 4 places; ACAL `double` is IEEE-754 binary float. A
       comparison at a precision boundary can decide differently. Proceed, or refuse?
-    triggers: a datatype with `fidelity: approximate` is used
+    triggers: "a datatype with `fidelity: approximate` is used"
     default: warn
     flag: "--strict"
     options:

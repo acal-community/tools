@@ -11,7 +11,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "cedarpy>=4.0"]
+# Cedar parsing uses Cedar's own Rust parser via cedarpy (a compiled wheel). It is optional
+# so the base install stays lightweight; readers/cedar.py raises a clear install hint if a
+# .cedar file is loaded without it.
+cedar = ["cedarpy>=4.0"]
 
 [build-system]
 requires = ["setuptools>=68"]
