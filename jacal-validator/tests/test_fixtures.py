@@ -52,6 +52,10 @@ VALID_FIXTURES: dict[str, str] = {
     "ex15-bundle-named-argument.json": "Bundle with NamedArgument in SharedVariableReference",
     "ex16-response-full.json": "Response with Status, Notice, ResultEntity, and ApplicablePolicyReference",
     "ex17-bundle-user-shortids.json": "Bundle with user-defined ShortIds and multi-set reference chain",
+    # Duplicate notice Ids are permitted per spec issue #94 (oasis-tcs/xacml-spec PR #100).
+    "ex18-notice-duplicate-ids-rule.json": "duplicate NoticeExpression Ids in a Rule (permitted, #94)",
+    "ex19-notice-duplicate-ids-policy.json": "duplicate NoticeExpression Ids in a Policy (permitted, #94)",
+    "ex20-notice-duplicate-ids-result.json": "duplicate Notice Ids in a Result (permitted, #94)",
 }
 
 # ---------------------------------------------------------------------------
@@ -70,7 +74,8 @@ STRUCTURAL_INVALID_FIXTURES: dict[str, str] = {
 
 # Constraint: semantic rule from the catalog or supplementary checker
 CONSTRAINT_INVALID_FIXTURES: dict[str, str] = {
-    "err04-duplicate-notice-ids.json": "jacal:rule-noticeexpression-id-unique",
+    # NOTE: notice-Id uniqueness constraints were removed by spec issue #94 (PR #100). The
+    # former err04 / err28 / err29 fixtures are now valid (see VALID_FIXTURES, ex18–ex20).
     "err05-bundle-duplicate-policy-ids.json": "jacal:bundle-policy-policyid-unique",
     "err06-duplicate-rule-ids.json": "jacal:rule-id-unique-within-policy",
     "err07-duplicate-shortid-names.json": "jacal:shortidset-shortid-name-unique",
@@ -92,8 +97,6 @@ CONSTRAINT_INVALID_FIXTURES: dict[str, str] = {
     "err24-shortidset-reference-cycle.json": "jacal:shortidset-reference-acyclic",
     "err26-sharedvariable-reference-cycle.json": "jacal:shared-variable-reference-acyclic",
     "err27-sharedvariable-contains-variablereference.json": "jacal:shared-variable-definition-no-variable-reference",
-    "err28-policy-duplicate-noticeexpression-ids.json": "jacal:policy-noticeexpression-id-unique",
-    "err29-result-duplicate-notice-ids.json": "jacal:result-notice-id-unique",
     "err30-result-duplicate-resultentity-categories.json": "jacal:result-resultentity-category-unique",
     "err31-result-duplicate-applicablepolicyreference-ids.json": "jacal:result-applicablepolicyreference-id-unique",
     "err32-resultentity-duplicate-attribute-ids.json": "jacal:resultentity-attribute-attributeid-unique",

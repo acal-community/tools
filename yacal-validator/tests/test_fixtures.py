@@ -40,6 +40,10 @@ VALID_FIXTURES = [
     "ex15-policy-jsonpath-selector.yaml",
     "ex16-response-full-result.yaml",
     "ex17-request-multirequests-expanded.yaml",
+    # Duplicate notice Ids are permitted per spec issue #94 (PR #100) — see fixtures.
+    "ex18-notice-duplicate-ids-rule.yaml",
+    "ex19-notice-duplicate-ids-policy.yaml",
+    "ex20-notice-duplicate-ids-result.yaml",
 ]
 
 PROFILE_EXPECTATIONS = {
@@ -57,7 +61,8 @@ STRUCTURAL_INVALID_FIXTURES = [
 ]
 
 CONSTRAINT_INVALID_RULES = {
-    "err04-duplicate-notice-ids.yaml": "rule-noticeexpression-id-unique",
+    # NOTE: notice-Id uniqueness constraints were removed by spec issue #94 (PR #100). The
+    # former err04 / err36 / err37 fixtures are now valid (see VALID_FIXTURES, ex18–ex20).
     "err06-bundle-duplicate-policy-ids.yaml": "bundle-policy-policyid-unique",
     "err08-duplicate-rule-ids.yaml": "rule-id-unique-within-policy",
     "err09-duplicate-shortid-names.yaml": "shortidset-shortid-name-unique",
@@ -87,8 +92,6 @@ CONSTRAINT_INVALID_RULES = {
     "err33-requestattribute-valuetype-datatype-mismatch.yaml": "requestattribute-valuetype-datatype-agreement",
     "err34-attributeassignment-valuetype-datatype-mismatch.yaml": "attributeassignment-valuetype-datatype-agreement",
     "err35-parameter-valuetype-datatype-mismatch.yaml": "parameter-valuetype-datatype-agreement",
-    "err36-policy-notice-duplicate-ids.yaml": "policy-noticeexpression-id-unique",
-    "err37-result-notice-duplicate-ids.yaml": "result-notice-id-unique",
     "err38-resultentity-duplicate-category.yaml": "result-resultentity-category-unique",
     "err45-resultentity-duplicate-attribute-ids.yaml": "resultentity-attribute-attributeid-unique",
     "err46-applicablepolicyreference-duplicate-ids.yaml": "result-applicablepolicyreference-id-unique",

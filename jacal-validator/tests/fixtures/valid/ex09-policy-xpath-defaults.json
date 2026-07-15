@@ -3,17 +3,19 @@
     "PolicyId": "urn:example:policy:xpath-profile",
     "Version": "1.0",
     "CombiningAlgId": "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
-    "PolicyDefaults": {
-      "XPathPolicyDefaults": {
-        "XPathVersion": "urn:example:xpath:1.0",
-        "Namespace": [
-          {
-            "Prefix": "med",
-            "Name": "urn:example:jacal:medical"
-          }
-        ]
+    "PolicyDefaults": [
+      {
+        "XPathPolicyDefaults": {
+          "XPathVersion": "urn:example:xpath:1.0",
+          "Namespace": [
+            {
+              "Prefix": "med",
+              "Name": "urn:example:jacal:medical"
+            }
+          ]
+        }
       }
-    },
+    ],
     "CombinerInput": [
       {
         "Rule": {

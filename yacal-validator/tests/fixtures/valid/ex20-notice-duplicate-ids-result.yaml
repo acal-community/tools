@@ -1,0 +1,9 @@
+# VALID FIXTURE (per spec issue #94 / oasis-tcs/xacml-spec PR #100): NoticeExpression /
+# Notice Id is NOT required to be unique. Duplicate notice Ids are permitted; this was an
+# error fixture before #94 removed the uniqueness constraints.
+Response:
+  Result:
+    - Decision: Permit
+      Notice:
+        - Id: "urn:example:yacal:notice:log"
+        - Id: "urn:example:yacal:notice:log"

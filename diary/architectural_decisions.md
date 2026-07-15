@@ -6,6 +6,24 @@
 > structural enough to shape the whole toolchain, write or update the ADR and keep this entry as
 > the log record; the ADRs cite these slugs back. Entries with an ADR are tagged `(→ ADR-NNNN)`.
 
+## heavy-runtime-dependencies-are-optional-extras (July 2026)
+
+A dependency that is heavy (compiled wheels, large transitive trees) and needed only for a
+specific runtime capability is declared as an **optional extra**, not a hard dependency. The
+code imports it lazily (`try/except ImportError`) and raises a clear install hint when the
+capability is actually used; the test suite mocks or skips it.
+
+**WHY**: Two packages now follow this — `acal-core[cedar]` (cedarpy, a Rust wheel, only for
+reading `.cedar`) and `acal-explain[llm]` (litellm + openai/tokenizers/tiktoken/aiohttp, only
+for live LLM calls). Making either a hard dependency imposes a heavy, fragile install on every
+user and every CI job for a capability many of them never invoke — and, as the litellm case
+showed, a hard heavy dependency that fails to build takes the whole package's install down with
+it. The base install stays light and robust; the capability is one extra away. The rule for
+"heavy enough to be optional": a compiled/Rust/C wheel, or a dependency that itself drags in a
+large stack, that serves one clearly separable feature. (→ simulate-a-ci-workflow-in-a-clean-env-before-committing-it)
+
+---
+
 ## conversion-decisions-are-data-not-flags (July 2026) (→ ADR-0006)
 
 Every judgment call a *user* may legitimately make during conversion is enumerated as data, in
