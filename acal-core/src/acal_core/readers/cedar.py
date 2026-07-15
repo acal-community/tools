@@ -103,11 +103,22 @@ class _Converter:
         self._strict = strict
         self._fail_closed = fail_closed
         self._datamap = _load_datamap()
-        # function name → (acal_function_suffix, owning_type, fidelity)
+        # function name → (acal_function_suffix, owning_type, fidelity). Two datatypes must not
+        # claim the same Cedar method name: the EST does not tell us an expression's type, so a
+        # collision would silently map (say) a datetime lessThan to decimal's double-less-than.
+        # A datamap that does this is misconfigured — fail loudly at construction, not at a
+        # silent wrong mapping later.
         self._ext_functions: dict[str, tuple[str, str, str]] = {}
         for type_name, spec in self._datamap.items():
             fidelity = spec.get("fidelity", "exact")
             for cedar_fn, acal_fn in (spec.get("functions") or {}).items():
+                if cedar_fn in self._ext_functions:
+                    other = self._ext_functions[cedar_fn][1]
+                    raise CedarUnsupportedFeatureError(
+                        f"capabilities/cedar.yaml maps the Cedar function {cedar_fn!r} under both "
+                        f"{other!r} and {type_name!r}. The EST carries no type at the call site, "
+                        "so the reader cannot disambiguate — give each type distinct function names."
+                    )
                 self._ext_functions[cedar_fn] = (_suffix(acal_fn), type_name, fidelity)
         # approximate types already reported, so we warn once per type, not per use.
         self._noted_approximate: set[str] = set()
@@ -187,9 +198,24 @@ class _Converter:
                 "decision until referenced."
             )
 
+        # Static policies all land in one inner deny-overrides policy, so their Rule Ids must be
+        # unique there. Cedar @id annotations are not guaranteed unique across policies, and a
+        # collision would produce a document our own validator rejects (rule-id uniqueness).
+        # Disambiguate on collision, preserving the author's id as the stem, and report it.
         rules: list[dict] = []
+        seen_ids: set[str] = set()
         for pid, pol in static.items():
-            rules.append({"Rule": self._rule(pid, pol)})
+            rule = self._rule(pid, pol)
+            if rule["Id"] in seen_ids:
+                # '.' is a legal LocalIdentifierType separator; ':' is not.
+                disambiguated = f"{rule['Id']}.{pid}"
+                self._warn_or_raise(
+                    f"Two Cedar policies share the id {rule['Id']!r}; ACAL rule ids must be "
+                    f"unique within a policy, so this one was renamed to {disambiguated!r}."
+                )
+                rule["Id"] = disambiguated
+            seen_ids.add(rule["Id"])
+            rules.append({"Rule": rule})
 
         # The active policy: Cedar's combining semantics, outer deny-unless-permit ▸ inner
         # deny-overrides. See the truth table in docs/policy-language-expressiveness.md.
@@ -354,7 +380,8 @@ class _Converter:
         if key == ".":
             return self._attr_access(val)
         if key == "Set":
-            return _apply("string-bag", [self._expr(e) for e in val])
+            prefix = _type_prefix(node)  # element type where the members make it knowable
+            return _apply(f"{prefix}-bag", [self._expr(e) for e in val])
 
         if key in self._BINARY_FN:
             return self._binary(key, val)
@@ -365,10 +392,15 @@ class _Converter:
         if key == "has":
             return self._has(val)
         if key in ("contains", "containsAny"):
-            fn = "string-is-in" if key == "contains" else "string-at-least-one-member-of"
-            return _apply(fn, [self._expr(val["right"]), self._expr(val["left"])])
+            # `contains`: is the needle (right) in the set (left). `containsAny`: do the two
+            # sets (left, right) share a member. Element type is inferred from whichever
+            # operand the EST makes knowable.
+            prefix = _type_prefix(val["right"], val["left"])
+            op = "is-in" if key == "contains" else "at-least-one-member-of"
+            return _apply(f"{prefix}-{op}", [self._expr(val["right"]), self._expr(val["left"])])
         if key == "containsAll":
-            return _apply("string-subset", [self._expr(val["right"]), self._expr(val["left"])])
+            prefix = _type_prefix(val["right"], val["left"])
+            return _apply(f"{prefix}-subset", [self._expr(val["right"]), self._expr(val["left"])])
         if key == "like":
             return self._like(val)
         if key in ("if-then-else", "if"):
@@ -401,7 +433,7 @@ class _Converter:
         right = self._expr(val["right"])
         fn = self._BINARY_FN[op]
         if op == "==":
-            fn = _equality_fn(val.get("right"))
+            fn = _equality_fn(val.get("left"), val.get("right"))
         return _apply(fn, [left, right])
 
     def _attr_access(self, val: dict) -> dict:
@@ -503,17 +535,52 @@ def _entity_uid_string(entity: dict) -> str:
     return str(entity)
 
 
-def _equality_fn(right_node: Any) -> str:
-    """Infer the ACAL equality function from the literal on the right of ==."""
-    if isinstance(right_node, dict) and "Value" in right_node:
-        v = right_node["Value"]
+def _scalar_type(node: Any) -> str | None:
+    """The ACAL scalar type of a Cedar EST node, where the EST makes it knowable.
+
+    Returns 'boolean' / 'integer' / 'double' / 'string' for a literal, the common element
+    type of a homogeneous Set literal, or None when the type cannot be told from syntax alone
+    (an attribute access, a variable — anything whose type needs Cedar's schema, which we do
+    not have). Callers default None to 'string' and the boundary is documented as a known
+    limitation in docs/policy-language-expressiveness.md.
+    """
+    if isinstance(node, dict) and "Value" in node:
+        v = node["Value"]
         if isinstance(v, bool):
-            return "boolean-equal"
+            return "boolean"
         if isinstance(v, int):
-            return "integer-equal"
+            return "integer"
         if isinstance(v, float):
-            return "double-equal"
-    return "string-equal"
+            return "double"
+        if isinstance(v, str):
+            return "string"
+        return None
+    if isinstance(node, dict) and "Set" in node:
+        member_types = {_scalar_type(e) for e in node["Set"]}
+        member_types.discard(None)
+        if len(member_types) == 1:
+            return next(iter(member_types))
+        return None
+    return None
+
+
+def _type_prefix(*nodes: Any) -> str:
+    """The first inferable scalar type among nodes, defaulting to 'string'."""
+    for node in nodes:
+        t = _scalar_type(node)
+        if t is not None:
+            return t
+    return "string"
+
+
+def _equality_fn(left_node: Any, right_node: Any) -> str:
+    """Infer the ACAL equality function from a literal on either side of ==.
+
+    Checking both sides (not just the right) means `context.count == 5` and `5 == context.count`
+    both resolve to integer-equal. Attribute == attribute, with no literal, is unknowable from
+    the EST and falls back to string-equal.
+    """
+    return f"{_type_prefix(right_node, left_node)}-equal"
 
 
 def _is_boolean(expr: dict) -> bool:

@@ -1518,3 +1518,64 @@ def test_no_reader_omits_mustbepresent_where_it_synthesizes_designators():
     ):
         for d in _designators(doc):
             assert "MustBePresent" in d, f"silent presence default: {d}"
+
+
+# ---------------------------------------------------------------------------
+# Cedar review findings #3–#6: id disambiguation, type inference, datamap guard.
+# ---------------------------------------------------------------------------
+
+@cedar_required
+def test_cedar_duplicate_annotation_id_is_disambiguated():
+    """Cedar @id is not unique across policies; ACAL rule ids must be unique within a policy.
+    A collision is renamed (with a legal separator) and reported, not silently emitted."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_cedar(str(CEDAR / "duplicate-id.cedar"))
+    inner = _cedar_main(doc)["CombinerInput"][0]["Policy"]
+    ids = [r["Rule"]["Id"] for r in inner["CombinerInput"]]
+    assert len(ids) == len(set(ids)), f"rule ids not unique: {ids}"
+    assert any("unique" in str(w.message) for w in caught)
+
+
+@cedar_required
+def test_cedar_integer_operators_are_typed_not_string():
+    """Literals and homogeneous sets carry type in the EST; the reader must use it rather than
+    defaulting every membership/equality/bag to string."""
+    doc = load_cedar(str(CEDAR / "typed-operators.cedar"))
+    s = json.dumps(doc)
+    for fn in ("integer-equal", "integer-is-in", "integer-subset", "integer-bag"):
+        assert f"function:{fn}" in s, f"expected {fn}"
+    assert "function:string-equal" not in s
+    assert "function:string-is-in" not in s
+
+
+@cedar_required
+def test_cedar_equality_infers_type_from_either_side():
+    from acal_core.readers.cedar import _equality_fn
+    lit = {"Value": 5}
+    attr = {".": {"left": {"Var": "principal"}, "attr": "age"}}
+    assert _equality_fn(attr, lit) == "integer-equal"   # literal on the right
+    assert _equality_fn(lit, attr) == "integer-equal"   # literal on the left
+    assert _equality_fn(attr, attr) == "string-equal"   # neither knowable → documented default
+
+
+@cedar_required
+def test_cedar_typed_operators_convert_and_validate(tmp_path):
+    doc = load_cedar(str(CEDAR / "typed-operators.cedar"))
+    assert _find_nulls(doc) == []
+
+
+@cedar_required
+def test_cedar_datamap_rejects_ambiguous_function_names(monkeypatch):
+    """Two datatypes claiming the same Cedar method name is unresolvable (the EST carries no
+    type at the call site); the reader must fail loudly at construction, not mis-map silently."""
+    import acal_core.readers.cedar as cedar_mod
+    bad = {
+        "decimal": {"acal_type": "{double}", "fidelity": "approximate",
+                    "functions": {"lessThan": "{double-less-than}"}},
+        "datetime": {"acal_type": "{dateTime}", "fidelity": "exact",
+                     "functions": {"lessThan": "{dateTime-less-than}"}},
+    }
+    monkeypatch.setattr(cedar_mod, "_load_datamap", lambda: bad)
+    with pytest.raises(CedarUnsupportedFeatureError, match="both"):
+        cedar_mod._Converter()
