@@ -1579,3 +1579,25 @@ def test_cedar_datamap_rejects_ambiguous_function_names(monkeypatch):
     monkeypatch.setattr(cedar_mod, "_load_datamap", lambda: bad)
     with pytest.raises(CedarUnsupportedFeatureError, match="both"):
         cedar_mod._Converter()
+
+
+@cedar_required
+def test_cedar_invalid_annotation_id_is_sanitized_and_reported():
+    """Cedar @id is arbitrary text; an ACAL Rule Id is LocalIdentifierType. An @id with illegal
+    characters is coerced to a legal id (and reported), not emitted as an invalid document."""
+    from acal_core.readers.cedar import _LOCAL_ID_RE
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_cedar(str(CEDAR / "invalid-id.cedar"))
+    rid = _cedar_main(doc)["CombinerInput"][0]["Policy"]["CombinerInput"][0]["Rule"]["Id"]
+    assert _LOCAL_ID_RE.match(rid), f"emitted an illegal Rule Id: {rid!r}"
+    assert ":" not in rid
+    assert any("not a valid ACAL identifier" in str(w.message) for w in caught)
+
+
+@cedar_required
+def test_cedar_id_sanitizer_always_yields_a_legal_id():
+    from acal_core.readers.cedar import _sanitize_local_id, _LOCAL_ID_RE
+    for raw in ["my policy", "urn:x:y", "123", "", "日本語", "$#@", "ok.id-v2", "_x"]:
+        sid, _ = _sanitize_local_id(raw, fallback="policy0")
+        assert _LOCAL_ID_RE.match(sid), f"{raw!r} -> {sid!r} is not legal"

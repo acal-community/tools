@@ -13,8 +13,13 @@ Work spans two repos:
 
 ## Most Recent Session (July 14, 2026 — later) — Cedar import
 
-Cedar is the first spoke added under the hub/spoke frame, and the first to exercise the
-interactive-decision machinery captured as data.
+Cedar is **not** the first spoke — ALFA, and XACML 2.0/3.0, are older spokes. It is the first
+spoke *designed as one from the start*: the earlier spokes had the hub/spoke frame, the
+capability matrix, and the presence/`--fail-closed` machinery **retrofitted** onto them this
+session, after the fact, whereas Cedar was taken through the full `/import-model` process —
+matrix-before-code, the datatype ladder, decisions-as-data — with the frame already explicit.
+So it is also the first to exercise the interactive-decision machinery as data rather than as a
+later addition.
 
 The parser choice was the pivot: **Cedar parses itself.** `cedarpy` wraps Cedar's own Rust
 parser and yields Cedar's official JSON AST (the EST), which the reader maps. Nothing here

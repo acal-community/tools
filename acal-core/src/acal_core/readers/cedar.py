@@ -268,7 +268,19 @@ class _Converter:
     def _rule(self, policy_id: str, pol: dict) -> dict:
         rule: dict[str, Any] = {}
         annotations = pol.get("annotations") or {}
-        rule["Id"] = annotations.get("id") or policy_id
+        # Cedar @id is an arbitrary annotation string; ACAL Rule Ids are LocalIdentifierType
+        # (letter-led, [A-Za-z0-9_] with -/. separators). policy_id (cedarpy's policyN) is always
+        # valid, so it is the fallback when an @id cannot be sanitized to a legal identifier.
+        raw_id = annotations.get("id")
+        if raw_id is None:
+            rule["Id"] = policy_id
+        else:
+            sanitized, changed = _sanitize_local_id(raw_id, fallback=policy_id)
+            if changed:
+                self._warn_or_raise(
+                    f"Cedar @id {raw_id!r} is not a valid ACAL identifier; using {sanitized!r}."
+                )
+            rule["Id"] = sanitized
         rule["Effect"] = "Permit" if pol["effect"] == "permit" else "Deny"
 
         for name in annotations:
@@ -495,6 +507,29 @@ class _Converter:
 
 def _apply(fn_suffix: str, arguments: list[dict]) -> dict:
     return {"Apply": {"FunctionId": f"{_FN}:{fn_suffix}", "Argument": arguments}}
+
+
+# ACAL LocalIdentifierType (used for Rule Id): letter-led (after optional underscores),
+# alphanumeric/underscore runs joined by single '-' or '.' separators.
+import re as _re_mod  # noqa: E402
+_LOCAL_ID_RE = _re_mod.compile(r"^_*[A-Za-z][A-Za-z_0-9]*([-.]_*[A-Za-z_0-9]*)*$")
+
+
+def _sanitize_local_id(raw: str, fallback: str) -> tuple[str, bool]:
+    """Coerce an arbitrary Cedar @id to a legal ACAL LocalIdentifierType.
+
+    Returns (id, changed). If `raw` is already legal it is returned unchanged. Otherwise
+    illegal characters are replaced with '-' and a letter prefix is added if needed; if the
+    result still is not legal (e.g. `raw` had no letters at all), `fallback` is used.
+    """
+    if _LOCAL_ID_RE.match(raw):
+        return raw, False
+    cleaned = _re_mod.sub(r"[^A-Za-z0-9_.-]", "-", raw)
+    if not _re_mod.match(r"^_*[A-Za-z]", cleaned):
+        cleaned = "id-" + cleaned
+    if _LOCAL_ID_RE.match(cleaned):
+        return cleaned, True
+    return fallback, True
 
 
 def _load_datamap() -> dict:
