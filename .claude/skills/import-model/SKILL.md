@@ -149,7 +149,15 @@ Work in this order, completing each step before starting the next:
    - Add the format branch to `load()`
    - Re-export `<Lang>UnsupportedFeatureError` so callers can catch it by name
 
-**4. CLI** — nothing to do. Both CLIs derive their `--from` choices from `LANGUAGES`. If you find yourself editing a `click.Choice`, stop: you have missed the registry entry.
+**4. CLI** — nothing to do for the format choices. Both CLIs derive their `--from` / `--to` choices from `LANGUAGES`. If you find yourself editing a `click.Choice`, stop: you have missed the registry entry.
+
+But **do not name languages in help text, docstrings, or user-facing strings.** A hardcoded
+list like `--fail-closed ... (Cedar, ALFA)` or `"Supports XACML, YACAL, JACAL, ALFA"` goes stale
+the moment a language is added and nobody remembers to update it — the acal-convert docstring
+silently dropped Cedar this way. Describe the behaviour instead ("attribute designators the
+reader synthesizes"), or point at the registry-derived `--from` choices. Grep the CLIs for the
+existing language names before finishing; if the new language *should* appear in a user-facing
+string, that string is enumerating languages and should be rephrased to not need updating.
 
 ## Phase 5: Test
 
