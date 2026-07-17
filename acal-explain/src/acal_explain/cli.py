@@ -58,8 +58,8 @@ from .output import render
     is_flag=True,
     default=False,
     help=(
-        "Harden synthesized designators (Cedar, ALFA) to MustBePresent: true, so a rule whose "
-        "attribute is missing denies rather than being skipped. Deviates from the source's "
+        "Harden attribute designators the reader synthesizes to MustBePresent: true, so a rule "
+        "whose attribute is missing denies rather than being skipped. Deviates from the source's "
         "fail-open semantics; off by default."
     ),
 )

@@ -57,10 +57,10 @@ from acal_core.writers import write
     is_flag=True,
     default=False,
     help=(
-        "Emit MustBePresent: true on synthesized attribute designators (Cedar, ALFA), so a "
-        "rule whose attribute the PDP does not supply DENIES rather than being skipped. This "
-        "is a deliberate deviation from those languages' fail-open runtime semantics; the "
-        "default reproduces the source faithfully."
+        "Emit MustBePresent: true on attribute designators the reader synthesizes (rather than "
+        "reads from the source), so a rule whose attribute the PDP does not supply is denied "
+        "instead of skipped. A deliberate deviation from the source language's fail-open runtime "
+        "semantics; the default reproduces the source faithfully."
     ),
 )
 @click.option(
@@ -83,8 +83,8 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
         strict = False
     """Convert ACAL policy documents between formats.
 
-    Supports XACML 2.0–4.0, YACAL (YAML), JACAL (JSON), and Axiomatics PDP 7.x ALFA dialect as inputs.
-    Outputs only YACAL or JACAL.
+    Reads a policy in any supported source language (see the --from choices, which are
+    derived from the acal-core language registry) and outputs YACAL or JACAL.
 
     Use --strict (recommended for security use cases) to turn any warning into
     a hard error. Use --no-strict to allow warnings for deprecated-but-harmless
