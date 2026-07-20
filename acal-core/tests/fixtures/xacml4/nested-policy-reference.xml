@@ -11,5 +11,5 @@
           CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides">
     <Rule Id="deny-after-hours" Effect="Deny"/>
   </Policy>
-  <PolicyReference PolicyId="urn:example:policy:external" Version="2.1"/>
+  <PolicyReference Id="urn:example:policy:external" Version="2.1"/>
 </Policy>

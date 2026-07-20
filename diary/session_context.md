@@ -18,7 +18,47 @@ Work spans two repos:
 
 **`acal-core/tests/vendor/cedar-examples`** is a git submodule (AWS's real-world Cedar corpus, pinned to upstream's `release/4.11.x` branch — cedar-examples has no tags). A plain `git clone` leaves it empty; `git submodule update --init` is needed or `test_cedar_examples.py` silently skips (same shape as the cedarpy guard above). CI checks it out via `submodules: true` on the checkout step.
 
-## Most Recent Session (July 19, 2026) — Cedar reader closes 19/20 of the real cedar-examples corpus
+## Most Recent Session (July 19, 2026) — Issue #5 (XACML→YACAL): already wired, four bugs found validating it
+
+Asked to work through open GitHub issues starting with #5 ("Mechanism to convert XACML 4.0
+and 3.x to YACAL 1.0"). No new mechanism was needed — `acal-convert --from xacml --to yacal`
+already does this generically (the hub/spoke architecture makes it one reader + one writer,
+not a per-pair mechanism) — but nobody had run the *full* xacml3/xacml4 fixture corpus through
+both the CLI and yacal-validator/jacal-validator end to end. Doing that (not just running the
+reader's own unit tests) surfaced four real, previously-invisible bugs, each following the same
+shape as the Cedar entity-literal bug from earlier this session: the reader ran without error,
+but the document it produced violated ACAL's own spec.
+(→ validate-the-actual-document-not-just-that-the-reader-ran)
+
+1. **`_rule()` emitted a bare `Target` key on Rule.** `RuleType` in the ACAL 1.0 spec has no
+   `Target` property at all — only `PolicyType` does. This was the July 13 session's fix for
+   rule-target being silently dropped (→ acal-spec-has-no-rule-level-target): reading the
+   Target was right, emitting it as its own key was not. It is now AND'd into `Condition`,
+   matching how the spec actually expresses "applies iff Target matches and Condition holds."
+2. **A test fixture had a schema violation of its own**: `bundle.xml`'s
+   `SharedVariableDefinition` omitted `Version`, which the XACML 4.0 schema declares
+   `use="required"` on that element (unlike Policy/PolicySet, which default it to "1.0" only
+   on 2.0/3.0). The reader's behavior (surface a missing required attribute downstream rather
+   than fabricate one) was correct; the fixture was wrong.
+3. **`PolicyReference`/`PolicyIdReference` used the wrong key.** `_policy_id_ref` (XACML
+   2.0/3.0) and `_policy_ref_4` (XACML 4.0) both emitted `PolicyId`, but `PolicyReferenceType`
+   is a `PatternMatchIdReferenceType` (→ `IdReferenceType`), which uses `Id` — `PolicyId`
+   belongs to the *referenced* Policy/PolicySet, not the reference. The XACML 4.0 XML itself
+   also uses an `Id` attribute on `<PolicyReference>`, not `PolicyId` as the reader (and its
+   own fixture) had assumed — both were wrong in the same way, which is exactly why nothing
+   caught it. Every PolicyReference this tool has ever emitted was misnamed.
+4. **`RequestAttribute.Value` was unwrapped to a bare scalar for a single value.**
+   `AttributeType.Value` is a `ValueArray` unconditionally in the spec — there is no
+   scalar-or-array alternative. `_request_attribute` special-cased `len(values) == 1` to emit
+   a bare string; now it always emits the array.
+
+All four are fixed, with new fixtures/tests covering paths that had zero coverage before
+(XACML 3.0's `PolicySet` + `PolicyIdReference`, Rule with both Target and Condition). Every
+xacml3/xacml4 fixture meant to convert successfully now does, and passes yacal-validator and
+jacal-validator at 39/39 (or INCOMPLETE only where a `PolicyReference` legitimately points
+outside the document — not a bug). Issue #5 is ready to close on verified behavior.
+
+## Previous Session (July 19, 2026) — Cedar reader closes 19/20 of the real cedar-examples corpus
 
 Asked to add AWS's cedar-examples (tinytodo especially — its shared-list/team/private-task
 model) to the test suite. Running the Cedar reader against the corpus first, before writing any

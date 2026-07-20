@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- XACML 3.0 <PolicySet> combiner input includes <PolicyIdReference>/<PolicySetIdReference>,
+     converted via the same _policy_id_ref() as XACML 4.0's <PolicyReference>. No fixture
+     exercised this path before — see test_xacml3_policy_id_reference_uses_id_not_policyid. -->
+<PolicySet xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
+           PolicySetId="urn:example:acal-convert:xacml3:policyset"
+           Version="1.0"
+           PolicyCombiningAlgId="urn:oasis:names:tc:xacml:3.0:policy-combining-algorithm:deny-overrides">
+  <Target/>
+  <Policy PolicyId="urn:example:acal-convert:xacml3:nested" Version="1.0"
+          RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-overrides">
+    <Target/>
+    <Rule RuleId="permit-all" Effect="Permit"/>
+  </Policy>
+  <PolicyIdReference Version="2.1">urn:example:policy:external</PolicyIdReference>
+</PolicySet>

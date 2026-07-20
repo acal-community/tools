@@ -113,6 +113,16 @@ def _set_if(d: dict, key: str, value: Any) -> None:
         d[key] = value
 
 
+def _and_exprs(*exprs: dict | None) -> dict | None:
+    """AND together whichever of `exprs` are present; None if none are."""
+    present = [e for e in exprs if e is not None]
+    if not present:
+        return None
+    if len(present) == 1:
+        return present[0]
+    return {"Apply": {"FunctionId": _ACAL_AND, "Argument": present}}
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -376,12 +386,18 @@ class _Converter:
                     "Alternatives: use an explicit Version, a version pattern in the Version attribute, "
                     "or encode version constraints in the PolicyId URI (e.g. as query or matrix parameters)."
                 )
-        ref: dict = {"PolicyId": (elem.text or "").strip()}
+        # PolicyReferenceType (a PatternMatchIdReferenceType) uses "Id", not "PolicyId" —
+        # the latter belongs to PolicyType/PolicySetType, the thing being referenced, not the
+        # reference itself.
+        ref: dict = {"Id": (elem.text or "").strip()}
         _set_if(ref, "Version", elem.get("Version"))
         return ref
 
     def _policy_ref_4(self, elem: ET.Element) -> dict:
-        ref: dict = {"PolicyId": elem.get("PolicyId", "")}
+        # <PolicyReference> in the XACML 4.0 XML schema itself carries the reference as an
+        # "Id" attribute (from IdReferenceType), not "PolicyId" — that name belongs to the
+        # thing being referenced (Policy/PolicySet), not the reference.
+        ref: dict = {"Id": elem.get("Id", "")}
         _set_if(ref, "Version", elem.get("Version"))
         return ref
 
@@ -430,20 +446,28 @@ class _Converter:
                     "If this is a valid XACML construct, it is not yet implemented in acal-convert."
                 )
 
+        # RuleType has no Target property in the ACAL 1.0 spec — only PolicyType does.
+        # A Rule applies iff its Target matches AND its Condition is true, so a Rule-level
+        # Target is AND'd into Condition rather than emitted as its own key; a bare
+        # `rule["Target"]` produced a document our own validator rejects (and, worse, one a
+        # spec-faithful consumer would have to reject or silently ignore — turning "permit
+        # doctors" back into "permit everyone", the exact bug this was meant to fix).
         target = elem.find(self._t("Target"))
-        if target is not None:
-            _set_if(r, "Target", self._target(target))
+        target_expr = self._target(target) if target is not None else None
 
         var_defs = [self._variable_definition(v)
                     for v in elem.findall(self._t("VariableDefinition"))]
         _set_if(r, "VariableDefinition", var_defs or None)
 
         cond = elem.find(self._t("Condition"))
+        condition_expr = None
         if cond is not None:
             if self._version == XACMLVersion.V2_0:
-                _set_if(r, "Condition", self._condition_xacml2(cond))
+                condition_expr = self._condition_xacml2(cond)
             else:
-                _set_if(r, "Condition", self._expr_child(cond))
+                condition_expr = self._expr_child(cond)
+
+        _set_if(r, "Condition", _and_exprs(target_expr, condition_expr))
 
         notices = self._notice_expressions(elem)
         _set_if(r, "NoticeExpression", notices or None)
@@ -913,11 +937,10 @@ class _Converter:
         attr: dict = {"AttributeId": self._ident(elem.get("AttributeId"))}
         _set_if(attr, "DataType", self._dt(elem.get("DataType")))
         _set_if(attr, "Issuer", elem.get("Issuer"))
+        # AttributeType.Value is a ValueArray in the ACAL 1.0 spec — always an array, even for
+        # a single value; there is no bare-scalar alternative to fall back to.
         values = [(v.text or "").strip() for v in elem.findall(self._t("Value"))]
-        if len(values) == 1:
-            attr["Value"] = values[0]
-        elif values:
-            attr["Value"] = values
+        _set_if(attr, "Value", values or None)
         return attr
 
     _RESPONSE_KNOWN_CHILDREN = frozenset({"Result"})

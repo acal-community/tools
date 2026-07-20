@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A Rule with both a Target and a Condition: it must apply iff both hold, so the reader
+     must AND them together rather than one silently overwriting the other. -->
+<Policy xmlns="urn:oasis:names:tc:xacml:3.0:core:schema:wd-17"
+        PolicyId="urn:example:acal-convert:xacml3:rule-target-and-condition"
+        Version="1.0"
+        RuleCombiningAlgId="urn:oasis:names:tc:xacml:3.0:rule-combining-algorithm:deny-unless-permit">
+  <Target/>
+  <Rule RuleId="permit-doctors-on-call" Effect="Permit">
+    <Target>
+      <AnyOf><AllOf>
+        <Match MatchId="urn:oasis:names:tc:xacml:1.0:function:string-equal">
+          <AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string">doctor</AttributeValue>
+          <AttributeDesignator Category="urn:oasis:names:tc:xacml:1.0:subject-category:access-subject"
+                               AttributeId="urn:example:attribute:role"
+                               DataType="http://www.w3.org/2001/XMLSchema#string" MustBePresent="true"/>
+        </Match>
+      </AllOf></AnyOf>
+    </Target>
+    <Condition>
+      <Apply FunctionId="urn:oasis:names:tc:xacml:1.0:function:string-equal">
+        <AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string">true</AttributeValue>
+        <AttributeDesignator Category="urn:oasis:names:tc:xacml:3.0:attribute-category:resource"
+                             AttributeId="urn:example:attribute:on-call"
+                             DataType="http://www.w3.org/2001/XMLSchema#string" MustBePresent="true"/>
+      </Apply>
+    </Condition>
+  </Rule>
+</Policy>

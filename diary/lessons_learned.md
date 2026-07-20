@@ -20,6 +20,34 @@ was one line (render `__entity` to Cedar's canonical `Type::"id"` string instead
 dict through) — but nothing short of full-document validation would have caught it, because the
 reader's own error handling had no way to know its own output was wrong.
 
+**Confirmed again, independently, the same session**: working GitHub issue #5 (XACML→YACAL),
+running every xacml3/xacml4 fixture through `acal-convert` *and* yacal-validator/jacal-validator
+— not just the reader's own hand-written assertions — found four more instances of the identical
+shape in `readers/xacml.py`: a Rule-level `Target` key the spec's `RuleType` doesn't have
+(→ acal-spec-has-no-rule-level-target), `PolicyReference` emitting `PolicyId` where the spec
+says `Id`, `RequestAttribute.Value` unwrapped to a bare scalar where the spec requires an array
+always, and a hand-written fixture (`bundle.xml`) itself missing a schema-required attribute.
+Every one of these passed the reader's own unit tests for years; none would survive being fed
+back through the validator. Two readers, two unrelated bug classes, same root cause: a reader's
+tests asserting facts *about its own output* can't catch the output being wrong relative to an
+external spec — only re-validating against that spec can.
+
+## acal-spec-has-no-rule-level-target (July 2026)
+
+**Rule**: In the ACAL 1.0 spec, `RuleType` has no `Target` property — only `PolicyType` does.
+A Rule-level Target (XACML's own `<Rule><Target>...`) must be AND'd into the Rule's
+`Condition`, never emitted as its own `Target` key on the converted Rule.
+
+**Why**: A July 13 session fixed `_rule()` silently dropping XACML's Rule-level `<Target>`
+(turning "permit doctors" into "permit everyone") by reading it and setting `rule["Target"]` —
+correct impulse, wrong shape. Nobody checked the output against yacal-validator, so the
+document being spec-invalid went unnoticed for a full session plus everything after it, until
+issue #5 work ran the fixture through the validator and got "Additional properties are not
+allowed ('Target' was unexpected)". The fix: `_and_exprs(target_expr, condition_expr)` folds
+the Target's boolean expression into Condition, the same way Cedar's `_scope_and_conditions`
+folds scope into Condition — a Rule applies iff Target matches AND Condition holds, which is a
+conjunction regardless of which key the source language happened to spell it with.
+
 ## hand-written-fixtures-dont-find-the-bugs-real-corpora-do (July 2026)
 
 **Rule**: A reader with 200+ passing tests and only hand-written fixtures has proven it handles

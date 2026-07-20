@@ -958,8 +958,10 @@ def test_xacml4_target_is_a_boolean_expression():
     assert "Apply" in target, "4.0 Target should convert to a bare expression, not a Match tree"
     assert target["Apply"]["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-equal"
 
-    rule_target = policy["CombinerInput"][0]["Rule"]["Target"]
-    assert "Apply" in rule_target
+    # RuleType has no Target property in ACAL 1.0 — the Rule's Target is AND'd into
+    # Condition (see test_xacml4_rule_target_is_not_dropped).
+    rule_condition = policy["CombinerInput"][0]["Rule"]["Condition"]
+    assert "Apply" in rule_condition
 
 
 def test_xacml4_notice_expression_discriminates_obligation_from_advice():
@@ -989,8 +991,22 @@ def test_xacml4_nested_policy_and_policy_reference():
     assert nested["CombinerInput"][0]["Rule"]["Id"] == "deny-after-hours"
 
     ref = next(i["PolicyReference"] for i in inputs if "PolicyReference" in i)
-    assert ref["PolicyId"] == "urn:example:policy:external"
+    # PolicyReferenceType uses "Id" (IdReferenceType), not "PolicyId" — that name belongs to
+    # the thing being referenced, not the reference itself.
+    assert ref["Id"] == "urn:example:policy:external"
     assert ref["Version"] == "2.1"
+
+
+def test_xacml3_policy_id_reference_uses_id_not_policyid():
+    """<PolicySet>'s <PolicyIdReference> shares _policy_id_ref with 4.0's <PolicyReference> —
+    same key-naming bug, same fix, and this path had zero fixtures before now."""
+    doc = load_xacml(str(XACML3 / "policyset-with-reference.xml"))
+    inputs = doc["Policy"]["CombinerInput"]
+
+    ref = next(i["PolicyReference"] for i in inputs if "PolicyReference" in i)
+    assert ref["Id"] == "urn:example:policy:external"
+    assert ref["Version"] == "2.1"
+    assert "PolicyId" not in ref
 
 
 def test_xacml4_detected_by_namespace():
@@ -1025,13 +1041,17 @@ def test_xacml4_conversion_is_clean():
 # "permit doctors" into "permit everyone". No fixture had a Rule Target, so nothing
 # caught it. The unknown-child guard is the structural fix — the Target vanished
 # quietly precisely because unrecognised Rule children were never rejected.
+#
+# RuleType has no Target property in the ACAL 1.0 spec (only PolicyType does) — a first
+# attempt that emitted rule["Target"] directly produced a document yacal-validator rejects.
+# It is AND'd into Condition instead. (→ acal-spec-has-no-rule-level-target)
 # ---------------------------------------------------------------------------
 
 def test_xacml3_rule_target_is_not_dropped():
     doc = load_xacml(str(XACML3 / "rule-target.xml"))
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]
-    assert "Target" in rule, "Rule Target was dropped — the rule now applies to everyone"
-    apply_ = rule["Target"]["Apply"]
+    assert "Target" not in rule, "RuleType has no Target property in the ACAL 1.0 spec"
+    apply_ = rule["Condition"]["Apply"]
     assert apply_["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-equal"
     assert {"Value": "doctor"} in apply_["Argument"]
 
@@ -1039,10 +1059,20 @@ def test_xacml3_rule_target_is_not_dropped():
 def test_xacml4_rule_target_is_not_dropped():
     doc = load_xacml(str(XACML4 / "target-boolean-expr.xml"))
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]
-    assert "Target" in rule
-    assert rule["Target"]["Apply"]["FunctionId"] == (
+    assert "Target" not in rule
+    assert rule["Condition"]["Apply"]["FunctionId"] == (
         "urn:oasis:names:tc:acal:1.0:function:string-equal"
     )
+
+
+def test_xacml3_rule_target_and_condition_are_anded_together():
+    """A Rule with both a Target and a Condition must apply iff both hold — Target alone
+    would silently drop the Condition's constraint, or vice versa."""
+    doc = load_xacml(str(XACML3 / "rule-target-and-condition.xml"))
+    rule = doc["Policy"]["CombinerInput"][0]["Rule"]
+    apply_ = rule["Condition"]["Apply"]
+    assert apply_["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:and"
+    assert len(apply_["Argument"]) == 2
 
 
 def test_xacml_unknown_rule_child_raises():
@@ -1160,7 +1190,10 @@ def test_xacml4_bundle_with_shared_variable():
 
     svd = bundle["SharedVariableDefinition"][0]
     assert svd["Id"] == "urn:example:shared:editor-check"
-    assert "Version" not in svd, "absent Version must not surface as a null"
+    # Version is use="required" on SharedVariableDefinitionType in the XACML 4.0 schema
+    # itself (unlike Policy/PolicySet, which default it to "1.0" when absent on 2.0/3.0) —
+    # so a real SharedVariableDefinition always carries one.
+    assert svd["Version"] == "1.0"
     assert svd["Expression"]["Apply"]["FunctionId"] == (
         "urn:oasis:names:tc:acal:1.0:function:string-equal"
     )
@@ -1186,7 +1219,9 @@ def test_xacml4_request_with_request_entity():
     assert req["ReturnPolicyIdList"] is True
     entity = req["RequestEntity"][0]
     assert entity["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
-    assert entity["RequestAttribute"][0]["Value"] == "doctor"
+    # AttributeType.Value is a ValueArray in the ACAL 1.0 spec — always an array, even for a
+    # single value; a bare scalar here would fail our own schema.
+    assert entity["RequestAttribute"][0]["Value"] == ["doctor"]
 
 
 def test_xacml_result_obligations_raise_rather_than_vanish():
