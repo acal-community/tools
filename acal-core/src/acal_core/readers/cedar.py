@@ -122,6 +122,8 @@ class _Converter:
                 self._ext_functions[cedar_fn] = (_suffix(acal_fn), type_name, fidelity)
         # approximate types already reported, so we warn once per type, not per use.
         self._noted_approximate: set[str] = set()
+        # multi-level attribute-chain flattening reported once per document, not per use.
+        self._warned_chain = False
 
     def _warn_or_raise(self, msg: str) -> None:
         if self._strict:
@@ -398,6 +400,13 @@ class _Converter:
         (key, val), = node.items()
 
         if key == "Value":
+            # A literal entity reference (e.g. `Job::"customer"` in `principal.job ==
+            # Job::"customer"`) arrives as {"__entity": {"type":..,"id":..}}, not a scalar —
+            # render it to Cedar's own "Type::\"id\"" string, the same canonical form scope
+            # and `in`/`is` targets already use, or it would emit a bare non-scalar Value that
+            # fails ACAL's own schema.
+            if isinstance(val, dict) and "__entity" in val:
+                return {"Value": _entity_uid_string(val)}
             return {"Value": val}
         if key == "Var":
             # A bare variable reference in expression position (e.g. RHS `principal`).
@@ -465,34 +474,63 @@ class _Converter:
             fn = _equality_fn(val.get("left"), val.get("right"))
         return _apply(fn, [left, right])
 
-    def _attr_access(self, val: dict) -> dict:
-        """`principal.role` → AttributeDesignator on the principal category."""
-        base = val["left"]
-        attr = val["attr"]
-        if isinstance(base, dict) and "Var" in base:
-            category = _VAR_CATEGORY.get(base["Var"], _ENV)
-            return self._designator(category, attr)
+    def _resolve_chain(self, node: dict) -> tuple[str, str | None]:
+        """Walk a `.attr` / `["key"]` access chain (identical EST shape) down to its base
+        request variable. Returns (category, dotted path so far — None at the variable itself).
+
+        Cedar's Record is a nested structural value; ACAL attributes are flat (see the `record`
+        entry in capabilities/cedar.yaml). A chain like `principal.viewPermissions.hotelReservations`
+        is flattened into one compound AttributeId ("viewPermissions.hotelReservations") exactly
+        as the single-level case already flattens `resource.owner` into AttributeId "owner" — the
+        PDP must supply a flat value per accessed path, deeper paths just need one per depth.
+        Anything else at the base (a function call, an inline Record literal, a Set) is not a
+        chain into one of the four request variables and has no such flattening available.
+        """
+        if isinstance(node, dict) and "Var" in node:
+            return _VAR_CATEGORY.get(node["Var"], _ENV), None
+        if isinstance(node, dict) and "." in node:
+            inner = node["."]
+            category, prefix = self._resolve_chain(inner["left"])
+            if prefix is not None:
+                self._note_chain_flattening()
+            path = inner["attr"] if prefix is None else f"{prefix}.{inner['attr']}"
+            return category, path
         raise CedarUnsupportedFeatureError(
-            "Cedar nested attribute access (record traversal) has no flat-attribute ACAL "
-            "mapping. See the `record` entry in capabilities/cedar.yaml."
+            "Cedar attribute access whose base is neither a request variable nor a chain of "
+            "attribute accesses (e.g. a function call, Set, or Record literal) has no "
+            "flat-attribute ACAL mapping. See the `record` entry in capabilities/cedar.yaml."
         )
 
+    def _note_chain_flattening(self) -> None:
+        if self._warned_chain:
+            return
+        self._warned_chain = True
+        self._warn_or_raise(
+            "A multi-level Cedar attribute/record access (e.g. `principal.a.b`) was flattened "
+            "into one compound AttributeId ('a.b'); the PDP must supply a value keyed on that "
+            "exact dotted path, which is a project-specific convention, not a Cedar concept."
+        )
+
+    def _attr_access(self, val: dict) -> dict:
+        """`principal.role`, and nested `a.b.c` / bracket `a["k"]` chains → AttributeDesignator
+        on the compound dotted path (see _resolve_chain)."""
+        category, prefix = self._resolve_chain(val["left"])
+        path = val["attr"] if prefix is None else f"{prefix}.{val['attr']}"
+        return self._designator(category, path)
+
     def _has(self, val: dict) -> dict:
-        """`principal has email` → the attribute's bag is non-empty.
+        """`principal has email` (or `a.b has c`) → the attribute's bag is non-empty.
 
         Inside the `has` operand MustBePresent stays false even under fail_closed — see
         _designator — because presence is exactly what is being tested.
         """
-        base = val["left"]
-        attr = val["attr"]
-        if isinstance(base, dict) and "Var" in base:
-            category = _VAR_CATEGORY.get(base["Var"], _ENV)
-            desig = self._designator(category, attr, has_context=True)
-            return _apply("integer-greater-than", [
-                _apply("string-bag-size", [desig]),
-                {"Value": 0},
-            ])
-        raise CedarUnsupportedFeatureError("Cedar `has` on a non-variable base is unsupported.")
+        category, prefix = self._resolve_chain(val["left"])
+        path = val["attr"] if prefix is None else f"{prefix}.{val['attr']}"
+        desig = self._designator(category, path, has_context=True)
+        return _apply("integer-greater-than", [
+            _apply("string-bag-size", [desig]),
+            {"Value": 0},
+        ])
 
     def _in_expr(self, val: dict) -> dict:
         """`X in Y` (expression position): is Y an ancestor of (or equal to) X.

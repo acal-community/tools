@@ -18,30 +18,47 @@ Work spans two repos:
 
 **`acal-core/tests/vendor/cedar-examples`** is a git submodule (AWS's real-world Cedar corpus, pinned to upstream's `release/4.11.x` branch — cedar-examples has no tags). A plain `git clone` leaves it empty; `git submodule update --init` is needed or `test_cedar_examples.py` silently skips (same shape as the cedarpy guard above). CI checks it out via `submodules: true` on the checkout step.
 
-## Most Recent Session (July 19, 2026) — Cedar `in`/`is` expression gaps closed against the real cedar-examples corpus
+## Most Recent Session (July 19, 2026) — Cedar reader closes 19/20 of the real cedar-examples corpus
 
 Asked to add AWS's cedar-examples (tinytodo especially — its shared-list/team/private-task
 model) to the test suite. Running the Cedar reader against the corpus first, before writing any
 fixtures, was the right call: 19 of 20 real policies failed, including tinytodo itself.
 (→ hand-written-fixtures-dont-find-the-bugs-real-corpora-do)
 
-Two root causes accounted for nearly all of it. **Multi-entity scope `in`**
+**First pass — three root causes, 1/20 → 12/20.** Multi-entity scope `in`
 (`action in [Action::"A", Action::"B"]`) crashed with a raw `KeyError` — the reader only ever
 handled the single-entity form, because no hand-written fixture had exercised the list form.
-**Expression-position `in`/`is`** (`principal in resource.readers`, `resource is List`) had no
+Expression-position `in`/`is` (`principal in resource.readers`, `resource is List`) had no
 handler at all — scope-position `in`/`is` existed, but Cedar also allows both as ordinary
 boolean expressions inside `when`/`unless`, and tinytodo's whole sharing model runs through
 exactly this. (→ cedar-expr-in-is-reuse-scope-entity-designators)
 
-Fixing both took the corpus from 1/20 to 12/20 converting cleanly — including both tinytodo
-files, tinytodo-go, GitApp, and PhotoApp — and all 12 pass jacal-validator at 39/39 constraints,
-not just "the reader didn't throw." The other 8 hit separate, already-documented gaps (nested
-record/attribute traversal, `has` on a non-variable base, a bare `Record` construct) that
-predate this session and were deliberately left alone.
-
-cedar-examples is now vendored as a submodule rather than copied files, specifically so
-upstream drift is something CI catches rather than something nobody notices.
+**Second pass, asked explicitly to close the rest — 12/20 → 19/20.** The remaining 8 failures
+all traced to one root cause, not eight: Cedar's `Record` type, showing up as multi-level
+`.attr.attr` chains, bracket `["key"]` indexing (identical EST shape to `.attr`), and `has` on
+a chained base. This **reversed a prior explicit decision** in `capabilities/cedar.yaml`, which
+had declined to flatten records into dotted attribute names. Re-examining it: *reading* through
+a chain is the same risk already accepted for the single-level case (`resource.owner` → flat
+AttributeId `"owner"`), just applied once more per depth — not a new kind of risk, so there was
+no real reason it had been declined beyond not yet having a corpus that needed it. Implemented
+as one compound dotted AttributeId per chain, warned once per document.
 (→ cedar-expr-in-is-reuse-scope-entity-designators)
+
+Chasing that also **found a silent bug, not a crash**: `principal.job == Job::"internal"` (a
+literal entity used as an ordinary `==` operand, not a scope/`in`/`is` target) was emitting
+cedarpy's raw `{"__entity": {...}}` dict as the ACAL `Value` instead of Cedar's own canonical
+`Type::"id"` string — a non-scalar `Value` that silently produced a document failing our own
+JACAL schema. Caught by validating every converted file with jacal-validator, not just checking
+the reader didn't raise. (→ validate-the-actual-document-not-just-that-the-reader-ran)
+
+Genuinely one gap now remains, and it is not "record traversal" but a narrower thing:
+tax_preparer builds an inline Record *literal* (`{organization: ..., ...}`) to pass to
+`.contains(...)` — ACAL has no composite Value type to construct, so an ad-hoc structural value
+has nowhere to land. All 19 passing conversions verified against jacal-validator at 39/39
+constraints, not just "didn't throw."
+
+cedar-examples is vendored as a submodule rather than copied files, specifically so upstream
+drift is something CI catches rather than something nobody notices.
 
 ## Previous Session (July 19, 2026) — spec issue #99 fixed
 
@@ -336,12 +353,11 @@ enforcement gap, filed as spec issue #99.
 
 **Known limitations, deferred:**
 
-- **Cedar nested record/attribute traversal** (`principal.viewPermissions.hotelReservations`,
-  two-plus levels deep) has no flat-attribute ACAL mapping and is the single largest remaining
-  gap in the cedar-examples corpus (7 of the 8 files that still fail hit this). A real design
-  decision, not a quick fix — see `test_cedar_examples.py`'s `KNOWN_GAPS` list for exactly which
-  files. `has` on a non-variable base (tags_n_roles) and a bare `Record` construct
-  (tax_preparer) are the other two documented Cedar gaps.
+- **Cedar Record *literal* construction** (`{organization: ..., location: ...}` built as a
+  value, e.g. tax_preparer's `.contains({...})`) is the one remaining gap in the cedar-examples
+  corpus. ACAL has no composite Value type, so this is a harder problem than the attribute-chain
+  *reading* case (solved this session) — it would need ACAL itself to grow a structural value
+  type, not just a reader change.
 - **Nested attribute resolution**: `user.clearance`, `medicalrecord.patientId` etc. still produce unresolved-attribute warnings because nested namespace paths aren't walked. Surfaces in analyzer output as `unresolved_attrs`, and now also as import-fidelity notes.
 - **Infix comparison type dispatch**: `>`, `<`, `>=`, `<=` default to `integer-*` regardless of attribute type; `==` defaults to `string-equal` for non-bag scalars. Should dispatch on the declared type.
 - **Streaming output for acal-explain** (`--stream`).

@@ -487,14 +487,27 @@ defined in [`../capabilities/cedar.yaml`](../capabilities/cedar.yaml):
 2. else a **`datatypes:` entry** exists → proceed; if `fidelity: approximate`, warn (b);
 3. else → **hard error** (c), naming the missing entry.
 
-Two types ship deliberately **unmapped**, and the reasoning matters more than the verdict:
+One type ships deliberately **unmapped**, and the reasoning matters more than the verdict:
 
 - **`ipaddr`** — ACAL 1.0 has no IP-address datatype and no CIDR/range function. Mapping
   `isInRange` onto string comparison would silently turn a subnet check into a text match: a
   different policy, and one that fails open. We decline to guess. Supply an `acal_type` and a
   `functions:` map and the reader will use it.
-- **`record`** — Cedar records are nested structural values; ACAL attributes are flat.
-  Flattening into dotted names would invent attributes the PDP was never told about.
+
+**`record` — reading vs. constructing.** *Reading* a nested attribute chain (`principal.a.b`,
+and bracket-index `a["k"]`, which Cedar's EST represents identically to `.b`) flattens into one
+compound dotted AttributeId — `AttributeId: "a.b"` — exactly as the single-level case already
+flattens `resource.owner` into `AttributeId: "owner"`; a deeper path just needs one more flat
+value from the PDP, not a new kind of risk. This unlocked the majority of the real-world
+cedar-examples corpus (sales_orgs, streaming_service, tags_n_roles, github's nested
+`resource.repo.readers`), all of which only ever *read* through a record/entity chain. Warned
+once per document (b), since the dotted-path naming is a project convention, not a Cedar
+concept the PDP already knows.
+
+*Constructing* a Record as a value — an inline `{ organization: ..., location: ... }` literal,
+as tax_preparer builds to pass to `.contains(...)` — remains a hard error (c): ACAL has no
+composite Value type, so there is nowhere for an ad-hoc, unnamed structural value to land. This
+is the one gap left in the corpus.
 
 **`decimal` maps to `double` but is marked `approximate`**, and warns on every use: Cedar
 decimal is fixed-point to 4 places, ACAL double is IEEE-754 binary float. A comparison at a
@@ -548,7 +561,8 @@ Bundle without it would leave the decision root ambiguous.
 | `<` `<=` `>` `>=` | `{integer-*}` comparisons | (a) Direct | N/A |
 | `+` `-` `*` | `{integer-add}` / `{integer-subtract}` / `{integer-multiply}` | (a) Direct | N/A |
 | `.attr` | `AttributeDesignator` | (a) Direct | N/A |
-| `has attr` | `{<type>-bag-size}(…) > 0` | (d) Supplementary | N/A |
+| `.attr.attr` / `["key"]` chain (any depth) | `AttributeDesignator` on one compound dotted `AttributeId` | (b) Lossy/warn | Error |
+| `has attr` (bare or chained) | `{<type>-bag-size}(…) > 0` | (d) Supplementary | N/A |
 | `contains` | `{<type>-is-in}` | (a) Direct | N/A |
 | `containsAll` | `{<type>-subset}` | (d) Supplementary | N/A |
 | `containsAny` | `{<type>-at-least-one-member-of}` | (a) Direct | N/A |
@@ -558,7 +572,8 @@ Bundle without it would leave the decision root ambiguous.
 | `if-then-else` (boolean position) | `(c && t) \|\| (!c && e)` | (d) Supplementary | N/A |
 | `if-then-else` (non-boolean) | none | (c) Hard error | Error |
 | `decimal` and its functions | `{double}` family | (b) Lossy/warn | Error |
-| `ipaddr`, `record`, unmapped extension fns | none — see the ladder | (c) Hard error | Error |
+| Record *literal* (`{a: 1, b: "x"}`) as a value | none — ACAL has no composite Value type | (c) Hard error | Error |
+| `ipaddr`, unmapped extension fns | none — see the ladder | (c) Hard error | Error |
 | Missing attribute at evaluation | `MustBePresent: false` — reproduces Cedar's fail-open | (b) Lossy/warn | Error |
 
 ### Auto-detection

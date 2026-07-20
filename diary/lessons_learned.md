@@ -1,5 +1,25 @@
 # Lessons Learned
 
+## validate-the-actual-document-not-just-that-the-reader-ran (July 2026)
+
+**Rule**: "the reader didn't raise an exception" is not evidence the converted document is
+correct. Feed every converted output through the project's own validator (jacal-validator /
+yacal-validator), not just a try/except around the reader call — a reader can produce a
+structurally wrong document while reporting complete success.
+
+**Why**: `principal.job == Job::"internal"` converted without any error or warning, but the
+Cedar literal-entity node (`{"__entity": {"type": "Job", "id": "internal"}}`) was passed
+through into the ACAL `Value` field unconverted — a non-scalar dict where JACAL requires a
+scalar. The reader was completely silent about it; only running the output through
+jacal-validator surfaced a schema failure ("not valid under any of the given schemas"), and even
+then the top-level error message was a useless dump of the entire document (a generic `anyOf`
+mismatch). Finding the actual defect required walking `jsonschema`'s error `.context` tree by
+hand for the leaf error with the deepest `absolute_path`, since `best_match()`-style heuristics
+and the top-level message alone don't localize a JSON Schema `anyOf`/`oneOf` failure. The fix
+was one line (render `__entity` to Cedar's canonical `Type::"id"` string instead of passing the
+dict through) — but nothing short of full-document validation would have caught it, because the
+reader's own error handling had no way to know its own output was wrong.
+
 ## hand-written-fixtures-dont-find-the-bugs-real-corpora-do (July 2026)
 
 **Rule**: A reader with 200+ passing tests and only hand-written fixtures has proven it handles

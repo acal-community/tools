@@ -183,6 +183,7 @@ datatypes:
     functions:
       toDate: "{date-from-dateTime}"
       toTime: "{time-from-dateTime}"
+      offset: "{dateTime-add-dayTimeDuration}"
 
   duration:
     acal_type: "{dayTimeDuration}"
@@ -208,10 +209,14 @@ datatypes:
     acal_type: null
     fidelity: none
     note: >
-      Cedar records are nested, structurally-typed values ({ a: 1, b: "x" }). ACAL attributes
-      are flat — there is no record type and no path expression to reach into one. Flattening
-      a record into dotted attribute names would invent attributes the PDP was never told
-      about. Supply a mapping if your deployment has a convention for this.
+      This entry governs only a Record used as a *value* — an inline literal ({ a: 1, b: "x" })
+      constructed for e.g. a `.contains(...)` argument. ACAL has no composite Value type, so an
+      ad-hoc structural value has nowhere to land; that half remains a hard error. *Reading*
+      through a record/entity chain (`principal.a.b`, `a["k"]`) is a different case, handled in
+      the reader directly (not via this datatype ladder): it flattens into one compound dotted
+      AttributeId ("a.b"), the same flattening the single-level case (`resource.owner` ->
+      AttributeId "owner") already applies once more per depth. That is a documented, warned
+      deviation (see the reader's `_resolve_chain`), not an unmapped datatype.
     functions: {}
 
 # ---------------------------------------------------------------------------

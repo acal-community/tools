@@ -6,6 +6,28 @@
 > structural enough to shape the whole toolchain, write or update the ADR and keep this entry as
 > the log record; the ADRs cite these slugs back. Entries with an ADR are tagged `(→ ADR-NNNN)`.
 
+## cedar-record-chain-reading-is-flattened-construction-is-not (July 2026)
+
+Reversal of a prior decision. Cedar's `record` datatype entry in `capabilities/cedar.yaml`
+used to decline *all* record handling with one blanket note ("flattening a record into dotted
+attribute names would invent attributes the PDP was never told about"). That blanket has been
+split in two: *reading* through a multi-level attribute/record chain (`principal.a.b`, and
+bracket `a["k"]`, which Cedar's own EST represents identically to `.attr`) now flattens into
+one compound dotted `AttributeId` ("a.b") and is supported; *constructing* a Record as a value
+(an inline `{a: 1, b: "x"}` literal, e.g. for `.contains(...)`) is still a hard error.
+
+**WHY**: the "reading" half turned out to carry no risk beyond what was already accepted. The
+single-level case (`resource.owner` → flat `AttributeId: "owner"`) was already disposition (a)
+Direct with no warning at all; a deeper chain asks the PDP for one more flat value per level of
+depth, which is the same shape of ask, not a new one. Running the reader against the real
+cedar-examples corpus (→ hand-written-fixtures-dont-find-the-bugs-real-corpora-do) showed this
+was the single largest blocker in practice — 8 of the corpus's 20 files failed on nothing but
+this. The "constructing" half is a genuinely different problem: ACAL has no composite Value
+type, so an ad-hoc structural value built inline has nowhere to land regardless of how
+attribute reads are handled; that stays a hard error naming the gap, not a guess.
+
+---
+
 ## cedar-expr-in-is-reuse-scope-entity-designators (July 2026)
 
 Expression-position Cedar `in` and `is` (`principal in resource.readers`, `resource is List`)

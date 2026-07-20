@@ -46,25 +46,27 @@ CLEAN = [
     "oopsla2024-benchmarks/benches/tinytodo/cedar/tinytodo.cedar",
     "oopsla2024-benchmarks/benches/gdrive/cedar/policies.cedar",
     "oopsla2024-benchmarks/benches/gdrive-templates/cedar/policies.cedar",
+    "oopsla2024-benchmarks/benches/github-templates/cedar/policies.cedar",
+    "oopsla2024-benchmarks/benches/github/cedar/policies.cedar",
     "cedar-example-use-cases/hotel_chains/templated/policies.cedar",
-]
-
-# Known gaps: real Cedar policies whose constructs have no ACAL mapping yet (nested
-# attribute/record traversal, `has` on a non-variable base, a bare `Record` construct — see
-# the gap table in docs/policy-language-expressiveness.md). Listed explicitly, rather than
-# skipped, so that a cedar-examples update which starts passing one of these is a visible
-# test failure demanding a look, not a silent gap that quietly stays open.
-KNOWN_GAPS = [
+    "cedar-example-use-cases/hotel_chains/static/policies.cedar",
     "cedar-example-use-cases/document_cloud/policies.cedar",
     "cedar-example-use-cases/github_example/policies.cedar",
-    "cedar-example-use-cases/hotel_chains/static/policies.cedar",
     "cedar-example-use-cases/sales_orgs/static/policies.cedar",
     "cedar-example-use-cases/sales_orgs/templated/policies.cedar",
     "cedar-example-use-cases/streaming_service/policies.cedar",
     "cedar-example-use-cases/tags_n_roles/policies.cedar",
+]
+
+# Known gaps: real Cedar policies whose constructs have no ACAL mapping yet. Only Cedar's
+# inline Record *literal* construction (`{a: 1, b: "x"}`, used as a composite value — see
+# tax_preparer's `.contains({organization: ..., ...})`) remains: reading a nested attribute
+# chain is supported (compound dotted AttributeId), but ACAL has no composite Value type to
+# construct, so a Record built as a value has nowhere to land. Listed explicitly, rather than
+# skipped, so that a cedar-examples update which starts passing this is a visible test
+# failure demanding a look, not a silent gap that quietly stays open.
+KNOWN_GAPS = [
     "cedar-example-use-cases/tax_preparer/policies.cedar",
-    "oopsla2024-benchmarks/benches/github-templates/cedar/policies.cedar",
-    "oopsla2024-benchmarks/benches/github/cedar/policies.cedar",
 ]
 
 

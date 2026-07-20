@@ -1504,6 +1504,43 @@ def test_cedar_expr_is_invalid_left_operand_raises():
 
 
 @cedar_required
+def test_cedar_attr_chain_flattens_to_compound_attribute_id():
+    """`a.b.c` (and bracket-index `a["k"]`, identical EST shape) flattens into one compound
+    dotted AttributeId, so sales_orgs/streaming_service-style multi-level access converts
+    instead of hard-erroring as 'record traversal has no ACAL mapping'."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        doc = load_cedar(str(CEDAR / "attr-chain.cedar"))
+    assert any("compound AttributeId" in str(w.message) for w in caught)
+
+    inner_rule = _cedar_main(doc)["CombinerInput"][0]["Policy"]["CombinerInput"][0]["Rule"]
+    s = json.dumps(inner_rule)
+    assert '"AttributeId": "subscription.tier"' in s
+    assert '"AttributeId": "roles.admin.enabled"' in s  # chained `has`
+    assert '"AttributeId": "owner.team"' in s            # chain used as an `in` target
+
+
+@cedar_required
+def test_cedar_attr_chain_warns_once_per_document():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        load_cedar(str(CEDAR / "attr-chain.cedar"))
+    chain_warnings = [w for w in caught if "compound AttributeId" in str(w.message)]
+    assert len(chain_warnings) == 1  # three chains in the fixture, one warning
+
+
+@cedar_required
+def test_cedar_expr_value_entity_literal_renders_canonical_string():
+    """A literal entity used as an ordinary `==` operand (not a scope/in/is target) must
+    render to Cedar's "Type::\"id\"" string, not pass through cedarpy's raw {"__entity": ...}
+    dict — which is not a scalar and would fail ACAL's own schema."""
+    doc = load_cedar(str(CEDAR / "expr-value-entity-literal.cedar"))
+    s = json.dumps(doc)
+    assert '"Value": "Job::\\"internal\\""' in s
+    assert "__entity" not in s
+
+
+@cedar_required
 def test_cedar_decimal_is_approximate_and_warns():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
