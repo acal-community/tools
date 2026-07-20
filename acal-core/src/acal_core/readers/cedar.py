@@ -358,11 +358,24 @@ class _Converter:
                 self._designator(category, _ENTITY_TYPE),
             ])]
         if op == "in":
-            lhs = operand or {"Value": _entity_uid_string(scope["entity"])}
-            return [_apply("string-is-in", [lhs, self._designator(category, _ENTITY_ANCESTORS)])]
+            ancestors = self._designator(category, _ENTITY_ANCESTORS)
+            if operand is not None:
+                targets = [operand]
+            elif "entities" in scope:
+                # `action in [Action::"A", Action::"B"]` — true of any listed entity, so this
+                # is a disjunction over the same single-entity check the singular form uses.
+                targets = [{"Value": _entity_uid_string(e)} for e in scope["entities"]]
+            else:
+                targets = [{"Value": _entity_uid_string(scope["entity"])}]
+            return [self._is_in_any(targets, ancestors)]
         raise CedarUnsupportedFeatureError(
             f"Cedar scope operator {op!r} on {var} is not recognised."
         )
+
+    def _is_in_any(self, targets: list[dict], ancestors: dict) -> dict:
+        """target ∈ ancestors, OR'd across every candidate target."""
+        checks = [_apply("string-is-in", [t, ancestors]) for t in targets]
+        return checks[0] if len(checks) == 1 else _apply("or", checks)
 
     # -- expression tree --------------------------------------------------------------------
 
@@ -403,6 +416,10 @@ class _Converter:
             return _apply("not", [self._binary("==", val)])
         if key == "has":
             return self._has(val)
+        if key == "in":
+            return self._in_expr(val)
+        if key == "is":
+            return self._is_expr(val)
         if key in ("contains", "containsAny"):
             # `contains`: is the needle (right) in the set (left). `containsAny`: do the two
             # sets (left, right) share a member. Element type is inferred from whichever
@@ -476,6 +493,68 @@ class _Converter:
                 {"Value": 0},
             ])
         raise CedarUnsupportedFeatureError("Cedar `has` on a non-variable base is unsupported.")
+
+    def _in_expr(self, val: dict) -> dict:
+        """`X in Y` (expression position): is Y an ancestor of (or equal to) X.
+
+        The entity-ancestors reserved attribute is only ever populated for the request's own
+        principal/action/resource — there is no way to ask for "the ancestors of whatever
+        entity resource.owner happens to point to" in the flat model. So the left operand must
+        be one of the four request variables directly; every real-world policy encountered
+        (tinytodo, the AWS example use-cases) only ever writes `in` that way; the right operand
+        is free to be a literal entity, a set of them, a bare variable, or one level of
+        attribute access (`resource.readers`), all of which already carry a UID-bearing value.
+        """
+        left = val["left"]
+        if not (isinstance(left, dict) and "Var" in left):
+            raise CedarUnsupportedFeatureError(
+                "Cedar `in` where the left operand is not principal/action/resource directly "
+                "has no ACAL mapping: entity-ancestors is defined only for the four request "
+                "variables themselves, not for an entity reached via attribute access."
+            )
+        ancestors = self._designator(_VAR_CATEGORY[left["Var"]], _ENTITY_ANCESTORS)
+        return self._is_in_any(self._in_targets(val["right"]), ancestors)
+
+    def _is_expr(self, val: dict) -> dict:
+        """`X is EntityType` (expression position), optionally `... in Y` combined.
+
+        Same left-operand constraint as `_in_expr`: entity-type and entity-ancestors are only
+        defined for the four request variables themselves.
+        """
+        left = val["left"]
+        if not (isinstance(left, dict) and "Var" in left):
+            raise CedarUnsupportedFeatureError(
+                "Cedar `is` where the left operand is not principal/action/resource directly "
+                "has no ACAL mapping: entity-type is defined only for the four request "
+                "variables themselves, not for an entity reached via attribute access."
+            )
+        category = _VAR_CATEGORY[left["Var"]]
+        is_check = _apply("string-equal", [
+            {"Value": val["entity_type"]},
+            self._designator(category, _ENTITY_TYPE),
+        ])
+        if "in" not in val:
+            return is_check
+        ancestors = self._designator(category, _ENTITY_ANCESTORS)
+        in_check = self._is_in_any(self._in_targets(val["in"]), ancestors)
+        return _apply("and", [is_check, in_check])
+
+    def _in_targets(self, node: dict) -> list[dict]:
+        """The candidate UID-bearing targets on the right of `in`, flattening a Set literal."""
+        if not isinstance(node, dict):
+            raise CedarUnsupportedFeatureError(f"Cedar `in` right operand {node!r} is not recognised.")
+        if "Set" in node:
+            targets: list[dict] = []
+            for element in node["Set"]:
+                targets.extend(self._in_targets(element))
+            return targets
+        if "Value" in node and isinstance(node["Value"], dict) and "__entity" in node["Value"]:
+            return [{"Value": _entity_uid_string(node["Value"])}]
+        if "Var" in node:
+            return [self._designator(_VAR_CATEGORY[node["Var"]], _ENTITY_UID)]
+        if "." in node:
+            return [self._attr_access(node["."])]
+        raise CedarUnsupportedFeatureError(f"Cedar `in` right operand {node!r} has no ACAL mapping.")
 
     def _like(self, val: dict) -> dict:
         pattern = val.get("pattern")

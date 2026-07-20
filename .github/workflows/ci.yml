@@ -20,16 +20,17 @@ jobs:
     steps:
       - name: Check out tools
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
-      # The validators test against the ACAL spec schemas. Until spec issue #94
-      # (oasis-tcs/xacml-spec PR #100, "Notice Id is not required to be unique") merges to
-      # the spec's main branch, the tools track the #94 branch — the direction they are built
-      # for. When #100 merges, change `ref` below to the spec's default branch.
-      - name: Check out ACAL spec (#94 branch)
+      # The validators test against the ACAL spec schemas. Spec PR #100 (issue #94, "Notice Id
+      # is not required to be unique") merged to the spec's main branch on 2026-07-16, so CI
+      # tracks main directly again.
+      - name: Check out ACAL spec
         uses: actions/checkout@v4
         with:
           repository: oasis-tcs/xacml-spec
-          ref: issue-94-notice-id-nonunique
+          ref: main
           path: xacml-spec
 
       - name: Set up Python ${{ matrix.python-version }}

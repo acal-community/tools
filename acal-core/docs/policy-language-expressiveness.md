@@ -538,7 +538,9 @@ Bundle without it would leave the decision root ambiguous.
 | Scope `op: All` | no Target contribution | (a) Direct | N/A |
 | Scope `== Entity::"x"` | `{string-equal}` on `entity-uid`, `MustBePresent: false` | (d) Supplementary | N/A |
 | Scope `is Type` | `{string-equal}` on `entity-type`, `MustBePresent: false` | (d) Supplementary | N/A |
-| Scope `in Entity::"x"` | `{string-is-in}` over `entity-ancestors`, `MustBePresent: false` | (d) Supplementary | N/A |
+| Scope `in Entity::"x"` / `in [Entity::"x", Entity::"y"]` | `{string-is-in}` over `entity-ancestors`, OR'd across every listed entity, `MustBePresent: false` | (d) Supplementary | N/A |
+| Expr `X in Y` (`principal in resource.readers`, `in [..]`, `in Var`) | same `entity-ancestors` translation as scope `in`, requiring the left operand to be `principal`/`action`/`resource` directly | (d) Supplementary | N/A |
+| Expr `X is Type` / `X is Type in Y` | same `entity-type` (and `entity-ancestors` if combined with `in`) translation as scope `is`, same left-operand requirement | (d) Supplementary | N/A |
 | `when { … }` | `Condition` | (a) Direct | N/A |
 | `unless { … }` | `Condition` wrapped in `{not}` | (d) Supplementary | N/A |
 | `&&` `\|\|` `!` | `{and}` / `{or}` / `{not}` | (a) Direct | N/A |

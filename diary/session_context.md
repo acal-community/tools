@@ -4,16 +4,120 @@
 
 Work spans two repos:
 
-- **`xacml-spec/`** (the OASIS spec repo) — spec issue #94 is public PR #100 (branch `issue-94-notice-id-nonunique`), **not yet merged** to spec `main`. The tools now track this branch (see below).
-- **`tools/`** — five packages: `acal-core`, `acal-convert`, `acal-explain`, `yacal-validator`, `jacal-validator`. **452 tests pass across all five — verified by CI on a clean runner**, not on a warm cache.
+- **`xacml-spec/`** (the OASIS spec repo) — spec issue #94 (PR #100) **merged to `main`** on
+  2026-07-16. The transition is over: CI, the local spec clone, and the CLI defaults all now
+  point at plain `main`, and `main` already contains the #94 fix. Issue #99's fix is committed
+  directly to `main` and pushed (commit `0f6a887`, `origin/main` matches). Issue #102 (the
+  sibling gap, same defect one type over) is implemented on branch
+  `issue-102-notice-attributeassignment-unique`, not yet committed — see below.
+- **`tools/`** — five packages: `acal-core`, `acal-convert`, `acal-explain`, `yacal-validator`, `jacal-validator`. 452 tests pass across all five, verified fresh (cold schema cache).
 
-**Branch state.** Cedar is merged to `main` (PR #15). The **first CI in the repo** and the spec-#94 alignment are in PR #16 (branch `ci-and-spec-alignment`), CI-green, awaiting merge. Once #16 lands, `main` is again the single source of truth.
+**Branch state.** Cedar is merged to `main` (PR #15). CI + the spec-#94 alignment merged via PR #16. `main` is the single source of truth.
 
 **Two optional heavy dependencies** (→ heavy-runtime-dependencies-are-optional-extras): `acal-core[cedar]` (cedarpy, Cedar's parser) and `acal-explain[llm]` (litellm, for live model calls). Both import lazily and the suites mock/skip them. **CI must install `acal-core[dev]`** (which pulls cedarpy) or the Cedar tests silently skip.
 
-**Spec-source coupling to know:** the validator tests and CI now resolve schemas against the **#94 branch** of `oasis-tcs/xacml-spec` (the direction the tools are built for). The `acal-convert`/validator CLIs still default to public spec `main` (pre-#94). This split is deliberate during the transition and resolves when PR #100 merges.
+**`acal-core/tests/vendor/cedar-examples`** is a git submodule (AWS's real-world Cedar corpus, pinned to upstream's `release/4.11.x` branch — cedar-examples has no tags). A plain `git clone` leaves it empty; `git submodule update --init` is needed or `test_cedar_examples.py` silently skips (same shape as the cedarpy guard above). CI checks it out via `submodules: true` on the checkout step.
 
-## Most Recent Session (July 15, 2026) — first CI, and the cache that had been lying
+## Most Recent Session (July 19, 2026) — Cedar `in`/`is` expression gaps closed against the real cedar-examples corpus
+
+Asked to add AWS's cedar-examples (tinytodo especially — its shared-list/team/private-task
+model) to the test suite. Running the Cedar reader against the corpus first, before writing any
+fixtures, was the right call: 19 of 20 real policies failed, including tinytodo itself.
+(→ hand-written-fixtures-dont-find-the-bugs-real-corpora-do)
+
+Two root causes accounted for nearly all of it. **Multi-entity scope `in`**
+(`action in [Action::"A", Action::"B"]`) crashed with a raw `KeyError` — the reader only ever
+handled the single-entity form, because no hand-written fixture had exercised the list form.
+**Expression-position `in`/`is`** (`principal in resource.readers`, `resource is List`) had no
+handler at all — scope-position `in`/`is` existed, but Cedar also allows both as ordinary
+boolean expressions inside `when`/`unless`, and tinytodo's whole sharing model runs through
+exactly this. (→ cedar-expr-in-is-reuse-scope-entity-designators)
+
+Fixing both took the corpus from 1/20 to 12/20 converting cleanly — including both tinytodo
+files, tinytodo-go, GitApp, and PhotoApp — and all 12 pass jacal-validator at 39/39 constraints,
+not just "the reader didn't throw." The other 8 hit separate, already-documented gaps (nested
+record/attribute traversal, `has` on a non-variable base, a bare `Record` construct) that
+predate this session and were deliberately left alone.
+
+cedar-examples is now vendored as a submodule rather than copied files, specifically so
+upstream drift is something CI catches rather than something nobody notices.
+(→ cedar-expr-in-is-reuse-scope-entity-designators)
+
+## Previous Session (July 19, 2026) — spec issue #99 fixed
+
+Issue #99 (→ xsd10-unique-silently-skips-absent-optional-fields) had two independent authors
+converge on the same fix, so this session implemented the union rather than picking a side: the
+user's issue proposed (1) rewrite the violating examples to use `Apply`/`string-concatenate`
+instead of two colliding `AttributeAssignmentExpression`s, and (2) close the XSD 1.0 enforcement
+gap with an XSD 1.1 `xs:assert`; cdanger's review agreed with both and added that XSD-1.0-only
+consumers need the equivalent as a Schematron rule, since `xs:assert` requires 1.1. All four
+pieces landed: the spec doc's own worked example (all three of its XML/YAML/JSON renderings,
+→ acal-core-md-line-numbers-are-cross-format-slots for how that renumbering was done safely),
+`examples/acal-xpath/Rule3.{xml,json}`, the new `xs:assert` on `NoticeExpressionType`, and a
+matching Schematron pattern.
+
+A companion gap was found but deliberately **not** fixed in that pass: `NoticeType.AttributeAssignment`
+(the resolved/runtime `Notice`, not the policy-time `NoticeExpression`) has the identical
+`xs:unique`-cannot-see-absent-`Category` defect and the identical schema comment admitting it,
+one type over in the same file. Scoped out to keep the #99 PR matching what #99 actually reports.
+Filed as **spec issue #102** and then implemented in the same session on branch
+`issue-102-notice-attributeassignment-unique`: the same three-part fix (`xs:assert` on
+`NoticeType`, matching Schematron pattern, and — new this time, since #99 had no YACAL-side gap
+to close — a `notice-attributeassignment-unique` entry in `acal-core-yaml-v1.0-constraints.yaml`).
+No violating example needed fixing for #102 (`Notice` is a PDP-resolved runtime object, not
+something that appears in hand-written policy examples), so the diff is schema/schematron/YACAL
+only. The `CollectionPath` for the new YACAL entry uses the specific-path convention
+(`$.Response.Result[].Notice[].AttributeAssignment`, matching `result-resultentity-category-unique`)
+rather than `NoticeExpression`'s recursive-descent `$..` form, because `NoticeType` is referenced
+from exactly one place in the object model (`ResultType.Notice`) versus `NoticeExpressionType`'s
+several.
+
+Validating any of this exposed that the repo has **no working schema-validation tooling** for
+this XSD 1.1 file — see → xsd-1.1-assert-goes-after-attributes-and-needs-a-real-processor-to-check
+for the workaround (an isolated minimal-schema check plus running the real XPath through Saxon
+directly against real/synthetic example files), reused unchanged for #102.
+
+#99 is committed and pushed to `main`. #102 is committed on branch
+`issue-102-notice-attributeassignment-unique`, pushed, and PR #103 opened — awaiting review.
+
+**Sandbox note**: `git push`/`gh pr create` against `origin` (an `ssh://git@github.com` URL)
+fail here — no SSH key (`Permission denied (publickey)`), same failure mode noted in the
+July 17 session for `git fetch`. Workaround used: temporarily `git remote set-url origin
+https://github.com/oasis-tcs/xacml-spec.git`, push (`gh`'s stored token authenticates the
+HTTPS push via the `osxkeychain` credential helper), then restore the original `ssh://` URL.
+`gh issue create`/`gh pr create` work over the API regardless and don't need this. Also: `gh
+pr create` requires the branch's tracked upstream to be the *named* remote `origin`, not a raw
+URL — pushing straight to a URL (`git push -u https://...`) sets tracking to that URL and `gh`
+then refuses with "you must first push the current branch to a remote," even though the push
+itself succeeded.
+
+## Previous Session (July 17, 2026) — spec PR #100 merged; transition closed
+
+The prior session had left the tools deliberately split: CI and the validator tests tracked
+the `issue-94-notice-id-nonunique` branch of `oasis-tcs/xacml-spec` (the direction the tools
+were built for), while the `acal-convert`/validator CLI defaults already pointed at public
+spec `main` (pre-#94) — a gap that was supposed to close itself once #100 merged.
+
+**#100 merged 2026-07-16T23:43 UTC** (`gh pr view 100` confirms `state: MERGED`, merge commit
+`6d0f17f`). Closing out the transition required three things, not just editing the CI ref:
+
+- The local `xacml-spec` clone (`~/source/acal/xacml-spec`, the default source for validator
+  tests via `ACAL_SPEC_DIR`) was 2 commits behind `origin/main` — cloning/fetching over `ssh`
+  failed in this sandbox (no `publickey`), but the repo is public, so `git fetch
+  https://github.com/oasis-tcs/xacml-spec.git main` worked and fast-forwarded cleanly.
+- `.github/workflows/ci.yml` now checks out the spec's `main` directly instead of the
+  transition branch.
+- **The warm schema cache had to be cleared by hand** (`~/.cache/{yacal,jacal}-validator/schemas`)
+  before re-running the suites. This is the same content-blind `source@branch` cache key called
+  out in (→ a-content-blind-cache-makes-a-test-suite-lie): the local spec's `main` moved but the
+  cache key did not, so a warm run would have silently kept serving pre-#100 schemas. Confirmed
+  fresh-cache green after clearing: yacal 88/88, jacal 90/90.
+
+No code change was needed on the CLI-default side — `yacal-validator`/`jacal-validator`
+`config.py` already defaulted `branch` to `main`; the split was in the *content* of upstream
+`main`, not in any tools-side branch string. That resolves for free now that #100 is merged.
+
+## Previous Session (July 15, 2026) — first CI, and the cache that had been lying
 
 The goal was to add CI. Standing it up exposed that the picture we thought was consistent was
 not — and the reason is a lesson worth its own entry (→ a-content-blind-cache-makes-a-test-suite-lie).
@@ -211,18 +315,10 @@ enforcement gap, filed as spec issue #99.
 
 ## Open Items for Next Session
 
-**Blocking on spec PR #100 (a reminder is set to track it):**
-
-- **When #100 merges to `oasis-tcs/xacml-spec` main**, switch the `ref` in `.github/workflows/ci.yml`
-  from `issue-94-notice-id-nonunique` back to the default branch, and re-run CI to confirm.
-- **Reconcile the CLI default spec source with the tests.** The validator/convert CLIs default to
-  public spec `main` (pre-#94); the tests use the #94 branch. This split is intentional until #100
-  merges, then both should point at `main`. A user running the CLI today gets notice-Id uniqueness
-  enforced; the tests do not — that is the transition state, not a bug.
-
 **Immediate:**
 
-- **Merge PR #16** (CI + spec-#94 alignment), then `main` is the single source of truth again.
+- **Push the `ci.yml` ref change and confirm CI green** against real spec `main` (not yet
+  pushed/run as of this session — the change is local only).
 - **AWS IAM JSON** is the next spoke (per ROADMAP), and the second matrix the interactive-decisions
   abstraction should be drawn from before `acal-decisions` starts.
 - Retrofit the datatype ladder onto XACML and ALFA — the XACML reader still remaps datatypes by
@@ -233,10 +329,19 @@ enforcement gap, filed as spec issue #99.
 
 **Spec:**
 
-- **Issue #99**: normative examples violate the `AttributeAssignmentExpression (AttributeId, Category)` uniqueness constraint and the XSD cannot catch it.
+- **Issue #99**: fixed, committed, and pushed to `main` directly. Done.
+- **Issue #102**: fix implemented on branch `issue-102-notice-attributeassignment-unique` in
+  `~/source/acal/xacml-spec` — needs commit, push, and PR opened next session (or later this
+  one).
 
 **Known limitations, deferred:**
 
+- **Cedar nested record/attribute traversal** (`principal.viewPermissions.hotelReservations`,
+  two-plus levels deep) has no flat-attribute ACAL mapping and is the single largest remaining
+  gap in the cedar-examples corpus (7 of the 8 files that still fail hit this). A real design
+  decision, not a quick fix — see `test_cedar_examples.py`'s `KNOWN_GAPS` list for exactly which
+  files. `has` on a non-variable base (tags_n_roles) and a bare `Record` construct
+  (tax_preparer) are the other two documented Cedar gaps.
 - **Nested attribute resolution**: `user.clearance`, `medicalrecord.patientId` etc. still produce unresolved-attribute warnings because nested namespace paths aren't walked. Surfaces in analyzer output as `unresolved_attrs`, and now also as import-fidelity notes.
 - **Infix comparison type dispatch**: `>`, `<`, `>=`, `<=` default to `integer-*` regardless of attribute type; `==` defaults to `string-equal` for non-bag scalars. Should dispatch on the declared type.
 - **Streaming output for acal-explain** (`--stream`).

@@ -1,5 +1,96 @@
 # Lessons Learned
 
+## hand-written-fixtures-dont-find-the-bugs-real-corpora-do (July 2026)
+
+**Rule**: A reader with 200+ passing tests and only hand-written fixtures has proven it handles
+the constructs someone thought to write a fixture for — nothing about constructs nobody
+thought of. Before trusting that green, run it against a real third-party corpus of the
+language, not more fixtures in the same style as the existing ones.
+
+**Why**: acal-core's Cedar reader had a full green suite and looked solid. Running it against
+AWS's own cedar-examples repo (20 real policies, including their tinytodo reference app) before
+writing a single new fixture found that 19 of 20 failed — one with a raw, unhandled `KeyError`
+crash (`action in [Action::"A", Action::"B"]`, the multi-entity scope form, which no hand-written
+fixture had ever exercised because the existing one only covered single-entity `in`), and the
+rest on an operator — expression-position `in`/`is` — that had no handler at all despite being
+core, constantly-used Cedar syntax. The gap wasn't a rare edge case; it was the reader's own
+test corpus reflecting what its author had thought to write rather than what the language's
+users actually write. (→ cedar-expr-in-is-reuse-scope-entity-designators)
+
+## this-sandbox-has-no-ssh-key-use-https-for-git-push (July 2026)
+
+**Rule**: `git push`/`git fetch` against an `ssh://git@github.com` remote fail in this sandbox
+with `Permission denied (publickey)` — there is no SSH key. `gh` itself is authenticated
+(`gh auth status` shows a valid token) and its stored credential works fine for HTTPS git
+operations via the `osxkeychain` credential helper, so the fix is to push over HTTPS, not to
+try to fix SSH. Temporarily `git remote set-url origin https://github.com/<org>/<repo>.git`,
+push, then restore the original `ssh://` URL — don't leave the remote pointed at HTTPS
+permanently, since that's a config change outside the scope of "push this branch."
+
+**Why**: Hit this pushing the #102 branch to `oasis-tcs/xacml-spec`; the July 17 session hit the
+identical failure fetching the spec repo and used the same HTTPS-instead-of-SSH workaround
+(`git fetch https://github.com/oasis-tcs/xacml-spec.git main` there). Two separate sessions
+independently rediscovering this suggests it's a standing property of this sandbox, not a
+one-off — check for an SSH failure first rather than assuming a transient network issue.
+
+One more gotcha layered on top: `gh pr create` requires the branch's tracked upstream to be the
+*named* remote `origin`, not a bare URL. `git push -u https://github.com/...` succeeds but sets
+tracking to that literal URL string, and `gh pr create` then refuses with "you must first push
+the current branch to a remote" even though the push worked. Push with `origin`'s URL swapped
+to HTTPS (as above) rather than pushing to a raw URL, so the upstream tracking stays keyed to
+`origin` and `gh pr create` resolves it correctly. `gh issue create`/`gh pr create` themselves
+go over the API and are unaffected by any of this — only raw `git push`/`git fetch` need the
+workaround.
+
+## xsd-1.1-assert-goes-after-attributes-and-needs-a-real-processor-to-check (July 2026)
+
+**Rule**: In an XSD 1.1 `complexType`, `xs:assert` must appear *after* all `xs:attribute`
+declarations, not alongside `xs:sequence` — the content model is
+`(...,(attribute|attributeGroup)*,anyAttribute?,assert*)`. And this repo has no working XSD 1.1
+validator wired up (the IDE's built-in checker doesn't understand `vc:minVersion`-gated `assert`
+at all and flags every one in the file, including pre-existing ones, as noise), so a misplaced
+`assert` won't be caught by the ambient tooling — only by an actual XSD 1.1 processor.
+
+**Why**: Adding an `xs:assert` to `NoticeExpressionType` (closing spec issue #99's enforcement
+gap, → xsd10-unique-silently-skips-absent-optional-fields) initially placed it right after
+`xs:sequence`, before the `xs:attribute` declarations — invalid per the 1.1 content model, but
+the IDE diagnostics gave no useful signal (they already show ~12 identical false-positive errors
+on every pre-existing `assert` in the file, so one more looked the same). Only running it through
+`python3 -c "import xmlschema; xmlschema.XMLSchema11(...)"` surfaced the real
+`s4s-elt-invalid-content` error with an accurate line number. Once fixed, `xmlschema` still
+couldn't load the *whole* file (an unrelated pre-existing illustrative XML snippet embedded raw
+inside an `xs:documentation` block elsewhere trips the library, plus a separate library bug on an
+unrelated `element(*, xacml:DefaultsType)` assert) — neither blocks validating the new construct
+in isolation. Two techniques worked around the missing in-repo tooling: (1) copy just the new
+`assert`'s test expression into a minimal standalone XSD 1.1 schema and check it with
+`xmlschema` against hand-built pass/fail XML cases; (2) run the *exact same* XPath 2.0 expression
+through a small XSLT 2.0 stylesheet via Saxon (`saxon9he.jar`, already present on this machine
+under docbook-xsl-nons) directly against the real example files — this also validates the
+Schematron rule, since Schematron asserts are the same XPath compiled the same way. `xmllint`
+cannot help at all here: libxml2 is XSD 1.0 / XSLT 1.0 only.
+
+## acal-core-md-line-numbers-are-cross-format-slots (July 2026)
+
+**Rule**: The bracketed `[NNN]` line numbers in `acal-core-v1.0.md`'s XML/YAML/JSON code-block
+triples (e.g. the Rule 3 example) are not real source line numbers — they are a shared numbering
+of semantic "slots" kept **synchronized across all three representations** so a single
+prose annotation list below can reference all three at once. A slot gets a display line in a
+format only if that format has syntax for it (e.g. JSON's `"Expression":{` wrapper key gets its
+own slot that XML always skips, since XML expresses the same thing as an implicit child element;
+JSON's closing-brace-only lines get slots YAML never needs). When a display line packs multiple
+slots onto one visual line (e.g. XML's `<Value DataType="string">...</Value>` fusing open+attr+
+content+close), it is labeled with the *first* slot in that range and the rest are silently
+skipped in that format's numbering.
+
+**Why**: Fixing spec issue #99 required replacing two `AttributeAssignmentExpression` entries
+with one wrapping an `Apply`/`string-concatenate` inside this example, across all three formats
+plus the trailing annotation list. Editing one format's numbers without deriving the shared
+slot scheme first would have desynchronized the cross-references. The reconstructed rule: find
+the closest existing structurally-analogous block in the same doc (here, the Target's
+`Apply`/`Value`/`AttributeDesignator`, which has the exact shape needed) and copy its per-format
+slot-skip pattern verbatim, shifted to the new starting slot number — don't invent a new
+numbering scheme by guessing at gaps.
+
 ## a-content-blind-cache-makes-a-test-suite-lie (July 2026)
 
 **Rule**: A cache keyed by *source identity* (path, URL, branch) but not by *content* will serve

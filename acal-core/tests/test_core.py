@@ -1410,6 +1410,100 @@ def test_cedar_template_strict_errors():
 
 
 @cedar_required
+def test_cedar_scope_in_list_is_ored_across_entities():
+    """`action in [Action::"A", Action::"B"]` used to crash with a raw KeyError (the reader
+    only handled the single-entity form). It must be an OR over string-is-in per entity."""
+    main = _cedar_main(load_cedar(str(CEDAR / "scope-in-list.cedar")))
+    condition = main["CombinerInput"][0]["Policy"]["CombinerInput"][0]["Rule"]["Condition"]
+    action_check = condition["Apply"]["Argument"][0]
+    assert action_check["Apply"]["FunctionId"].endswith(":or")
+    checks = action_check["Apply"]["Argument"]
+    assert len(checks) == 2
+    values = {c["Apply"]["Argument"][0]["Value"] for c in checks}
+    assert values == {'Action::"Read"', 'Action::"Write"'}
+    for c in checks:
+        assert c["Apply"]["FunctionId"].endswith(":string-is-in")
+        ancestors = c["Apply"]["Argument"][1]["AttributeDesignator"]
+        assert ancestors["AttributeId"] == "urn:cedar:1.0:entity-ancestors"
+
+
+def _collect_is_in_leaves(node: dict) -> list[dict]:
+    """Every `string-is-in` Apply anywhere under node, regardless of how `||` nests them
+    (left-associative parsing means N ORed terms are a chain, not one flat N-ary Apply)."""
+    apply = node.get("Apply")
+    if apply is None:
+        return []
+    if apply["FunctionId"].endswith(":string-is-in"):
+        return [apply]
+    leaves: list[dict] = []
+    for arg in apply["Argument"]:
+        leaves.extend(_collect_is_in_leaves(arg))
+    return leaves
+
+
+@cedar_required
+def test_cedar_expr_in_attribute_reuses_scope_in_translation():
+    """`principal in resource.readers` (expression position) is exactly tinytodo's sharing
+    model. The right operand's designator carries the referenced entity's UID, compared
+    against the ancestors of the fixed request variable on the left."""
+    doc = load_cedar(str(CEDAR / "expr-in.cedar"))
+    main = _cedar_main(doc)
+    condition = main["CombinerInput"][0]["Policy"]["CombinerInput"][0]["Rule"]["Condition"]
+    leaves = _collect_is_in_leaves(condition)
+    assert len(leaves) == 5  # attr, literal-entity, 2 set-of-entities members, bare-Var
+
+    for leaf in leaves:
+        ancestors = leaf["Argument"][1]["AttributeDesignator"]
+        assert ancestors["Category"].endswith("access-subject")
+        assert ancestors["AttributeId"] == "urn:cedar:1.0:entity-ancestors"
+
+    targets = [leaf["Argument"][0] for leaf in leaves]
+    literal_values = {t["Value"] for t in targets if "Value" in t}
+    assert literal_values == {'Team::"admins"', 'Team::"a"', 'Team::"b"'}
+
+    designator_targets = [t["AttributeDesignator"] for t in targets if "AttributeDesignator" in t]
+    attr_target = next(d for d in designator_targets if d["AttributeId"] == "readers")
+    assert attr_target["Category"].endswith(":resource")
+    var_target = next(d for d in designator_targets if d["AttributeId"] == "urn:cedar:1.0:entity-uid")
+    assert var_target["Category"].endswith(":resource")
+
+
+@cedar_required
+def test_cedar_expr_in_invalid_left_operand_raises():
+    """entity-ancestors is only populated for principal/action/resource themselves; `in` on
+    an attribute-reached entity (resource.owner in ...) has no ACAL mapping."""
+    with pytest.raises(CedarUnsupportedFeatureError, match="entity-ancestors"):
+        load_cedar(str(CEDAR / "expr-in-invalid-left.cedar"))
+
+
+@cedar_required
+def test_cedar_expr_is_bare_and_combined_with_in():
+    """`resource is List` (tinytodo's templated policy set) and the combined `is ... in ...`
+    form both translate via the same entity-type / entity-ancestors designators as scope."""
+    doc = load_cedar(str(CEDAR / "expr-is.cedar"))
+    main = _cedar_main(doc)
+    inner_rules = main["CombinerInput"][0]["Policy"]["CombinerInput"]
+    bare_condition = inner_rules[0]["Rule"]["Condition"]
+    is_check = bare_condition["Apply"]["Argument"][0]
+    assert is_check["Apply"]["FunctionId"].endswith(":string-equal")
+    assert is_check["Apply"]["Argument"][0]["Value"] == "List"
+    assert is_check["Apply"]["Argument"][1]["AttributeDesignator"]["AttributeId"] == "urn:cedar:1.0:entity-type"
+
+    combined_condition = inner_rules[1]["Rule"]["Condition"]
+    assert combined_condition["Apply"]["FunctionId"].endswith(":and")
+    type_check, in_check = combined_condition["Apply"]["Argument"]
+    assert type_check["Apply"]["FunctionId"].endswith(":string-equal")
+    assert in_check["Apply"]["FunctionId"].endswith(":string-is-in")
+    assert in_check["Apply"]["Argument"][0]["Value"] == 'Application::"Demo"'
+
+
+@cedar_required
+def test_cedar_expr_is_invalid_left_operand_raises():
+    with pytest.raises(CedarUnsupportedFeatureError, match="entity-type"):
+        load_cedar(str(CEDAR / "expr-is-invalid-left.cedar"))
+
+
+@cedar_required
 def test_cedar_decimal_is_approximate_and_warns():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")

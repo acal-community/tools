@@ -26,3 +26,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tests/vendor/cedar-examples is a git submodule (upstream fixtures, not ours); it carries its
+# own test_*.py files (e.g. tinytodo-go's) that pytest must not try to collect.
+norecursedirs = ["vendor"]

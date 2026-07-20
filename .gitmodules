@@ -1,0 +1,4 @@
+[submodule "acal-core/tests/vendor/cedar-examples"]
+	path = acal-core/tests/vendor/cedar-examples
+	url = https://github.com/cedar-policy/cedar-examples.git
+	branch = release/4.11.x

@@ -6,6 +6,28 @@
 > structural enough to shape the whole toolchain, write or update the ADR and keep this entry as
 > the log record; the ADRs cite these slugs back. Entries with an ADR are tagged `(→ ADR-NNNN)`.
 
+## cedar-expr-in-is-reuse-scope-entity-designators (July 2026)
+
+Expression-position Cedar `in` and `is` (`principal in resource.readers`, `resource is List`)
+translate through the *same* `entity-uid` / `entity-type` / `entity-ancestors` reserved
+attributes that scope-position `in`/`is`/`==` already use — and the left operand of both must
+be `principal`, `action`, or `resource` directly. An entity reached via attribute access
+(`resource.owner in Team::"x"`) is a named `CedarUnsupportedFeatureError`, not a translation.
+
+**WHY**: `entity-ancestors`/`entity-type` are populated by the PDP for the request's own four
+variables; there is no attribute in the flat ACAL model for "the ancestor set of whatever
+entity `resource.owner` happens to point to." Extending the reserved-attribute scheme to cover
+that would need a new naming convention (something like `entity-ancestors:<attr>`) invented
+speculatively — and checking the entire cedar-examples corpus (AWS's tinytodo, GitApp,
+PhotoApp, and the `cedar-example-use-cases`/`oopsla2024-benchmarks` sets, 20 files) turned up
+*zero* real policies that write `in`/`is` with anything but a bare request variable on the
+left. The boundary is deliberate and named rather than spent effort on a case nothing in the
+wild actually needs. If a future policy needs it, the corpus's `test_cedar_examples.py`
+coverage check will surface it as a newly-failing `KNOWN_GAPS` entry rather than silently
+mis-converting.
+
+---
+
 ## heavy-runtime-dependencies-are-optional-extras (July 2026)
 
 A dependency that is heavy (compiled wheels, large transitive trees) and needed only for a
