@@ -23,3 +23,4 @@ build/
 .claude/skills/grill-me/SKILL.md
 .claude/skills/session-historian/SKILL.md
 .claude/skills/startup/SKILL.md
+.grok/config.toml
