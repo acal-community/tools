@@ -69,6 +69,12 @@ STRUCTURAL_INVALID_FIXTURES: dict[str, str] = {
     "err03-rule-with-target.json": "Rule.Target is forbidden (additionalProperties)",
     "err17-bundle-policyreference-without-policy.json": "dependentRequired: Policy required when PolicyReference present",
     "err25-shortidset-reference-repeated-node.json": "uniqueItems: ShortIdSetReference must not repeat entries",
+    # Spec PR #113 (issue #101) flattened RequestEntityReference to a bare LocalIdentifier
+    # list and gave it "uniqueItems": true in the JSON schema. Duplicates are now rejected
+    # structurally, before the constraint layer runs, so this is no longer a constraint
+    # fixture. The YAML structure schema has no such uniqueItems, so the YACAL twin of this
+    # fixture (err13) still exercises the uniqueByValue constraint checker.
+    "err10-duplicate-requestentityreference-ids.json": "uniqueItems: RequestEntityReference must not repeat ids",
     "err33-parameter-expression-valuetype-datatype-forbidden.json": "dependentSchemas: Parameter.Expression.Value.DataType is forbidden",
 }
 
@@ -81,7 +87,7 @@ CONSTRAINT_INVALID_FIXTURES: dict[str, str] = {
     "err07-duplicate-shortid-names.json": "jacal:shortidset-shortid-name-unique",
     "err08-request-duplicate-entity-ids.json": "jacal:request-entity-id-unique",
     "err09-request-duplicate-attribute-ids.json": "jacal:request-attribute-id-unique-within-entity",
-    "err10-duplicate-requestentityreference-ids.json": "jacal:requestreference-requestentityreference-id-unique",
+    # err10 moved to STRUCTURAL_INVALID_FIXTURES — see the note there.
     "err11-requestentityreference-unresolved.json": "jacal:requestreference-requestentityreference-resolves",
     "err12-requestreference-duplicate-entity-id-set.json": "jacal:multirequests-requestreference-unique-by-entity-id-set",
     "err13-statusdetail-forbidden-for-ok.json": "jacal:statusdetail-forbidden-for-ok",

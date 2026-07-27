@@ -17,8 +17,8 @@
       "RequestReference": [
         {
           "RequestEntityReference": [
-            {"Id": "subject-one"},
-            {"Id": "nonexistent-entity"}
+            "subject-one",
+            "nonexistent-entity"
           ]
         }
       ]

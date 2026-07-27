@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Check out tools
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -27,14 +27,14 @@ jobs:
       # is not required to be unique") merged to the spec's main branch on 2026-07-16, so CI
       # tracks main directly again.
       - name: Check out ACAL spec
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: oasis-tcs/xacml-spec
           ref: main
           path: xacml-spec
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -55,21 +55,31 @@ jobs:
       - name: Guard — Cedar parser must be importable (or Cedar tests silently skip)
         run: python -c "import cedarpy; print('cedarpy', getattr(cedarpy, '__version__', '?'))"
 
+      # Each package runs as its own step (their tests/test_fixtures.py modules share a
+      # basename, which pytest cannot collect in a single invocation). `if: !cancelled()`
+      # keeps a failure in one package from masking the others: a spec change once broke
+      # yacal-validator and jacal-validator identically, but only yacal's failures were
+      # visible because the job stopped there.
       - name: acal-core
+        if: ${{ !cancelled() }}
         run: pytest -q acal-core
 
       - name: acal-converter
+        if: ${{ !cancelled() }}
         run: pytest -q acal-converter
 
       - name: acal-explain
+        if: ${{ !cancelled() }}
         run: pytest -q acal-explain
 
       - name: yacal-validator
+        if: ${{ !cancelled() }}
         env:
           ACAL_SPEC_DIR: ${{ github.workspace }}/xacml-spec
         run: pytest -q yacal-validator
 
       - name: jacal-validator
+        if: ${{ !cancelled() }}
         env:
           ACAL_SPEC_DIR: ${{ github.workspace }}/xacml-spec
         run: pytest -q jacal-validator

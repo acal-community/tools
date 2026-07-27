@@ -10,7 +10,7 @@ Work spans two repos:
   directly to `main` and pushed (commit `0f6a887`, `origin/main` matches); its **part 2** — the
   TC's decision to lift the `(AttributeId, Category)` uniqueness constraint entirely, plus JACAL
   XPath example schema fixes — is committed on branch `issue-99-part2-and-example-schema-fixes`
-  (see Most Recent Session). Issue #102 (the
+  (see the July 25 session). Issue #102 (the
   sibling gap, same defect one type over) is committed on branch
   `issue-102-notice-attributeassignment-unique`, pushed, PR #103 open, awaiting review — not
   yet merged to `main`.
@@ -21,17 +21,60 @@ Work spans two repos:
   branch** — #102 is expected to merge separately, so this PR shouldn't carry that dependency —
   not yet committed as of this entry. See below.
   Separately, issue #101 (cdanger's proposal to remove `RequestEntityReferenceType` as an
-  unnecessary wrapper) is implemented on branch `issue-101-requestentityreference-simplify`, also
-  off `main` — not yet committed. See below.
-- **`tools/`** — five packages: `acal-core`, `acal-convert`, `acal-explain`, `yacal-validator`, `jacal-validator`. 452 tests pass across all five, verified fresh (cold schema cache).
+  unnecessary wrapper) **merged to spec `main` as PR #113 on 2026-07-23** — which is what turned
+  `tools/` CI red four days later, since CI resolves spec schemas fresh from `main` (see Most
+  Recent Session).
+- **`tools/`** — five packages: `acal-core`, `acal-convert`, `acal-explain`, `yacal-validator`, `jacal-validator`. 512 tests pass across all five, verified fresh (cold schema cache).
 
-**Branch state.** Cedar is merged to `main` (PR #15). CI + the spec-#94 alignment merged via PR #16. `main` is the single source of truth. Issue #12's `Metadata` provenance work sits on `feat/metadata-provenance`, awaiting a PR.
+**Branch state.** Cedar is merged to `main` (PR #15). CI + the spec-#94 alignment merged via PR #16. `main` is the single source of truth. Issue #12's `Metadata` provenance work sits on `feat/metadata-provenance` as open PR #20, with `main` merged in for the spec-drift CI fix.
+
+**CI tracks the spec's `main` with a cold schema cache, and that is load-bearing.** It means an
+upstream spec merge can turn `tools/` red without anything here changing — which is the intended
+early-warning signal, not a flake. Read a sudden CI failure as possible spec drift before
+suspecting the branch under test.
 
 **Two optional heavy dependencies** (→ heavy-runtime-dependencies-are-optional-extras): `acal-core[cedar]` (cedarpy, Cedar's parser) and `acal-explain[llm]` (litellm, for live model calls). Both import lazily and the suites mock/skip them. **CI must install `acal-core[dev]`** (which pulls cedarpy) or the Cedar tests silently skip.
 
 **`acal-core/tests/vendor/cedar-examples`** is a git submodule (AWS's real-world Cedar corpus, pinned to upstream's `release/4.11.x` branch — cedar-examples has no tags). A plain `git clone` leaves it empty; `git submodule update --init` is needed or `test_cedar_examples.py` silently skips (same shape as the cedarpy guard above). CI checks it out via `submodules: true` on the checkout step.
 
-## Most Recent Session (July 27, 2026) — Issue #12: `Metadata` provenance implemented on `feat/metadata-provenance`
+## Most Recent Session (July 27, 2026) — CI red from upstream spec drift, not from Node.js
+
+CI was failing on both matrix jobs, and the visible Node.js 20 deprecation notices looked like
+the cause. They were not: GitHub was already force-running those actions on Node 24, so those
+lines were warnings and the exit-code-1 came from real test failures underneath them. The actual
+cause was upstream spec drift — CI checks out `oasis-tcs/xacml-spec@main` fresh every run, and
+spec PR #113 (issue #101) merged on 2026-07-23, after the last green run on 07-20.
+
+PR #113 removed `RequestEntityReferenceType`, retyping
+`RequestReferenceType.RequestEntityReference` directly as `LocalIdentifierType [1..*]` — so
+`[{Id: subject-one}, …]` became `[subject-one, …]` across all representations. Nothing in
+`tools/` source hardcoded the old shape (the constraint engines are catalog-driven and the path
+evaluator already handled bare-scalar arrays), so the repair was confined to fixtures, one new
+catalog `Kind`, and one test reclassification:
+
+- Nine multi-request fixtures flattened to the new shape, across both validators.
+- The catalog's new `uniqueByValue` kind implemented in both constraint engines. It is required
+  in `jacal-validator` even though the JSON schema now catches that case structurally, because
+  the valid-fixture tests assert `constraints_skipped == 0`.
+- JACAL's duplicate-id fixture moved from the constraint-invalid set to the structural-invalid
+  set, because the spec gave the JSON schema `uniqueItems: true` and the YAML schema nothing
+  equivalent (→ a-spec-change-can-move-an-error-between-validation-layers).
+
+The failure was reported as five tests in `yacal-validator`; it was actually nine, because the
+job aborted before `jacal-validator` ran and hid four identical failures
+(→ sequential-ci-steps-mask-parallel-failures). The test steps now carry
+`if: ${{ !cancelled() }}` so every package reports.
+
+Separately, and genuinely worth doing rather than as the fix: `actions/checkout` and
+`actions/setup-python` were bumped off their Node 20 majors to `v7`, retiring the deprecation
+warnings before they become hard failures.
+
+**Open question for the spec, not for `tools/`**: the JSON schema enforces
+`RequestEntityReference` uniqueness structurally while the YAML structure schema leaves it to
+the constraint catalog. The two hub serializations reject the same document at different layers
+with different rule-ids. That asymmetry may be deliberate, but it is worth raising upstream.
+
+## Earlier Session (July 27, 2026) — Issue #12: `Metadata` provenance implemented on `feat/metadata-provenance`
 
 Issue #12 asked the XACML TC for an extension point so conversion fidelity could travel with the
 document. cdanger's reply converged the design and this session implemented the agreed part in
@@ -623,8 +666,9 @@ enforcement gap, filed as spec issue #99.
 - **Emit `ShortIdSet` from the ALFA reader.** The prerequisite for `ShortIdType` metadata, and
   worth doing on its own: ALFA attribute declarations currently resolve inline into every
   designator and the author's alias survives nowhere.
-- **Push the `ci.yml` ref change and confirm CI green** against real spec `main` (not yet
-  pushed/run as of this session — the change is local only).
+- **Raise the `RequestEntityReference` uniqueness asymmetry upstream**: spec PR #113 gave the
+  JSON schema `uniqueItems: true` but left the YAML structure schema relying on the constraint
+  catalog, so the two hub serializations reject the same duplicate at different layers.
 - **AWS IAM JSON** is the next spoke (per ROADMAP), and the second matrix the interactive-decisions
   abstraction should be drawn from before `acal-decisions` starts.
 - Retrofit the datatype ladder onto XACML and ALFA — the XACML reader still remaps datatypes by

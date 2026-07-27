@@ -28,9 +28,9 @@
       "RequestReference": [
         {
           "RequestEntityReference": [
-            {"Id": "subject-one"},
-            {"Id": "subject-one"},
-            {"Id": "action-one"}
+            "subject-one",
+            "subject-one",
+            "action-one"
           ]
         }
       ]

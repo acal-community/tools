@@ -156,6 +156,37 @@ def _unique_by_property(root: Any, rule: dict, out: list[ValidationIssue]) -> No
                 seen[key_val] = item_path
 
 
+def _unique_by_value(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
+    """Values in a collection of primitive-typed values are unique by their own scalar value.
+
+    Distinct from uniqueByProperty: the collection items *are* the keys, so there is
+    no KeyProperties list to project through.
+    """
+    applies_to = rule.get("AppliesTo", {}) or {}
+    coll_path = applies_to.get("CollectionPath", "")
+    rule_id = rule["Id"]
+    spec = _provenance(rule)
+
+    for coll_str, coll in eval_path(root, coll_path):
+        if not isinstance(coll, list):
+            continue
+        seen: dict[Any, str] = {}
+        for idx, item in enumerate(coll):
+            if isinstance(item, (dict, list)):
+                continue
+            item_path = f"{coll_str}[{idx}]"
+            if item in seen:
+                out.append(ValidationIssue(
+                    severity=Severity.ERROR,
+                    message=f"Duplicate value {item!r} at {item_path}; first at {seen[item]}",
+                    path=item_path,
+                    rule_id=f"yacal:{rule_id}",
+                    spec_ref=spec,
+                ))
+            else:
+                seen[item] = item_path
+
+
 def _unique_by_concrete_subtype(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
     applies_to = rule.get("AppliesTo", {}) or {}
     coll_path = applies_to.get("CollectionPath", "")
@@ -717,6 +748,7 @@ def _graph_no_repeat(root: Any, rule: dict, out: list[ValidationIssue]) -> None:
 
 _CHECKERS = {
     "uniqueByProperty": _unique_by_property,
+    "uniqueByValue": _unique_by_value,
     "uniqueByConcreteSubtype": _unique_by_concrete_subtype,
     "nonEmptyWhenPresent": _non_empty_when_present,
     "conditionalPresence": _conditional_presence,
