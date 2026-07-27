@@ -4,10 +4,15 @@ Readers signal fidelity loss by emitting ``UserWarning``. ``load_with_report``
 captures those into a ``ConversionReport`` so callers can present them as data
 instead of scraping stderr.
 
-The report is deliberately kept outside the ACAL document. The ACAL schemas set
+The report stays outside the ACAL document by default. The ACAL schemas set
 ``additionalProperties`` / ``unevaluatedProperties`` to false in several places,
-so stamping provenance into the document would make acal-convert emit output
-that fails our own validators.
+so stamping provenance into the document makes acal-convert emit output that
+fails our own validators.
+
+``acal_core.metadata`` implements the way out of that — a `Metadata` property a
+PDP must ignore — but the spec change it depends on is proposed, not adopted
+(acal-community/tools#12). Until it lands, stamping is opt-in
+(``acal-convert --provenance``) and this report remains the default channel.
 """
 from __future__ import annotations
 

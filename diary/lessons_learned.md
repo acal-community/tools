@@ -1,5 +1,124 @@
 # Lessons Learned
 
+## a-field-that-looks-inert-may-carry-an-error-clause (July 2026)
+
+**Rule**: Before reusing an existing spec field as a place to park metadata, read its *own*
+normative paragraph, not just its type. A field whose type is a plain attribute bag can still
+carry a rule that makes populating it a hard error.
+
+**Why**: `PolicyIssuer` is an `EntityType` — an attribute/content bag, structurally perfect for
+provenance, and it was proposed as the home for exactly that. Its §7.4 paragraph says a PDP not
+implementing the Administration and Delegation profile *"MUST report an error or return an
+`Indeterminate` result if it encounters this object."* The trigger is the field being populated
+at all, regardless of content. Stamping conversion notes there would have made every ordinary
+PDP reject or fail the policy — a converter output that breaks evaluation, which is far worse
+than the reporting gap it was meant to close. The shape of a field tells you what it can hold;
+only its prose tells you what happens when you hold something in it.
+
+The same reading turned up two more constraints that shaped the design: `ContentType` support
+is *optional* (§7.34, and the JSON schema tells implementers to delete the subschema if they
+do not support it), so metadata carried in `Content` is metadata a conforming implementation
+may drop. (→ provenance-rides-a-metadata-property-behind-an-opt-in-flag)
+
+---
+
+## check-for-a-later-oasis-stage-before-porting (July 2026)
+
+**Rule**: Before analysing or porting an OASIS profile, resolve its **current** stage. Do not trust
+the citation in our own bibliography, and do not trust the first document a search returns. Check
+the versioned directory — `https://docs.oasis-open.org/xacml/3.0/<profile>/v1.0/` — where the
+unsuffixed filename is the "latest version" pointer and `csNN/` subdirectories hold the stages.
+
+**Why**: Both profiles blocking spec issue #59 advanced from Committee Draft 03 (11 March 2010) to
+**Committee Specification 02 (18 May 2014)**, but `acal-core-v1.0.md` cites the 2010 CD-03 for both
+`[Multi]` (`:6800`) and `[Hier]` (`:6768`), and the same stale citations are duplicated across five
+other spec documents. A full analysis of the Multiple Decision Profile was written against CD-03
+before the CS02 existence surfaced — from a normative reference *inside* the Hierarchical
+Resource Profile, which cites MDP as "Committee Specification 01". MDP CS02 renumbered every
+section (the four request schemes moved from §2.x to §3.x, combined decision §3→§4, conceptual
+model §4→§5, conformance §7→§8), so every section number in the analysis was wrong even though
+every substantive finding survived. Cheap to check first, expensive to retrofit.
+
+## published-oasis-specs-carry-errata-resolve-dont-copy (July 2026)
+
+**Rule**: When porting a published specification, diff its identifier list against its body before
+transcribing anything. Contradictions between a document's normative sections and its
+identifier-summary section are common and must be *resolved as a TC decision*, not silently
+carried over.
+
+**Why**: XACML 3.0 HRP CS02 — an OASIS Committee Specification, not a draft — contains five
+verified defects: §6 lists `non-xml-node-id`/`non-xml-node-req` for sections whose body text (and
+conformance clauses) use `URI-node-id`, and omits `attribute-node-id` and `URI-reference-node-id`
+entirely; the three optional sub-identifiers appear with `xacml:2.0:profile:` in §3.3 and
+`xacml:3.0:profile:` in §6; five URNs are written `urn:oasis::names:…` with a doubled colon; §2.2
+specifies a DataType of `http://urn:oasis:names:tc:xacml:1.0:data-type:anyURI`, which is an
+`http://` scheme glued onto a URN and is not a datatype that exists in XACML; and §3.1 still
+refers to the XACML **2.0** `<Resource>` element. A transcription-first port would have inherited
+all five. Corollary for tooling: **strip tags before grepping a docs.oasis-open.org HTML spec** —
+the URIs are broken across `<span>` markup, so `grep 'urn:oasis:names:tc:xacml:3.0:profile'` over
+the raw HTML returns nothing and looks like a clean negative result. Same family as
+(→ validate-the-actual-document-not-just-that-the-reader-ran).
+
+## defs-only-schema-validates-nothing (July 2026)
+
+**Rule**: A JSON Schema file that is `$defs`-only — no root `type`/`$ref`/keywords, just a bag of
+named definitions — accepts *any* instance when you validate directly against it. Before trusting
+"the examples validate," confirm the schema you pointed the validator at actually has root
+constraints; profile/fragment schemas usually don't, and must be composed onto a root schema
+first.
+
+**Why**: All four `examples/acal-xpath/*.json` files carried real schema violations — `Apply` used
+`Expression` instead of `Argument` (27 sites, against `additionalProperties: false`), and
+`PolicyDefaults`/`RequestDefaults` were objects where an array is required (4 sites) — yet had gone
+unnoticed through a prior merge. The reason was `acal-xpath-json-v1.0-schema.json` is `$defs`-only
+with no root constraints: validating an instance against it is a no-op that passes anything, so the
+examples looked validated while nothing was being checked. A partial one-site fix (cdanger's
+9dfcc05) had even been applied to a single occurrence, which only left one file internally
+inconsistent without revealing the scale. The defects surfaced only when the instances were
+validated against the *composed* core+XPath+JSONPath root schema. Lesson for follow-up: CI should
+validate example instances against a composed root schema, never against a profile fragment on its
+own. Same family as (→ sweep-every-representation-file-extension-not-the-ones-you-remember): a
+check that runs clean isn't evidence unless you've confirmed it was actually looking.
+
+## sweep-every-representation-file-extension-not-the-ones-you-remember (July 2026)
+
+**Rule**: When removing or renaming a type across a spec that has multiple native
+representations (here: the ACAL model doc, XML schema/Schematron, YACAL doc/constraints/structure
+schema, JACAL JSON Schema), the stray-reference grep must be extension-agnostic — `grep -rl
+PATTERN .` — not a `--include` list assembled from memory of which files "obviously" matter.
+
+**Why**: Removing `RequestEntityReferenceType` (spec issue #101) touched `.md`, `.xsd`, `.sch`,
+and `.yaml` files; the first sweep used `--include="*.md" --include="*.yaml" --include="*.xsd"
+--include="*.sch"` and every one of those came back clean, giving false confidence the job was
+done. `acal-core-json-v1.0-schema.json` — the JACAL representation — still had the old wrapper
+type, the stale OCL-form comment, and a TODO suggesting the wrong uniqueness mechanism, because
+`.json` was never in the include list. Nothing about JSON was harder to search; it was omitted
+because it wasn't top-of-mind when the include list was typed, not because it was excluded on
+purpose. Caught only because the diff got an independent second look. An unscoped `grep -rl` (or
+a documented, deliberately-exhaustive extension list checked against "how many native
+representations does this spec have") costs nothing extra and doesn't depend on remembering.
+
+## pub-check-reports-validate-the-frozen-publish-not-trunk (July 2026)
+
+**Rule**: Before filing an issue from an external validation report run against a *published*
+artifact (an OASIS pub-check PDF, a CI run against a tagged release, etc.), `git blame` the
+line the finding points at in current trunk. If trunk already fixed it after the artifact was
+published, the finding is stale-by-construction and filing an issue for it is pure noise —
+there's nothing to action, since the already-published bundle is immutable and trunk is
+already correct.
+
+**Why**: An OASIS pub-check report run 2026-07-17 against the published `xacml-spec`
+`xacml/core/v4.0/csd01` bundle flagged a "Latest-stage URL points at `/csd01/`" blocker and a
+"stray horizontal rule before the title" warning. Both looked like live defects from the
+report text alone. Grepping current source showed neither pattern exists anymore, and
+`git blame` on the lines showed why: commit `a5101e4d` (2026-03-23), a front-matter template
+refactor, rewrote both — a full month *after* CSD01 was published (2026-02-22). The tool
+validated a frozen historical snapshot; trunk had already moved past the defect. Filing an
+issue would have asked someone to "fix" code that doesn't exist in the branch they'd be
+working from. The other 8 findings in the same report were genuinely still present in
+trunk — the discriminator was never the report's own severity label (blocker vs. warning),
+it was whether the pattern still existed in the file being pointed at.
+
 ## validate-the-actual-document-not-just-that-the-reader-ran (July 2026)
 
 **Rule**: "the reader didn't raise an exception" is not evidence the converted document is

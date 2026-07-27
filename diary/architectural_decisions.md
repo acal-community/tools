@@ -6,6 +6,126 @@
 > structural enough to shape the whole toolchain, write or update the ADR and keep this entry as
 > the log record; the ADRs cite these slugs back. Entries with an ADR are tagged `(→ ADR-NNNN)`.
 
+## provenance-rides-a-metadata-property-behind-an-opt-in-flag (July 2026)
+
+Fidelity information may now enter the document, but only through a `Metadata` property and
+only when the caller asks for it (`acal-convert --provenance`). This qualifies rather than
+reverses (→ conversion-report-never-enters-the-document): the default is unchanged, because
+the spec extension point that decision was waiting on is *proposed*, not adopted.
+
+**WHY**: The old decision's stated cost — a converted document has no memory of its source —
+turned out to be the worst failure mode precisely for a *fidelity* record, which is worthless
+if it can be silently lost. The blocker was never the idea; it was that any extra key fails
+our own validators. `Metadata` is the shape that resolves it, and it must be opt-in until the
+TC adopts it, because output carrying `Metadata` still fails `yacal-validate` today. Shipping
+it as the default would reintroduce exactly the sin the earlier decision refused.
+
+Three shapes were forced by the spec rather than chosen:
+
+- **`PolicyIssuer` cannot be the carrier**, though it looks like the obvious one. §7.4: a PDP
+  not implementing the Administration and Delegation profile *"MUST report an error or return
+  an `Indeterminate` result if it encounters this object"* — triggered by the field being
+  populated at all, whatever is inside. Metadata needs the opposite rule, an explicit
+  MUST-ignore, which nothing in ACAL provides today.
+- **Attributes only, never `Content`.** §7.34 makes `ContentType` support optional, and the
+  JSON schema instructs implementers to *"Remove this subschema if your implementation does
+  not support ContentType objects."* Provenance living there would depend on a feature
+  implementations are invited to delete.
+- **No new datatype for the JSON report.** A `DataType` participates in the type system —
+  equality and matching functions, designator resolution, the `Value`/`DataType` consistency
+  constraint. A blob wants a media-type hint, not a type. It rides the default `string`
+  datatype and the `AttributeId` defines its format by convention.
+
+`Metadata` is generic, not provenance-specific: cdanger needs the same container for author,
+timestamps and tags, having been using `PolicyIssuer` for them. Provenance is therefore a URN
+namespace *inside* `Metadata`, not a type of its own.
+
+---
+
+## single-datatype-per-ancestor-attribute (July 2026)
+
+The ACAL 1.0 Hierarchical Resource Profile will require **one datatype per ancestor attribute per
+request** — `resource-parent`, `resource-ancestor` and `resource-ancestor-or-self` each become a
+single `RequestAttribute` holding a single-typed bag — narrowing XACML 3.0 HRP §2.3, which
+explicitly permits mixed datatypes across representations of a node and its ancestors (spec issue
+#119).
+
+**WHY**: This is not a choice so much as a consequence of two ACAL decisions already taken.
+`AttributeId` is unique within a `RequestEntity` (`{OCL} self->isUnique(AttributeId)`,
+`acal-core-v1.0.md:5047`, enforced by `<xs:key name="RequestEntity_RequestAttribute_AttributeId">`
+at `acal-core-xml-v4.0-schema.xsd:306-310`), and `DataType` is declared once per attribute rather
+than per value (spec issue #46, adopted to prevent mixed-type bags). Together they make HRP §3.3's
+"one `<Attribute>` instance per normative representation, any datatype" unrepresentable. The
+alternative — relaxing the core uniqueness key — would undo #46 for the sake of one profile, so
+the narrowing is the right side to give.
+
+**Consequence, and why it must be loud**: several ancestors sharing a datatype are *simpler* in
+ACAL than in XACML (one attribute, one bag), but a deployment that today emits mixed-datatype
+ancestor attributes has a real migration. Three paths, in order of preference: (1) normalise to
+one datatype at the context handler — a request-construction change, policies untouched, and the
+common case since most deployments already use `anyURI` paths; (2) put each representation in its
+own category — legal, since the key is scoped per `RequestEntity`, but policy-visible because
+attribute designators move; (3) carry heterogeneous descriptions in
+`urn:oasis:names:tc:acal:1.0:data-type:entity` values — most expressive, least XACML-like, needs a
+worked example before recommending. **This narrowing must be called out in the ported profile's
+"Changes From the Previous Version" section, in its conformance section, in its Reviewer's Guide,
+and in any converter we ship** — it is exactly the kind of change that otherwise surfaces to an
+implementer as an unexplained schema-validation failure. See
+(→ every-profile-ships-a-reviewers-guide).
+
+---
+
+## every-profile-ships-a-reviewers-guide (July 2026)
+
+Every ACAL profile deliverable includes a **Reviewer's Guide** alongside its specification and
+schema artifacts, not just ACAL Core. Absence of one is a completeness defect, and
+**"does this profile have a Reviewer's Guide?" is a standing item in any future audit of
+deliverable completeness.**
+
+**WHY**: `xacml-spec/acal-core-yaml-v1.0-reviewer-guide.md` (1240 lines) exists because YACAL
+asked reviewers who knew the subject matter to review a notation they did not know, and the
+specification alone could not carry that load. Every profile has the same shape of problem in a
+different direction: HRP asks reviewers who know ACAL to reason about DAGs, polyarchies and
+node-identity representations; MDP asks them to reason about a cross-product request-expansion
+pipeline; the XPath and JSONPath profiles ask them to reason about path languages. The guide is
+where the XACML→ACAL deltas, the *why* behind each artifact, and the migration consequences live
+in prose — and it is the natural home for breaking changes like
+(→ single-datatype-per-ancestor-attribute), which a normative specification states but does not
+explain.
+
+The core YACAL guide's structure is the template: purpose; what ACAL is; XACML→ACAL key changes;
+the artifact set with an explanation of why each file exists; alignment across the three
+representations; when to prefer what; fully worked cross-language examples; representation- or
+profile-specific details; and review guidance aimed at a reader who knows the domain but not the
+notation. For a profile, the "key changes" section carries the migration story and the
+"cross-language examples" section carries one worked scenario in XACML/JACAL/YACAL.
+
+Applies retroactively: the XPath and JSONPath profiles have no guide either, and should get one as
+they are next touched.
+
+---
+
+## notice-attribute-assignments-are-ordered-nonunique (July 2026)
+
+Notice attribute-assignment collections — `NoticeType.AttributeAssignment` (§7.26) and
+`NoticeExpressionType.AttributeAssignmentExpression` (§7.29) — are modelled `{ordered,
+nonunique}`, dropping **both** the `(AttributeId, Category)` OCL key constraint *and*
+whole-object `{unique}`, rather than dropping only the key clause (spec issue #99, part 2).
+
+**WHY**: The `(AttributeId, Category)` uniqueness constraint was self-contradictory — §7.29's own
+evaluation rule says an `AttributeAssignmentExpression` over a bag emits one `AttributeAssignment`
+per value, all sharing the same pair — and XACML 3.0 imposed no such rule on obligation/advice
+assignments. Given it had to go, retaining `{unique}` would still forbid two byte-identical
+assignments, but whether that is meaningful is a property of the individual obligation or advice
+definition, which is exactly where the issue resolved to put it. Dropping `{unique}` too also
+matches the sibling collections already in the model — `Policy.NoticeExpression`,
+`Rule.NoticeExpression`, `Result.Notice`, `Policy.CombinerInput` are all `{ordered, nonunique}`;
+leaving the argument lists `{ordered, unique}` would make them the odd ones out. This is the
+minimal-constraint reading; if the TC prefers to keep whole-object uniqueness, only those two UML
+lines change back to `{ordered, unique}` and nothing else in the design moves.
+
+---
+
 ## cedar-record-chain-reading-is-flattened-construction-is-not (July 2026)
 
 Reversal of a prior decision. Cedar's `record` datatype entry in `capabilities/cedar.yaml`
@@ -314,6 +434,10 @@ The accepted cost is that fidelity is only available when explain performs the i
 a YACAL file converted in an earlier process has no memory of its source. That is honest —
 the alternative is a claim we cannot substantiate. Carrying provenance properly requires a
 spec extension point, which is on the roadmap, not a workaround.
+
+**Qualified July 2026** (→ provenance-rides-a-metadata-property-behind-an-opt-in-flag): the
+extension point now exists as a proposal, and `--provenance` stamps a `Metadata` property when
+asked. This entry still describes the **default** behaviour, and will until the TC adopts it.
 
 ---
 
