@@ -52,16 +52,16 @@
       "RequestReference": [
         {
           "RequestEntityReference": [
-            {"Id": "subject-one"},
-            {"Id": "action-one"},
-            {"Id": "resource-one"}
+            "subject-one",
+            "action-one",
+            "resource-one"
           ]
         },
         {
           "RequestEntityReference": [
-            {"Id": "subject-two"},
-            {"Id": "action-one"},
-            {"Id": "resource-one"}
+            "subject-two",
+            "action-one",
+            "resource-one"
           ]
         }
       ]

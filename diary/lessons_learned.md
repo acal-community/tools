@@ -1,5 +1,41 @@
 # Lessons Learned
 
+## a-spec-change-can-move-an-error-between-validation-layers (July 2026)
+
+**Rule**: When the spec changes a type's shape, don't assume the corresponding error stays in
+the layer that used to report it. A structural-schema tightening can take a violation *away*
+from the constraint catalog, and the YAML and JSON serializations of the same hub model do not
+have to agree about which layer catches it. Re-derive the layer from the schemas rather than
+carrying the old test classification forward.
+
+**Why**: Spec PR #113 (issue #101) flattened `RequestEntityReference` from a `{Id: …}` wrapper
+to a bare `LocalIdentifier` list, and in the same change gave the JSON schema
+`"uniqueItems": true` — but gave the YAML structure schema no such keyword. The duplicate-id
+fixture therefore diverged: in JACAL it now fails *structurally* (`jsonschema:uniqueItems`)
+before the constraint layer ever runs, while in YACAL the identical document still has to be
+caught by the catalog's `uniqueByValue` rule. Both validators are correct; the fixtures needed
+different classifications for the same defect. Mechanically porting JACAL's fixture the way
+YACAL's was ported would have produced a test asserting a constraint rule-id that can never
+fire, since `jacal-validator` only evaluates constraints when structural validation passed.
+
+The corollary is that the constraint checker still has to exist in *both* engines even where
+one can never reach it: the valid-fixture tests assert `constraints_skipped == 0`, so an
+unimplemented `Kind` in the catalog fails the suite everywhere, not just where it fires.
+
+## sequential-ci-steps-mask-parallel-failures (July 2026)
+
+**Rule**: When a CI job runs each package as its own sequential step, guard the test steps with
+`if: ${{ !cancelled() }}`. Without it, the first failing package aborts the job and every later
+package's result is simply unknown — which reads identically to "those packages are fine."
+
+**Why**: A spec change broke `yacal-validator` and `jacal-validator` in exactly the same way and
+for exactly the same reason. CI reported only yacal's five failures; jacal's four were invisible
+because the job stopped at the yacal step, and the natural reading of the log was that the
+breakage was confined to one package. The real scope was only visible after reproducing locally.
+The steps are sequential for a mundane reason — the packages' `tests/test_fixtures.py` modules
+share a basename, so pytest cannot collect them in one invocation — so this masking is structural
+to how the job is laid out, not a one-off.
+
 ## validate-the-actual-document-not-just-that-the-reader-ran (July 2026)
 
 **Rule**: "the reader didn't raise an exception" is not evidence the converted document is

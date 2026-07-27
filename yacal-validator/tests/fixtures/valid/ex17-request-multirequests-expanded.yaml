@@ -39,14 +39,14 @@ Request:
   MultiRequests:
     RequestReference:
       - RequestEntityReference:
-          - Id: subject-one
-          - Id: action-read
-          - Id: resource-one
+          - subject-one
+          - action-read
+          - resource-one
       - RequestEntityReference:
-          - Id: subject-one
-          - Id: action-write
-          - Id: resource-one
+          - subject-one
+          - action-write
+          - resource-one
       - RequestEntityReference:
-          - Id: subject-two
-          - Id: action-read
-          - Id: resource-one
+          - subject-two
+          - action-read
+          - resource-one

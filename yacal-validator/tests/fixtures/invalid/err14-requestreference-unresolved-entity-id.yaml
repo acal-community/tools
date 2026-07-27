@@ -7,6 +7,6 @@ Request:
   MultiRequests:
     RequestReference:
       - RequestEntityReference:
-          - Id: subject-one
-          - Id: action-one
-          - Id: missing-resource
+          - subject-one
+          - action-one
+          - missing-resource

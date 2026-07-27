@@ -28,14 +28,14 @@
       "RequestReference": [
         {
           "RequestEntityReference": [
-            {"Id": "subject-one"},
-            {"Id": "action-one"}
+            "subject-one",
+            "action-one"
           ]
         },
         {
           "RequestEntityReference": [
-            {"Id": "action-one"},
-            {"Id": "subject-one"}
+            "action-one",
+            "subject-one"
           ]
         }
       ]
