@@ -8,7 +8,7 @@ from the constraint catalog, and the YAML and JSON serializations of the same hu
 have to agree about which layer catches it. Re-derive the layer from the schemas rather than
 carrying the old test classification forward.
 
-**Why**: Spec PR #113 (issue #101) flattened `RequestEntityReference` from a `{Id: …}` wrapper
+**Why**: An upstream spec change flattened `RequestEntityReference` from a `{Id: …}` wrapper
 to a bare `LocalIdentifier` list, and in the same change gave the JSON schema
 `"uniqueItems": true` — but gave the YAML structure schema no such keyword. The duplicate-id
 fixture therefore diverged: in JACAL it now fails *structurally* (`jsonschema:uniqueItems`)
@@ -111,9 +111,8 @@ try to fix SSH. Temporarily `git remote set-url origin https://github.com/<org>/
 push, then restore the original `ssh://` URL — don't leave the remote pointed at HTTPS
 permanently, since that's a config change outside the scope of "push this branch."
 
-**Why**: Hit this pushing the #102 branch to `oasis-tcs/xacml-spec`; the July 17 session hit the
-identical failure fetching the spec repo and used the same HTTPS-instead-of-SSH workaround
-(`git fetch https://github.com/oasis-tcs/xacml-spec.git main` there). Two separate sessions
+**Why**: Hit this pushing a branch to an SSH-remote repo; an earlier session hit the identical
+failure *fetching* from one and used the same HTTPS-instead-of-SSH workaround. Two separate sessions
 independently rediscovering this suggests it's a standing property of this sandbox, not a
 one-off — check for an SSH failure first rather than assuming a transient network issue.
 
@@ -135,7 +134,7 @@ validator wired up (the IDE's built-in checker doesn't understand `vc:minVersion
 at all and flags every one in the file, including pre-existing ones, as noise), so a misplaced
 `assert` won't be caught by the ambient tooling — only by an actual XSD 1.1 processor.
 
-**Why**: Adding an `xs:assert` to `NoticeExpressionType` (closing spec issue #99's enforcement
+**Why**: Adding an `xs:assert` to `NoticeExpressionType` (closing the upstream enforcement
 gap, → xsd10-unique-silently-skips-absent-optional-fields) initially placed it right after
 `xs:sequence`, before the `xs:attribute` declarations — invalid per the 1.1 content model, but
 the IDE diagnostics gave no useful signal (they already show ~12 identical false-positive errors
@@ -166,7 +165,7 @@ slots onto one visual line (e.g. XML's `<Value DataType="string">...</Value>` fu
 content+close), it is labeled with the *first* slot in that range and the rest are silently
 skipped in that format's numbering.
 
-**Why**: Fixing spec issue #99 required replacing two `AttributeAssignmentExpression` entries
+**Why**: Closing that same enforcement gap required replacing two `AttributeAssignmentExpression` entries
 with one wrapping an `Apply`/`string-concatenate` inside this example, across all three formats
 plus the trailing annotation list. Editing one format's numbers without deriving the shared
 slot scheme first would have desynchronized the cross-references. The reconstructed rule: find
@@ -183,10 +182,10 @@ green on the developer's machine while failing on a clean one. Verify anything c
 the cache cleared, and treat CI's empty-cache runner as the only trustworthy signal.
 
 **Why**: The yacal/jacal validators cache resolved spec schemas at `~/.cache/{y,j}acal-validator`,
-keyed by `sha256(source@branch)`, with no content check. The local spec working copy had changed
-(spec #94), but the cache kept serving the pre-#94 schema, so warm-cache runs reported
+keyed by `sha256(source@branch)`, with no content check. The local spec working copy had changed,
+but the cache kept serving the pre-change schema, so warm-cache runs reported
 `yacal 88/88, jacal 90/90` for an entire session — inflated by ~11 tests. The true fresh-cache
-state was `85/88` and `82/90`, hiding two independent, pre-existing drifts (a #94 alignment gap
+state was `85/88` and `82/90`, hiding two independent, pre-existing drifts (an alignment gap
 and stale XPath fixtures). Every "452 passing" report made against a warm cache was fiction. The
 cost was a session of false confidence; the tell was invisible precisely because a validator
 *should* be deterministic, so nobody thought to clear a cache. Only a fresh clone (or CI) exposes
@@ -397,7 +396,7 @@ drift does not write itself a good error message.
 
 **Rule**: An `xs:unique`/`xs:key` whose field list includes an **optional** attribute does not constrain elements where that attribute is absent. XSD 1.0 treats a field matching nothing as an incomplete key-sequence and skips the tuple entirely — no error, no duplicate detection. Never assume a declared identity constraint is actually enforcing the OCL it was generated from.
 
-**Why**: `NoticeExpression_AttributeAssignmentExpression_AttributeId-Category` in the core XSD declares fields `@AttributeId` + `@Category`, intending to enforce `self->isUnique(Sequence{AttributeId, Category})`. Because `Category` is optional, two `AttributeAssignmentExpression`s with the same `AttributeId` and **no** `Category` validate cleanly — while the same pair *with* `Category` present is correctly rejected. The gap is why two normative examples (the spec's own §4 example and `examples/acal-xpath/Rule3.xml`) have shipped for a long time violating a constraint the schema supposedly enforces (filed as spec issue #99).
+**Why**: `NoticeExpression_AttributeAssignmentExpression_AttributeId-Category` in the core XSD declares fields `@AttributeId` + `@Category`, intending to enforce `self->isUnique(Sequence{AttributeId, Category})`. Because `Category` is optional, two `AttributeAssignmentExpression`s with the same `AttributeId` and **no** `Category` validate cleanly — while the same pair *with* `Category` present is correctly rejected. The gap is why two normative examples (the spec's own §4 example and `examples/acal-xpath/Rule3.xml`) have shipped for a long time violating a constraint the schema supposedly enforces (reported upstream).
 
 I only found this because I probed the *adjacent* constraint as a control while removing a different one — if I had only tested the constraint I was changing, I'd have missed it. When removing a constraint, test the neighbouring constraints too: it both proves you didn't over-remove and occasionally exposes a constraint that was never working.
 
