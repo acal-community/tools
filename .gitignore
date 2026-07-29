@@ -16,11 +16,16 @@ build/
 .pytest_cache/
 .ruff_cache/
 *.egg
-.claude/commands/grill-me.md
-.claude/commands/session-historian.md
-.claude/commands/startup.md
-.claude/skills/bootstrap/SKILL.md
-.claude/skills/grill-me/SKILL.md
-.claude/skills/session-historian/SKILL.md
-.claude/skills/startup/SKILL.md
+
+# Claude Code. Skills and commands arrive via the memtoad plugin, not by being copied
+# into the repo, so nothing here should be tracked by default. The one exception is
+# import-model, which is this project's own skill.
+.claude/commands/
+.claude/skills/*
+!.claude/skills/import-model/
+
+# Memtoad — hybrid mode. Decisions and lessons are shared with contributors;
+# working state is private.
+diary/session_context.md
+
 .grok/config.toml
