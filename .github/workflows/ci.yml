@@ -23,9 +23,9 @@ jobs:
         with:
           submodules: true
 
-      # The validators test against the ACAL spec schemas. Spec PR #100 (issue #94, "Notice Id
-      # is not required to be unique") merged to the spec's main branch on 2026-07-16, so CI
-      # tracks main directly again.
+      # The validators test against the ACAL spec schemas. An upstream change dropping the
+      # requirement that Notice Ids be unique landed on the spec's main branch on 2026-07-16,
+      # so CI tracks main directly again.
       - name: Check out ACAL spec
         uses: actions/checkout@v7
         with:

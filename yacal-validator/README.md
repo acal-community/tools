@@ -31,8 +31,8 @@ pip install click httpx "jsonschema[format-nongpl]" referencing "ruamel.yaml"
 Install from source in editable mode. After this, the `yacal-validate` command is on your PATH permanently (until you uninstall it).
 
 ```bash
-git clone https://github.com/oasis-tcs/acal-tools
-cd acal-tools/yacal-validator
+git clone https://github.com/acal-community/tools
+cd tools/yacal-validator
 pip install -e .
 ```
 
@@ -152,7 +152,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Tests that require the normative spec files look for them at `/Users/wparducci/source/acal/xacml-spec` by default. Override with the `ACAL_SPEC_DIR` environment variable:
+Tests that require the normative spec files look for a `xacml-spec` checkout alongside this repo (`../xacml-spec` relative to the repo root) by default, and skip if it is absent. Override with the `ACAL_SPEC_DIR` environment variable:
 
 ```bash
 ACAL_SPEC_DIR=/path/to/xacml-spec pytest

@@ -40,7 +40,7 @@ VALID_FIXTURES = [
     "ex15-policy-jsonpath-selector.yaml",
     "ex16-response-full-result.yaml",
     "ex17-request-multirequests-expanded.yaml",
-    # Duplicate notice Ids are permitted per spec issue #94 (PR #100) — see fixtures.
+    # Duplicate notice Ids are permitted after an upstream spec change — see fixtures.
     "ex18-notice-duplicate-ids-rule.yaml",
     "ex19-notice-duplicate-ids-policy.yaml",
     "ex20-notice-duplicate-ids-result.yaml",
@@ -61,8 +61,8 @@ STRUCTURAL_INVALID_FIXTURES = [
 ]
 
 CONSTRAINT_INVALID_RULES = {
-    # NOTE: notice-Id uniqueness constraints were removed by spec issue #94 (PR #100). The
-    # former err04 / err36 / err37 fixtures are now valid (see VALID_FIXTURES, ex18–ex20).
+    # NOTE: notice-Id uniqueness constraints were removed upstream. The former
+    # err04 / err36 / err37 fixtures are now valid (see VALID_FIXTURES, ex18–ex20).
     "err06-bundle-duplicate-policy-ids.yaml": "bundle-policy-policyid-unique",
     "err08-duplicate-rule-ids.yaml": "rule-id-unique-within-policy",
     "err09-duplicate-shortid-names.yaml": "shortidset-shortid-name-unique",

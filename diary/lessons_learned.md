@@ -125,55 +125,6 @@ to HTTPS (as above) rather than pushing to a raw URL, so the upstream tracking s
 go over the API and are unaffected by any of this — only raw `git push`/`git fetch` need the
 workaround.
 
-## xsd-1.1-assert-goes-after-attributes-and-needs-a-real-processor-to-check (July 2026)
-
-**Rule**: In an XSD 1.1 `complexType`, `xs:assert` must appear *after* all `xs:attribute`
-declarations, not alongside `xs:sequence` — the content model is
-`(...,(attribute|attributeGroup)*,anyAttribute?,assert*)`. And this repo has no working XSD 1.1
-validator wired up (the IDE's built-in checker doesn't understand `vc:minVersion`-gated `assert`
-at all and flags every one in the file, including pre-existing ones, as noise), so a misplaced
-`assert` won't be caught by the ambient tooling — only by an actual XSD 1.1 processor.
-
-**Why**: Adding an `xs:assert` to `NoticeExpressionType` (closing the upstream enforcement
-gap, → xsd10-unique-silently-skips-absent-optional-fields) initially placed it right after
-`xs:sequence`, before the `xs:attribute` declarations — invalid per the 1.1 content model, but
-the IDE diagnostics gave no useful signal (they already show ~12 identical false-positive errors
-on every pre-existing `assert` in the file, so one more looked the same). Only running it through
-`python3 -c "import xmlschema; xmlschema.XMLSchema11(...)"` surfaced the real
-`s4s-elt-invalid-content` error with an accurate line number. Once fixed, `xmlschema` still
-couldn't load the *whole* file (an unrelated pre-existing illustrative XML snippet embedded raw
-inside an `xs:documentation` block elsewhere trips the library, plus a separate library bug on an
-unrelated `element(*, xacml:DefaultsType)` assert) — neither blocks validating the new construct
-in isolation. Two techniques worked around the missing in-repo tooling: (1) copy just the new
-`assert`'s test expression into a minimal standalone XSD 1.1 schema and check it with
-`xmlschema` against hand-built pass/fail XML cases; (2) run the *exact same* XPath 2.0 expression
-through a small XSLT 2.0 stylesheet via Saxon (`saxon9he.jar`, already present on this machine
-under docbook-xsl-nons) directly against the real example files — this also validates the
-Schematron rule, since Schematron asserts are the same XPath compiled the same way. `xmllint`
-cannot help at all here: libxml2 is XSD 1.0 / XSLT 1.0 only.
-
-## acal-core-md-line-numbers-are-cross-format-slots (July 2026)
-
-**Rule**: The bracketed `[NNN]` line numbers in `acal-core-v1.0.md`'s XML/YAML/JSON code-block
-triples (e.g. the Rule 3 example) are not real source line numbers — they are a shared numbering
-of semantic "slots" kept **synchronized across all three representations** so a single
-prose annotation list below can reference all three at once. A slot gets a display line in a
-format only if that format has syntax for it (e.g. JSON's `"Expression":{` wrapper key gets its
-own slot that XML always skips, since XML expresses the same thing as an implicit child element;
-JSON's closing-brace-only lines get slots YAML never needs). When a display line packs multiple
-slots onto one visual line (e.g. XML's `<Value DataType="string">...</Value>` fusing open+attr+
-content+close), it is labeled with the *first* slot in that range and the rest are silently
-skipped in that format's numbering.
-
-**Why**: Closing that same enforcement gap required replacing two `AttributeAssignmentExpression` entries
-with one wrapping an `Apply`/`string-concatenate` inside this example, across all three formats
-plus the trailing annotation list. Editing one format's numbers without deriving the shared
-slot scheme first would have desynchronized the cross-references. The reconstructed rule: find
-the closest existing structurally-analogous block in the same doc (here, the Target's
-`Apply`/`Value`/`AttributeDesignator`, which has the exact shape needed) and copy its per-format
-slot-skip pattern verbatim, shifted to the new starting slot number — don't invent a new
-numbering scheme by guessing at gaps.
-
 ## a-content-blind-cache-makes-a-test-suite-lie (July 2026)
 
 **Rule**: A cache keyed by *source identity* (path, URL, branch) but not by *content* will serve
@@ -392,18 +343,6 @@ drift does not write itself a good error message.
 
 ---
 
-## xsd10-unique-silently-skips-absent-optional-fields (July 2026)
-
-**Rule**: An `xs:unique`/`xs:key` whose field list includes an **optional** attribute does not constrain elements where that attribute is absent. XSD 1.0 treats a field matching nothing as an incomplete key-sequence and skips the tuple entirely — no error, no duplicate detection. Never assume a declared identity constraint is actually enforcing the OCL it was generated from.
-
-**Why**: `NoticeExpression_AttributeAssignmentExpression_AttributeId-Category` in the core XSD declares fields `@AttributeId` + `@Category`, intending to enforce `self->isUnique(Sequence{AttributeId, Category})`. Because `Category` is optional, two `AttributeAssignmentExpression`s with the same `AttributeId` and **no** `Category` validate cleanly — while the same pair *with* `Category` present is correctly rejected. The gap is why two normative examples (the spec's own §4 example and `examples/acal-xpath/Rule3.xml`) have shipped for a long time violating a constraint the schema supposedly enforces (reported upstream).
-
-I only found this because I probed the *adjacent* constraint as a control while removing a different one — if I had only tested the constraint I was changing, I'd have missed it. When removing a constraint, test the neighbouring constraints too: it both proves you didn't over-remove and occasionally exposes a constraint that was never working.
-
-Also relevant when validating this schema at all: it is XSD 1.1 (`xs:assert` with `vc:minVersion="1.1"`), so `xmllint` cannot compile it directly. Strip the 1.1-only constructs first (the repo ships `xsd1.1-to-1.0.xsl` for exactly this); identity constraints are a 1.0 feature and survive the downgrade.
-
----
-
 ## alfa-bag-type-not-a-datatype (July 2026)
 
 **Rule**: In ALFA attribute declarations, `type = bag` is a cardinality modifier, not an XSD datatype — clear `attr_type` to `""` when `"bag"` is detected; do not store it in the AttributeDesignator's `DataType` field.
@@ -563,7 +502,7 @@ Without local normalization, entire rule families appear "covered" in theory but
 
 **Rule:** When the upstream constraint catalog is wrong or incomplete, implement supplementary checks in `constraints.py` and increment `constraints_total`/`constraints_evaluated`. Never document a silent false negative as a "known gap."
 
-**Why:** yacal-validator is positioned as the gold-standard reference implementation. Two catalog defects were found: (1) no rule for duplicate Rule IDs within a Policy CombinerInput, (2) `shortidset-shortid-name-unique` has path `$.ShortIdSet[].ShortId` matching no real document form. Both were implemented locally. Coverage reporting must stay accurate — supplementary checks must increment counters. (→ gold-standard-yacal-validation)
+**Why:** yacal-validator is positioned as the gold-standard reference implementation. Two catalog defects were found: (1) no rule for duplicate Rule IDs within a Policy CombinerInput, (2) `shortidset-shortid-name-unique` has path `$.ShortIdSet[].ShortId` matching no real document form. Both were implemented locally. Coverage reporting must stay accurate — supplementary checks must increment counters. (→ constraint-coverage-always-surfaced)
 
 ---
 
