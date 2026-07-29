@@ -43,10 +43,10 @@ normative paragraph, not just its type. A field whose type is a plain attribute 
 carry a rule that makes populating it a hard error.
 
 **Why**: `PolicyIssuer` is an `EntityType` — an attribute/content bag, structurally perfect for
-provenance, and it was proposed as the home for exactly that. Its §7.4 paragraph says a PDP not
-implementing the Administration and Delegation profile *"MUST report an error or return an
-`Indeterminate` result if it encounters this object."* The trigger is the field being populated
-at all, regardless of content. Stamping conversion notes there would have made every ordinary
+provenance, and it was proposed as the home for exactly that. Its normative paragraph (§7.4)
+requires a PDP that does not implement the Administration and Delegation profile to report an
+error or return `Indeterminate` on encountering the object at all. The trigger is the field being
+populated, regardless of content. Stamping conversion notes there would have made every ordinary
 PDP reject or fail the policy — a converter output that breaks evaluation, which is far worse
 than the reporting gap it was meant to close. The shape of a field tells you what it can hold;
 only its prose tells you what happens when you hold something in it.
@@ -58,43 +58,6 @@ may drop. (→ provenance-rides-a-metadata-property-behind-an-opt-in-flag)
 
 ---
 
-## check-for-a-later-oasis-stage-before-porting (July 2026)
-
-**Rule**: Before analysing or porting an OASIS profile, resolve its **current** stage. Do not trust
-the citation in our own bibliography, and do not trust the first document a search returns. Check
-the versioned directory — `https://docs.oasis-open.org/xacml/3.0/<profile>/v1.0/` — where the
-unsuffixed filename is the "latest version" pointer and `csNN/` subdirectories hold the stages.
-
-**Why**: Both profiles blocking spec issue #59 advanced from Committee Draft 03 (11 March 2010) to
-**Committee Specification 02 (18 May 2014)**, but `acal-core-v1.0.md` cites the 2010 CD-03 for both
-`[Multi]` (`:6800`) and `[Hier]` (`:6768`), and the same stale citations are duplicated across five
-other spec documents. A full analysis of the Multiple Decision Profile was written against CD-03
-before the CS02 existence surfaced — from a normative reference *inside* the Hierarchical
-Resource Profile, which cites MDP as "Committee Specification 01". MDP CS02 renumbered every
-section (the four request schemes moved from §2.x to §3.x, combined decision §3→§4, conceptual
-model §4→§5, conformance §7→§8), so every section number in the analysis was wrong even though
-every substantive finding survived. Cheap to check first, expensive to retrofit.
-
-## published-oasis-specs-carry-errata-resolve-dont-copy (July 2026)
-
-**Rule**: When porting a published specification, diff its identifier list against its body before
-transcribing anything. Contradictions between a document's normative sections and its
-identifier-summary section are common and must be *resolved as a TC decision*, not silently
-carried over.
-
-**Why**: XACML 3.0 HRP CS02 — an OASIS Committee Specification, not a draft — contains five
-verified defects: §6 lists `non-xml-node-id`/`non-xml-node-req` for sections whose body text (and
-conformance clauses) use `URI-node-id`, and omits `attribute-node-id` and `URI-reference-node-id`
-entirely; the three optional sub-identifiers appear with `xacml:2.0:profile:` in §3.3 and
-`xacml:3.0:profile:` in §6; five URNs are written `urn:oasis::names:…` with a doubled colon; §2.2
-specifies a DataType of `http://urn:oasis:names:tc:xacml:1.0:data-type:anyURI`, which is an
-`http://` scheme glued onto a URN and is not a datatype that exists in XACML; and §3.1 still
-refers to the XACML **2.0** `<Resource>` element. A transcription-first port would have inherited
-all five. Corollary for tooling: **strip tags before grepping a docs.oasis-open.org HTML spec** —
-the URIs are broken across `<span>` markup, so `grep 'urn:oasis:names:tc:xacml:3.0:profile'` over
-the raw HTML returns nothing and looks like a clean negative result. Same family as
-(→ validate-the-actual-document-not-just-that-the-reader-ran).
-
 ## defs-only-schema-validates-nothing (July 2026)
 
 **Rule**: A JSON Schema file that is `$defs`-only — no root `type`/`$ref`/keywords, just a bag of
@@ -103,57 +66,17 @@ named definitions — accepts *any* instance when you validate directly against 
 constraints; profile/fragment schemas usually don't, and must be composed onto a root schema
 first.
 
-**Why**: All four `examples/acal-xpath/*.json` files carried real schema violations — `Apply` used
-`Expression` instead of `Argument` (27 sites, against `additionalProperties: false`), and
-`PolicyDefaults`/`RequestDefaults` were objects where an array is required (4 sites) — yet had gone
-unnoticed through a prior merge. The reason was `acal-xpath-json-v1.0-schema.json` is `$defs`-only
-with no root constraints: validating an instance against it is a no-op that passes anything, so the
-examples looked validated while nothing was being checked. A partial one-site fix (cdanger's
-9dfcc05) had even been applied to a single occurrence, which only left one file internally
-inconsistent without revealing the scale. The defects surfaced only when the instances were
-validated against the *composed* core+XPath+JSONPath root schema. Lesson for follow-up: CI should
-validate example instances against a composed root schema, never against a profile fragment on its
-own. Same family as (→ sweep-every-representation-file-extension-not-the-ones-you-remember): a
-check that runs clean isn't evidence unless you've confirmed it was actually looking.
-
-## sweep-every-representation-file-extension-not-the-ones-you-remember (July 2026)
-
-**Rule**: When removing or renaming a type across a spec that has multiple native
-representations (here: the ACAL model doc, XML schema/Schematron, YACAL doc/constraints/structure
-schema, JACAL JSON Schema), the stray-reference grep must be extension-agnostic — `grep -rl
-PATTERN .` — not a `--include` list assembled from memory of which files "obviously" matter.
-
-**Why**: Removing `RequestEntityReferenceType` (spec issue #101) touched `.md`, `.xsd`, `.sch`,
-and `.yaml` files; the first sweep used `--include="*.md" --include="*.yaml" --include="*.xsd"
---include="*.sch"` and every one of those came back clean, giving false confidence the job was
-done. `acal-core-json-v1.0-schema.json` — the JACAL representation — still had the old wrapper
-type, the stale OCL-form comment, and a TODO suggesting the wrong uniqueness mechanism, because
-`.json` was never in the include list. Nothing about JSON was harder to search; it was omitted
-because it wasn't top-of-mind when the include list was typed, not because it was excluded on
-purpose. Caught only because the diff got an independent second look. An unscoped `grep -rl` (or
-a documented, deliberately-exhaustive extension list checked against "how many native
-representations does this spec have") costs nothing extra and doesn't depend on remembering.
-
-## pub-check-reports-validate-the-frozen-publish-not-trunk (July 2026)
-
-**Rule**: Before filing an issue from an external validation report run against a *published*
-artifact (an OASIS pub-check PDF, a CI run against a tagged release, etc.), `git blame` the
-line the finding points at in current trunk. If trunk already fixed it after the artifact was
-published, the finding is stale-by-construction and filing an issue for it is pure noise —
-there's nothing to action, since the already-published bundle is immutable and trunk is
-already correct.
-
-**Why**: An OASIS pub-check report run 2026-07-17 against the published `xacml-spec`
-`xacml/core/v4.0/csd01` bundle flagged a "Latest-stage URL points at `/csd01/`" blocker and a
-"stray horizontal rule before the title" warning. Both looked like live defects from the
-report text alone. Grepping current source showed neither pattern exists anymore, and
-`git blame` on the lines showed why: commit `a5101e4d` (2026-03-23), a front-matter template
-refactor, rewrote both — a full month *after* CSD01 was published (2026-02-22). The tool
-validated a frozen historical snapshot; trunk had already moved past the defect. Filing an
-issue would have asked someone to "fix" code that doesn't exist in the branch they'd be
-working from. The other 8 findings in the same report were genuinely still present in
-trunk — the discriminator was never the report's own severity label (blocker vs. warning),
-it was whether the pattern still existed in the file being pointed at.
+**Why**: A set of profile example instances appeared to validate cleanly while carrying real
+schema violations — `Apply` using `Expression` instead of `Argument` in 27 places, against
+`additionalProperties: false`, and `PolicyDefaults`/`RequestDefaults` given as objects where an
+array is required — and had gone unnoticed through a prior merge. The profile schema they were
+checked against is `$defs`-only with no root constraints, so validating an instance against it is
+a no-op that passes anything: the examples looked validated while nothing was being checked. A
+partial fix applied to one occurrence only left a file internally inconsistent without revealing
+the scale. The defects surfaced only when the instances were validated against the *composed*
+core + XPath + JSONPath root schema — which is what jacal-validator assembles at runtime, and why
+it catches this class of error when a direct check against a fragment does not. A check that runs
+clean isn't evidence unless you've confirmed it was actually looking.
 
 ## validate-the-actual-document-not-just-that-the-reader-ran (July 2026)
 
@@ -243,55 +166,6 @@ to HTTPS (as above) rather than pushing to a raw URL, so the upstream tracking s
 `origin` and `gh pr create` resolves it correctly. `gh issue create`/`gh pr create` themselves
 go over the API and are unaffected by any of this — only raw `git push`/`git fetch` need the
 workaround.
-
-## xsd-1.1-assert-goes-after-attributes-and-needs-a-real-processor-to-check (July 2026)
-
-**Rule**: In an XSD 1.1 `complexType`, `xs:assert` must appear *after* all `xs:attribute`
-declarations, not alongside `xs:sequence` — the content model is
-`(...,(attribute|attributeGroup)*,anyAttribute?,assert*)`. And this repo has no working XSD 1.1
-validator wired up (the IDE's built-in checker doesn't understand `vc:minVersion`-gated `assert`
-at all and flags every one in the file, including pre-existing ones, as noise), so a misplaced
-`assert` won't be caught by the ambient tooling — only by an actual XSD 1.1 processor.
-
-**Why**: Adding an `xs:assert` to `NoticeExpressionType` (closing the upstream enforcement
-gap, → xsd10-unique-silently-skips-absent-optional-fields) initially placed it right after
-`xs:sequence`, before the `xs:attribute` declarations — invalid per the 1.1 content model, but
-the IDE diagnostics gave no useful signal (they already show ~12 identical false-positive errors
-on every pre-existing `assert` in the file, so one more looked the same). Only running it through
-`python3 -c "import xmlschema; xmlschema.XMLSchema11(...)"` surfaced the real
-`s4s-elt-invalid-content` error with an accurate line number. Once fixed, `xmlschema` still
-couldn't load the *whole* file (an unrelated pre-existing illustrative XML snippet embedded raw
-inside an `xs:documentation` block elsewhere trips the library, plus a separate library bug on an
-unrelated `element(*, xacml:DefaultsType)` assert) — neither blocks validating the new construct
-in isolation. Two techniques worked around the missing in-repo tooling: (1) copy just the new
-`assert`'s test expression into a minimal standalone XSD 1.1 schema and check it with
-`xmlschema` against hand-built pass/fail XML cases; (2) run the *exact same* XPath 2.0 expression
-through a small XSLT 2.0 stylesheet via Saxon (`saxon9he.jar`, already present on this machine
-under docbook-xsl-nons) directly against the real example files — this also validates the
-Schematron rule, since Schematron asserts are the same XPath compiled the same way. `xmllint`
-cannot help at all here: libxml2 is XSD 1.0 / XSLT 1.0 only.
-
-## acal-core-md-line-numbers-are-cross-format-slots (July 2026)
-
-**Rule**: The bracketed `[NNN]` line numbers in `acal-core-v1.0.md`'s XML/YAML/JSON code-block
-triples (e.g. the Rule 3 example) are not real source line numbers — they are a shared numbering
-of semantic "slots" kept **synchronized across all three representations** so a single
-prose annotation list below can reference all three at once. A slot gets a display line in a
-format only if that format has syntax for it (e.g. JSON's `"Expression":{` wrapper key gets its
-own slot that XML always skips, since XML expresses the same thing as an implicit child element;
-JSON's closing-brace-only lines get slots YAML never needs). When a display line packs multiple
-slots onto one visual line (e.g. XML's `<Value DataType="string">...</Value>` fusing open+attr+
-content+close), it is labeled with the *first* slot in that range and the rest are silently
-skipped in that format's numbering.
-
-**Why**: Closing that same enforcement gap required replacing two `AttributeAssignmentExpression` entries
-with one wrapping an `Apply`/`string-concatenate` inside this example, across all three formats
-plus the trailing annotation list. Editing one format's numbers without deriving the shared
-slot scheme first would have desynchronized the cross-references. The reconstructed rule: find
-the closest existing structurally-analogous block in the same doc (here, the Target's
-`Apply`/`Value`/`AttributeDesignator`, which has the exact shape needed) and copy its per-format
-slot-skip pattern verbatim, shifted to the new starting slot number — don't invent a new
-numbering scheme by guessing at gaps.
 
 ## a-content-blind-cache-makes-a-test-suite-lie (July 2026)
 
@@ -508,18 +382,6 @@ central registry was still worth building. But the diary entry needed to be *sup
 an explanation of which premise was wrong, not silently contradicted by code. The tell was
 that the rejection had a helpful, hand-written error message pointing at `acal-convert` —
 drift does not write itself a good error message.
-
----
-
-## xsd10-unique-silently-skips-absent-optional-fields (July 2026)
-
-**Rule**: An `xs:unique`/`xs:key` whose field list includes an **optional** attribute does not constrain elements where that attribute is absent. XSD 1.0 treats a field matching nothing as an incomplete key-sequence and skips the tuple entirely — no error, no duplicate detection. Never assume a declared identity constraint is actually enforcing the OCL it was generated from.
-
-**Why**: `NoticeExpression_AttributeAssignmentExpression_AttributeId-Category` in the core XSD declares fields `@AttributeId` + `@Category`, intending to enforce `self->isUnique(Sequence{AttributeId, Category})`. Because `Category` is optional, two `AttributeAssignmentExpression`s with the same `AttributeId` and **no** `Category` validate cleanly — while the same pair *with* `Category` present is correctly rejected. The gap is why two normative examples (the spec's own §4 example and `examples/acal-xpath/Rule3.xml`) have shipped for a long time violating a constraint the schema supposedly enforces (reported upstream).
-
-I only found this because I probed the *adjacent* constraint as a control while removing a different one — if I had only tested the constraint I was changing, I'd have missed it. When removing a constraint, test the neighbouring constraints too: it both proves you didn't over-remove and occasionally exposes a constraint that was never working.
-
-Also relevant when validating this schema at all: it is XSD 1.1 (`xs:assert` with `vc:minVersion="1.1"`), so `xmllint` cannot compile it directly. Strip the 1.1-only constructs first (the repo ships `xsd1.1-to-1.0.xsl` for exactly this); identity constraints are a 1.0 feature and survive the downgrade.
 
 ---
 
