@@ -52,10 +52,10 @@ VALID_FIXTURES: dict[str, str] = {
     "ex15-bundle-named-argument.json": "Bundle with NamedArgument in SharedVariableReference",
     "ex16-response-full.json": "Response with Status, Notice, ResultEntity, and ApplicablePolicyReference",
     "ex17-bundle-user-shortids.json": "Bundle with user-defined ShortIds and multi-set reference chain",
-    # Duplicate notice Ids are permitted per spec issue #94 (oasis-tcs/xacml-spec PR #100).
-    "ex18-notice-duplicate-ids-rule.json": "duplicate NoticeExpression Ids in a Rule (permitted, #94)",
-    "ex19-notice-duplicate-ids-policy.json": "duplicate NoticeExpression Ids in a Policy (permitted, #94)",
-    "ex20-notice-duplicate-ids-result.json": "duplicate Notice Ids in a Result (permitted, #94)",
+    # Duplicate notice Ids are permitted after an upstream spec change.
+    "ex18-notice-duplicate-ids-rule.json": "duplicate NoticeExpression Ids in a Rule (permitted)",
+    "ex19-notice-duplicate-ids-policy.json": "duplicate NoticeExpression Ids in a Policy (permitted)",
+    "ex20-notice-duplicate-ids-result.json": "duplicate Notice Ids in a Result (permitted)",
 }
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ STRUCTURAL_INVALID_FIXTURES: dict[str, str] = {
     "err03-rule-with-target.json": "Rule.Target is forbidden (additionalProperties)",
     "err17-bundle-policyreference-without-policy.json": "dependentRequired: Policy required when PolicyReference present",
     "err25-shortidset-reference-repeated-node.json": "uniqueItems: ShortIdSetReference must not repeat entries",
-    # Spec PR #113 (issue #101) flattened RequestEntityReference to a bare LocalIdentifier
+    # An upstream spec change flattened RequestEntityReference to a bare LocalIdentifier
     # list and gave it "uniqueItems": true in the JSON schema. Duplicates are now rejected
     # structurally, before the constraint layer runs, so this is no longer a constraint
     # fixture. The YAML structure schema has no such uniqueItems, so the YACAL twin of this
@@ -80,8 +80,8 @@ STRUCTURAL_INVALID_FIXTURES: dict[str, str] = {
 
 # Constraint: semantic rule from the catalog or supplementary checker
 CONSTRAINT_INVALID_FIXTURES: dict[str, str] = {
-    # NOTE: notice-Id uniqueness constraints were removed by spec issue #94 (PR #100). The
-    # former err04 / err28 / err29 fixtures are now valid (see VALID_FIXTURES, ex18–ex20).
+    # NOTE: notice-Id uniqueness constraints were removed upstream. The former
+    # err04 / err28 / err29 fixtures are now valid (see VALID_FIXTURES, ex18–ex20).
     "err05-bundle-duplicate-policy-ids.json": "jacal:bundle-policy-policyid-unique",
     "err06-duplicate-rule-ids.json": "jacal:rule-id-unique-within-policy",
     "err07-duplicate-shortid-names.json": "jacal:shortidset-shortid-name-unique",
