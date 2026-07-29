@@ -1,6 +1,7 @@
 # Cedar (AWS) — capability matrix and datatype map.
 #
-# Cedar is a FOREIGN dialect — a spoke. See ../../CLAUDE.md for the hub/spoke frame.
+# Cedar is a FOREIGN dialect — a spoke. See ../../docs/design/0001-acal-is-a-hub.md for the
+# hub/spoke frame.
 #
 # Two sections, two directions:
 #

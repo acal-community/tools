@@ -51,6 +51,5 @@ construction, so there is nothing they cannot say. Only spokes declare gaps.
 
 ## See also
 
-- Stated as a first principle for contributors and agents in [`../../CLAUDE.md`](../../CLAUDE.md).
 - [ADR-0005](0005-capability-matrix.md) — why matrices hang off dialects.
 - `diary/architectural_decisions.md` → `acal-is-a-hub-not-a-xacml-dialect` (the session record).

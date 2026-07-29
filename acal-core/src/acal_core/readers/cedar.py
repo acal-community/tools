@@ -1,9 +1,9 @@
 """Cedar (AWS) reader — converts a Cedar policy to a neutral ACAL dict.
 
-Cedar is a foreign spoke (see ../../../CLAUDE.md for the hub/spoke frame). Parsing is done by
-Cedar's own Rust parser via ``cedarpy.policies_to_json_str``, which yields Cedar's official
-JSON AST (the EST); we map that AST rather than parsing Cedar ourselves, so our understanding
-of Cedar cannot silently diverge from Cedar's.
+Cedar is a foreign spoke (see ``docs/design/0001-acal-is-a-hub.md`` for the hub/spoke frame).
+Parsing is done by Cedar's own Rust parser via ``cedarpy.policies_to_json_str``, which yields
+Cedar's official JSON AST (the EST); we map that AST rather than parsing Cedar ourselves, so
+our understanding of Cedar cannot silently diverge from Cedar's.
 
 Design decisions and their reasoning live in:
   - acal-core/capabilities/cedar.yaml                       (matrix, datatype ladder, decisions)

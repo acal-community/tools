@@ -240,9 +240,6 @@ misled this codebase once.
 Capability matrices hang off **dialects**, not languages; native dialects have no matrix at
 all.
 
-The frame is stated for future contributors in [`CLAUDE.md`](../CLAUDE.md), because it must be
-read before designing anything, not discovered afterwards.
-
 **WHY**: The registry originally had one `xacml` entry spanning 2.0–4.0, marked foreign. That
 forced a single capability matrix to answer for three languages that differ enormously, and it
 answered wrong: it asserted XACML "cannot express SharedVariableDefinition", which is true of

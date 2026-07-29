@@ -24,6 +24,12 @@ build/
 .claude/skills/*
 !.claude/skills/import-model/
 
+# CLAUDE.md is per-checkout agent configuration, not project documentation. Contributors
+# who don't use an agent would only see chaff. Everything in it that contributors do need
+# is stated independently in docs/design/ — the hub/spoke frame in ADR-0001, the rest across
+# the other ADRs.
+/CLAUDE.md
+
 # Memtoad — hybrid mode. Decisions and lessons are shared with contributors;
 # working state is private.
 diary/session_context.md
