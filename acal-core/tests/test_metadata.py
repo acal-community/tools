@@ -132,7 +132,7 @@ def test_attach_preserves_foreign_metadata():
         "Policy": {
             "PolicyId": "urn:example:p",
             "Metadata": {"Attribute": [
-                {"AttributeId": "urn:example:author", "Value": ["cdanger"]},
+                {"AttributeId": "urn:example:author", "Value": ["example-author"]},
             ]},
         }
     }
@@ -140,7 +140,7 @@ def test_attach_preserves_foreign_metadata():
 
     by_id = {a["AttributeId"]: a["Value"]
              for a in doc["Policy"]["Metadata"]["Attribute"]}
-    assert by_id["urn:example:author"] == ["cdanger"]
+    assert by_id["urn:example:author"] == ["example-author"]
     assert by_id[metadata.SOURCE_LANGUAGE] == ["alfa"]
 
 
@@ -204,7 +204,7 @@ def test_document_without_metadata_reports_none():
 
 def test_foreign_metadata_alone_is_not_provenance():
     doc = {"Policy": {"Metadata": {"Attribute": [
-        {"AttributeId": "urn:example:author", "Value": ["cdanger"]},
+        {"AttributeId": "urn:example:author", "Value": ["example-author"]},
     ]}}}
     assert metadata.read(doc) is not None
     assert metadata.provenance(doc) is None

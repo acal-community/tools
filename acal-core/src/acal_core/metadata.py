@@ -5,7 +5,7 @@ it expresses: what language it was converted from, which tool did it, what the c
 lost. Its defining contract is that a PDP MUST evaluate the enclosing object exactly as
 if the property were absent. That is what makes it safe to stamp — and what distinguishes
 it from `PolicyIssuer`, which a PDP without the Administration and Delegation profile MUST
-reject outright (acal-core-v1.0.md §7.4).
+reject outright (§7.4).
 
 Shape, following `EntityType` rather than inventing new grammar::
 
