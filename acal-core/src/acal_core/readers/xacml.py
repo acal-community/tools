@@ -261,6 +261,10 @@ class _Converter:
         _set_if(p, "Description", self._text(elem, "Description"))
         _set_if(p, "MaxDelegationDepth", _int_attr(elem, "MaxDelegationDepth"))
 
+        meta = elem.find(self._t("Metadata"))
+        if meta is not None:
+            _set_if(p, "Metadata", self._metadata(meta))
+
         target = elem.find(self._t("Target"))
         if target is not None:
             _set_if(p, "Target", self._target(target))
@@ -299,6 +303,44 @@ class _Converter:
 
         return p
 
+    def _metadata(self, elem: ET.Element) -> dict | None:
+        """Read a <Metadata> element into a `MetadataType` object.
+
+        `Metadata` is non-normative — a PDP must evaluate the enclosing object as if it
+        were absent — so nothing here may influence the rest of the conversion. It is
+        read for one reason only: a document that carries provenance should not lose it
+        by passing through this tool.
+
+        Only <Attribute> is read. `Metadata` also admits a <Content> child, but ACAL
+        makes ContentType support optional (§7.34), so metadata that depends on it is
+        metadata that conforming implementations may drop; acal-convert does not emit it.
+        """
+        attrs = []
+        for child in elem:
+            name = _local(child)
+            if name != "Attribute":
+                raise XACMLUnsupportedFeatureError(
+                    f"<{name}> is not a recognised child element of <Metadata>. "
+                    "acal-convert reads only <Attribute> children: ContentType support is "
+                    "optional in ACAL, so metadata carried in <Content> cannot be relied on."
+                )
+            attr: dict = {}
+            _set_if(attr, "AttributeId", child.get("AttributeId"))
+            _set_if(attr, "Issuer", child.get("Issuer"))
+            _set_if(attr, "DataType", self._dt(child.get("DataType")))
+            values = [
+                (v.text or "") for v in child.findall(self._t("AttributeValue"))
+            ]
+            if not values:
+                raise XACMLUnsupportedFeatureError(
+                    f"<Attribute AttributeId={child.get('AttributeId')!r}> inside <Metadata> "
+                    "has no <AttributeValue>. AttributeType.Value has multiplicity [1..*]."
+                )
+            attr["Value"] = values
+            attrs.append(attr)
+
+        return {"Attribute": attrs} if attrs else None
+
     def _check_xpath_version(self, policy_elem: ET.Element) -> None:
         """Raise if PolicyDefaults/XPathVersion is present."""
         defaults = policy_elem.find(self._t("PolicyDefaults"))
@@ -315,7 +357,7 @@ class _Converter:
     # Children of a Policy element that are handled elsewhere and are not combiner inputs.
     # "Obligations" is the XACML 2.0 name; "ObligationExpressions" is XACML 3.0+.
     _POLICY_NON_COMBINER_CHILDREN = frozenset({
-        "Description", "PolicyIssuer", "PolicyDefaults",
+        "Description", "PolicyIssuer", "PolicyDefaults", "Metadata",
         "Target", "VariableDefinition",
         "Obligations", "ObligationExpressions", "AdviceExpressions", "NoticeExpression",
     })
@@ -837,12 +879,17 @@ class _Converter:
                 )
 
     _BUNDLE_KNOWN_CHILDREN = frozenset({
-        "Description", "ShortIdSet", "SharedVariableDefinition", "Policy", "PolicyReference",
+        "Description", "Metadata", "ShortIdSet", "SharedVariableDefinition",
+        "Policy", "PolicyReference",
     })
 
     def _bundle(self, elem: ET.Element) -> dict:
         self._guard_children(elem, self._BUNDLE_KNOWN_CHILDREN, "Bundle")
         bundle: dict = {}
+
+        meta = elem.find(self._t("Metadata"))
+        if meta is not None:
+            _set_if(bundle, "Metadata", self._metadata(meta))
 
         short_id_sets = [self._short_id_set(s)
                          for s in elem.findall(self._t("ShortIdSet"))]
