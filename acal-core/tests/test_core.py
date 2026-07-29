@@ -420,6 +420,45 @@ def test_alfa_variable_declaration_and_reference():
     assert args[0]["VariableReference"]["VariableId"] == "com.example.myRole"
 
 
+def test_alfa_namespace_qualified_attribute_reference_resolves():
+    """A reference like `resource.kind` must resolve even though the attribute's
+    declared local name is just `kind` — matching by the declaration's own
+    namespace-qualified name, not only a bare first-segment local-name match."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc = load_alfa(str(ALFA / "namespace-qualified-attribute.alfa"), strict=True)
+    assert not w
+    target = doc["Policy"]["CombinerInput"][0]["Rule"]["Target"]
+    desig = target["Apply"]["Argument"][0]["AttributeDesignator"]
+    assert desig["AttributeId"] == "resource.kind"
+    assert desig["Category"] == "urn:oasis:names:tc:acal:1.0:attribute-category:resource"
+
+
+def test_alfa_policy_id_uses_own_enclosing_namespace():
+    """Each policy/policyset/rule must be prefixed by the namespace that actually
+    encloses it, not a single namespace picked once for the whole file — and a
+    PolicyReference must still resolve to the id its target actually got."""
+    doc = load_alfa(str(ALFA / "multi-namespace-policyset.alfa"))
+    bundle = doc["Bundle"]["Policy"]
+    top = next(p for p in bundle if p["PolicyId"] == "access.Top")
+    policy_a = next(p for p in bundle if p["PolicyId"] == "healthcare.A")
+    assert top["CombinerInput"][0]["PolicyReference"]["Id"] == policy_a["PolicyId"]
+    assert policy_a["CombinerInput"][0]["Rule"]["Id"] == "healthcare.R1"
+
+
+def test_alfa_policy_reference_shape_and_version():
+    """CombinerInputTypeTree requires {"PolicyReference": {"Id": ...}}, and
+    PolicyType requires Version — the reader must emit both."""
+    doc = load_alfa(str(ALFA / "multi-namespace-policyset.alfa"))
+    for policy in doc["Bundle"]["Policy"]:
+        assert policy["Version"] == "1.0"
+    top = next(p for p in doc["Bundle"]["Policy"] if p["PolicyId"] == "access.Top")
+    ref = top["CombinerInput"][0]
+    assert "PolicyReference" in ref
+    assert "PolicyRef" not in ref
+    assert ref["PolicyReference"]["Id"] == "healthcare.A"
+
+
 def test_alfa_anonymous_rule_gets_synthesized_id():
     doc = load_alfa(str(ALFA / "simple-permit.alfa"))
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]

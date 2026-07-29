@@ -651,3 +651,11 @@ Profile activation (XPath, JSONPath) is implemented by constructing an in-memory
 Memtoad diary scaffolded at project inception. No architectural decisions have been made yet — the first real entry should be added when the initial tool scope and language/stack are chosen.
 
 **Why:** Project is pre-alpha with no committed tooling code. Capturing the initialization event establishes the baseline and reminds future contributors to fill this in as the project takes shape.
+
+---
+
+## alfa-reader-context-via-tree-meta-identity (July 2026)
+
+When a Lark `Transformer` subclass needs top-down context (e.g. "which namespace encloses this node") that its own bottom-up, per-node callback signature can't supply, a separate pass over the *same* parse tree records that context keyed by `id(node.meta)`, and the transformer looks it up by `id(meta)` via `@v_args(meta=True)` on just the methods that need it.
+
+**Why:** Lark's `Transformer` visits nodes strictly bottom-up — a node's callback only receives its already-transformed children, never a handle on its own position in the tree, so there's no way to thread "current namespace" downward as recursion proceeds. `Tree.meta` is the one thing that survives identically across two independent passes over the same parsed tree (`Lark.parse()` is only called once; both the symbol-collection pass and the transform pass walk that one tree object), even without `propagate_positions=True` — the `Meta` object itself is created once per node and stays the same object across repeated `.meta` access. This let the ALFA reader's `policy_decl`/`policyset_decl`/`rule_decl` recover their true enclosing namespace without switching the whole transformer to a top-down `Interpreter`, which would have required rewriting every method's signature.

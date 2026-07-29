@@ -398,6 +398,12 @@ class _SymbolTable:
     attributes: dict[str, _AttributeDecl] = field(default_factory=dict)
     obligations: dict[str, str] = field(default_factory=dict)
     advice: dict[str, str] = field(default_factory=dict)
+    # id(Tree.meta) of each policy_decl/policyset_decl node -> the namespace path
+    # enclosing it. Tree.meta is the same object across the symbol-collection pass
+    # and the transform pass (both walk the one parse tree), so its identity is a
+    # stable key even though Transformer processes bottom-up and can't otherwise
+    # tell a policy_decl which namespace it's nested in.
+    decl_namespace: dict[int, list[str]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -585,6 +591,7 @@ def _merge_into(base: _SymbolTable, other: _SymbolTable) -> None:
     base.attributes.update(other.attributes)
     base.obligations.update(other.obligations)
     base.advice.update(other.advice)
+    base.decl_namespace.update(other.decl_namespace)
     if len(other.namespace_parts) >= len(base.namespace_parts):
         base.namespace_parts = other.namespace_parts
 
@@ -614,6 +621,10 @@ def _process_namespace(
             continue
         if child.data == "namespace_decl":
             _process_namespace(child, st, parts, strict)
+        elif child.data == "policy_decl":
+            _process_policy_decl(child, st, parts)
+        elif child.data == "policyset_decl":
+            _process_policyset_decl(child, st, parts, strict)
         elif child.data == "attribute_decl":
             _process_attribute(child, st, parts, strict)
         elif child.data == "obligation_decl":
@@ -624,6 +635,39 @@ def _process_namespace(
     # Track deepest namespace as PolicyId prefix
     if len(parts) >= len(st.namespace_parts):
         st.namespace_parts = parts
+
+
+def _process_policy_decl(node: Tree, st: _SymbolTable, parts: list[str]) -> None:
+    """Record the namespace enclosing this policy, and each of its rules (a policy
+    body can only ever contain rules, never a nested policy/policyset — see grammar)."""
+    st.decl_namespace[id(node.meta)] = parts
+    body = next((c for c in node.children if isinstance(c, Tree) and c.data == "policy_body"), None)
+    if body is None:
+        return
+    for child in body.children:
+        if isinstance(child, Tree) and child.data == "rule_decl":
+            st.decl_namespace[id(child.meta)] = parts
+
+
+def _process_policyset_decl(
+    node: Tree, st: _SymbolTable, parts: list[str], strict: bool = False
+) -> None:
+    """Record the namespace enclosing this policyset, then recurse: a policyset body
+    may itself contain namespace_decl, policy_decl and policyset_decl (unlike a plain
+    policy body), so nested declarations need the same treatment as top-level ones."""
+    st.decl_namespace[id(node.meta)] = parts
+    body = next((c for c in node.children if isinstance(c, Tree) and c.data == "policyset_body"), None)
+    if body is None:
+        return
+    for child in body.children:
+        if not isinstance(child, Tree):
+            continue
+        if child.data == "namespace_decl":
+            _process_namespace(child, st, parts, strict)
+        elif child.data == "policy_decl":
+            _process_policy_decl(child, st, parts)
+        elif child.data == "policyset_decl":
+            _process_policyset_decl(child, st, parts, strict)
 
 
 def _process_attribute(
@@ -681,9 +725,14 @@ def _process_attribute(
             raise ALFAUnsupportedFeatureError(msg)
         warnings.warn(msg, UserWarning, stacklevel=4)
 
-    st.attributes[local_name] = _AttributeDecl(
-        id=attr_id, category=category_urn, type=attr_type, is_bag=is_bag
-    )
+    decl = _AttributeDecl(id=attr_id, category=category_urn, type=attr_type, is_bag=is_bag)
+    st.attributes[local_name] = decl
+    # Also index by the namespace-qualified name (e.g. "resource.kind"), so a
+    # reference written that way resolves even when it differs from the bare
+    # local name — common idiomatic ALFA style, independent of what `id` is set to.
+    qualified_name = ".".join(ns_parts + [local_name])
+    if qualified_name != local_name:
+        st.attributes.setdefault(qualified_name, decl)
 
 
 def _process_notice_decl(
@@ -722,6 +771,17 @@ class AlfaTransformer(Transformer):
         self._fail_closed = fail_closed
         self._current_vars: dict[str, str] = {}
         self._ns_parts: list[str] = list(symbols.namespace_parts)
+
+    def _decl_ns_parts(self, meta) -> list[str]:
+        """The namespace path actually enclosing this policy/policyset/rule
+        declaration (recorded per-node during symbol collection, since Transformer
+        runs bottom-up and can't otherwise tell a node which namespace it's in).
+
+        Falls back to the single global namespace_parts (matching the reader's
+        pre-fix behaviour) if this node wasn't seen during symbol collection —
+        should not happen given the grammar, but keeps this from ever raising.
+        """
+        return self._symbols.decl_namespace.get(id(meta), self._ns_parts)
 
     def _must_be_present(self) -> bool:
         """ALFA compiles to XACML 3.0, whose MustBePresent default is False, so ALFA's real
@@ -834,10 +894,11 @@ class AlfaTransformer(Transformer):
     # PolicySet
     # -----------------------------------------------------------------------
 
-    def policyset_decl(self, items: list) -> dict:
+    @v_args(meta=True)
+    def policyset_decl(self, meta, items: list) -> dict:
         # items: [Token('IDENTIFIER', name), optional_algo_str, optional_body_list]
         name = str(items[0])
-        policy_id = ".".join(self._ns_parts + [name])
+        policy_id = ".".join(self._decl_ns_parts(meta) + [name])
         combining = None
         body_items: list = []
         for item in items[1:]:
@@ -853,7 +914,7 @@ class AlfaTransformer(Transformer):
                     break
         body_items = [i for i in body_items if not isinstance(i, str)]
         notices, target, combiner_inputs, var_defs = self._split_body(body_items)
-        p: dict = {"PolicyId": policy_id}
+        p: dict = {"PolicyId": policy_id, "Version": "1.0"}
         if combining:
             p["CombiningAlgId"] = combining
         if target is not None:
@@ -871,16 +932,17 @@ class AlfaTransformer(Transformer):
 
     def ref_stmt(self, items: list) -> dict:
         name = str(items[0])
-        return {"PolicyRef": name}
+        return {"PolicyReference": {"Id": name}}
 
     # -----------------------------------------------------------------------
     # Policy
     # -----------------------------------------------------------------------
 
-    def policy_decl(self, items: list) -> dict:
+    @v_args(meta=True)
+    def policy_decl(self, meta, items: list) -> dict:
         # items: [Token('IDENTIFIER', name), optional_algo_str, optional_body_list]
         name = str(items[0])
-        policy_id = ".".join(self._ns_parts + [name])
+        policy_id = ".".join(self._decl_ns_parts(meta) + [name])
         combining = None
         body_items: list = []
         self._current_vars = {}
@@ -897,7 +959,7 @@ class AlfaTransformer(Transformer):
                     break
         body_items = [i for i in body_items if not isinstance(i, str)]
         notices, target, combiner_inputs, var_defs = self._split_body(body_items)
-        p: dict = {"PolicyId": policy_id}
+        p: dict = {"PolicyId": policy_id, "Version": "1.0"}
         if combining:
             p["CombiningAlgId"] = combining
         if target is not None:
@@ -938,7 +1000,7 @@ class AlfaTransformer(Transformer):
                 notices.extend(item["NoticeExpression"])
             elif "Target" in item:
                 target = item["Target"]
-            elif "Rule" in item or "Policy" in item or "PolicySet" in item or "PolicyRef" in item:
+            elif "Rule" in item or "Policy" in item or "PolicySet" in item or "PolicyReference" in item:
                 combiner_inputs.append(item)
             elif "VariableDefinition" in item:
                 var_defs.append(item["VariableDefinition"])
@@ -948,7 +1010,8 @@ class AlfaTransformer(Transformer):
     # Rule
     # -----------------------------------------------------------------------
 
-    def rule_decl(self, items: list) -> dict:
+    @v_args(meta=True)
+    def rule_decl(self, meta, items: list) -> dict:
         # items: [Token('IDENTIFIER', name)?, rule_body_list]
         # (_RULE_KW discarded; IDENTIFIER is optional)
         name: str | None = None
@@ -974,7 +1037,7 @@ class AlfaTransformer(Transformer):
                     notices.extend(item["NoticeExpression"])
         rule: dict = {"Effect": effect or "Permit"}
         if name:
-            rule["Id"] = ".".join(self._ns_parts + [name])
+            rule["Id"] = ".".join(self._decl_ns_parts(meta) + [name])
         if target is not None:
             rule["Target"] = target
         if condition is not None:
@@ -1192,11 +1255,17 @@ class AlfaTransformer(Transformer):
                     "MustBePresent": self._must_be_present(),
                 }}
 
-        # Shorthand: declared attribute alias
-        first = dotted.split(".")[0]
-        if first in self._symbols.attributes:
-            decl = self._symbols.attributes[first]
-            rest = dotted[len(first):]
+        # Shorthand: declared attribute alias, matched either by its full
+        # namespace-qualified name (e.g. "resource.kind") or, failing that,
+        # by a bare local name as the leading segment (e.g. "role.something").
+        decl = self._symbols.attributes.get(dotted)
+        rest = ""
+        if decl is None:
+            first = dotted.split(".")[0]
+            decl = self._symbols.attributes.get(first)
+            if decl is not None:
+                rest = dotted[len(first):]
+        if decl is not None:
             attr_id = decl.id + rest if rest else decl.id
             desig: dict = {"Category": decl.category, "AttributeId": attr_id}
             if decl.type:

@@ -1,0 +1,20 @@
+namespace access {
+    policyset Top {
+        apply denyUnlessPermit
+        healthcare.A
+    }
+}
+namespace healthcare {
+    policy A apply firstApplicable {
+        rule R1 {
+            permit
+        }
+    }
+}
+namespace environment {
+    attribute e {
+        id = "environment.e"
+        type = boolean
+        category = environmentCat
+    }
+}

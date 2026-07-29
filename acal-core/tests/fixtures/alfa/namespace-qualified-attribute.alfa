@@ -1,0 +1,15 @@
+namespace resource {
+    attribute kind {
+        id = "resource.kind"
+        type = string
+        category = resourceCat
+    }
+}
+namespace app {
+    policy CheckKind apply firstApplicable {
+        rule AllowPatientRecord {
+            target clause resource.kind == "patient-record"
+            permit
+        }
+    }
+}

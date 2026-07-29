@@ -589,3 +589,19 @@ Without local normalization, entire rule families appear "covered" in theory but
 **Rule:** Treat spec example files as documentation, not ground truth for schema conformance. Validate them rather than assuming they are correct.
 
 **Why:** The JACAL example files (`Rule1.json`, `Rule2.json`, `Rule3.json`) use `Apply.Expression` but the normative schema defines `Apply.Argument` with `additionalProperties: false`. The examples predate a field rename. A test that validated these files against the schema would fail correctly — but if the test was written to assert PASS, it would hide the validator's correct rejection as a false failure. The adoption guide (not the examples) is authoritative for intended usage.
+
+---
+
+## acal-ruleid-is-policy-scoped-not-broader (July 2026)
+
+**Rule:** Before treating a possible identifier collision as a bug, check `LocalIdentifierType`'s documented scope in the core spec — `RuleId` is explicitly Policy-local ("no two rules in the same policy have the same identifier"), not namespace- or document-scoped.
+
+**Why:** While fixing the ALFA reader's namespace-prefix bug, a Rule `Id` scheme was chosen that qualifies by namespace rather than by policy, meaning two rules with the same name in two different policies in the same namespace get the same `Id` string. This was flagged as a possible follow-up defect worth filing as an issue. Checking the core spec text first showed this is explicitly permitted — `RuleId` uniqueness was never required beyond "the same policy," and ALFA source can't even express a same-named-rule collision within a single policy. Filing that as an issue would have been tracking a non-problem. Read the spec's own scope declaration for an identifier type before treating a cross-container collision as a defect.
+
+---
+
+## gh-issue-body-heredoc-backtick-corruption (July 2026)
+
+**Rule:** Never build a `gh issue create`/`gh issue edit --body` string via `--body "$(cat <<'EOF' ... EOF)"` when the markdown contains inline single-backtick code spans. Write the body to a file (e.g. with the Write tool) and pass `--body-file <path>` instead.
+
+**Why:** A heredoc body containing markdown like `` `--strict` `` and `` `namespace.name` `` was silently corrupted mid-command — those two inline-code phrases were dropped, and a stray `EOF` `)` was appended to the issue body — even though the heredoc delimiter was quoted (`<<'EOF'`), which should have suppressed all expansion. The corruption had to be caught by viewing the issue back (`gh issue view N --json body`) and repaired with `gh issue edit --body-file`. Writing the body to a file up front avoids the shell entirely and is the safer default any time a `gh` body contains backticks, quotes, or other shell-meaningful characters.
