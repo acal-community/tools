@@ -6,6 +6,42 @@
 > structural enough to shape the whole toolchain, write or update the ADR and keep this entry as
 > the log record; the ADRs cite these slugs back. Entries with an ADR are tagged `(→ ADR-NNNN)`.
 
+## provenance-rides-a-metadata-property-behind-an-opt-in-flag (July 2026)
+
+Fidelity information may now enter the document, but only through a `Metadata` property and
+only when the caller asks for it (`acal-convert --provenance`). This qualifies rather than
+reverses (→ conversion-report-never-enters-the-document): the default is unchanged, because
+the spec extension point that decision was waiting on is *proposed*, not adopted.
+
+**WHY**: The old decision's stated cost — a converted document has no memory of its source —
+turned out to be the worst failure mode precisely for a *fidelity* record, which is worthless
+if it can be silently lost. The blocker was never the idea; it was that any extra key fails
+our own validators. `Metadata` is the shape that resolves it, and it must be opt-in until the
+TC adopts it, because output carrying `Metadata` still fails `yacal-validate` today. Shipping
+it as the default would reintroduce exactly the sin the earlier decision refused.
+
+Three shapes were forced by the spec rather than chosen:
+
+- **`PolicyIssuer` cannot be the carrier**, though it looks like the obvious one. §7.4: a PDP
+  not implementing the Administration and Delegation profile *"MUST report an error or return
+  an `Indeterminate` result if it encounters this object"* — triggered by the field being
+  populated at all, whatever is inside. Metadata needs the opposite rule, an explicit
+  MUST-ignore, which nothing in ACAL provides today.
+- **Attributes only, never `Content`.** §7.34 makes `ContentType` support optional, and the
+  JSON schema explicitly invites implementers to delete the subschema when they do not support
+  it. Provenance living there would depend on a feature implementations are invited to remove.
+- **No new datatype for the JSON report.** A `DataType` participates in the type system —
+  equality and matching functions, designator resolution, the `Value`/`DataType` consistency
+  constraint. A blob wants a media-type hint, not a type. It rides the default `string`
+  datatype and the `AttributeId` defines its format by convention.
+
+`Metadata` is generic, not provenance-specific: the same container is wanted for author,
+timestamps and tags — needs that had been served by `PolicyIssuer`. Provenance is therefore a URN
+namespace *inside* `Metadata`, not a type of its own.
+
+
+---
+
 ## cedar-record-chain-reading-is-flattened-construction-is-not (July 2026)
 
 Reversal of a prior decision. Cedar's `record` datatype entry in `capabilities/cedar.yaml`

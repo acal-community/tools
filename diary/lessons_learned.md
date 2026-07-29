@@ -1,5 +1,51 @@
 # Lessons Learned
 
+## a-field-that-looks-inert-may-carry-an-error-clause (July 2026)
+
+**Rule**: Before reusing an existing spec field as a place to park metadata, read its *own*
+normative paragraph, not just its type. A field whose type is a plain attribute bag can still
+carry a rule that makes populating it a hard error.
+
+**Why**: `PolicyIssuer` is an `EntityType` — an attribute/content bag, structurally perfect for
+provenance, and it was proposed as the home for exactly that. Its normative paragraph (§7.4)
+requires a PDP that does not implement the Administration and Delegation profile to report an
+error or return `Indeterminate` on encountering the object at all. The trigger is the field being
+populated, regardless of content. Stamping conversion notes there would have made every ordinary
+PDP reject or fail the policy — a converter output that breaks evaluation, which is far worse
+than the reporting gap it was meant to close. The shape of a field tells you what it can hold;
+only its prose tells you what happens when you hold something in it.
+
+The same reading turned up two more constraints that shaped the design: `ContentType` support
+is *optional* (§7.34, and the JSON schema tells implementers to delete the subschema if they
+do not support it), so metadata carried in `Content` is metadata a conforming implementation
+may drop. (→ provenance-rides-a-metadata-property-behind-an-opt-in-flag)
+
+
+---
+
+## defs-only-schema-validates-nothing (July 2026)
+
+**Rule**: A JSON Schema file that is `$defs`-only — no root `type`/`$ref`/keywords, just a bag of
+named definitions — accepts *any* instance when you validate directly against it. Before trusting
+"the examples validate," confirm the schema you pointed the validator at actually has root
+constraints; profile/fragment schemas usually don't, and must be composed onto a root schema
+first.
+
+**Why**: A set of profile example instances appeared to validate cleanly while carrying real
+schema violations — `Apply` using `Expression` instead of `Argument` in 27 places, against
+`additionalProperties: false`, and `PolicyDefaults`/`RequestDefaults` given as objects where an
+array is required — and had gone unnoticed through a prior merge. The profile schema they were
+checked against is `$defs`-only with no root constraints, so validating an instance against it is
+a no-op that passes anything: the examples looked validated while nothing was being checked. A
+partial fix applied to one occurrence only left a file internally inconsistent without revealing
+the scale. The defects surfaced only when the instances were validated against the *composed*
+core + XPath + JSONPath root schema — which is what jacal-validator assembles at runtime, and why
+it catches this class of error when a direct check against a fragment does not. A check that runs
+clean isn't evidence unless you've confirmed it was actually looking.
+
+
+---
+
 ## a-spec-change-can-move-an-error-between-validation-layers (July 2026)
 
 **Rule**: When the spec changes a type's shape, don't assume the corresponding error stays in
