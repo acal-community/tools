@@ -4,8 +4,9 @@ from pathlib import Path
 
 import click
 
+from acal_core import metadata as acal_metadata
 from acal_core.languages import READ_FORMATS, WRITE_FORMATS
-from acal_core.readers import detect_format, load
+from acal_core.readers import detect_format, load, load_with_report
 from acal_core.writers import write
 
 
@@ -64,6 +65,18 @@ from acal_core.writers import write
     ),
 )
 @click.option(
+    "--provenance",
+    is_flag=True,
+    default=False,
+    help=(
+        "Stamp source language, tool version and the conversion report into a Metadata "
+        "property on the output document, so fidelity information survives the pipeline "
+        "instead of living only in this process. Metadata is non-normative and a PDP must "
+        "ignore it, but the spec change is still proposed (acal-community/tools#12) — "
+        "output will not validate against the published schemas until it is adopted."
+    ),
+)
+@click.option(
     "--validate",
     is_flag=True,
     default=False,
@@ -78,7 +91,8 @@ from acal_core.writers import write
         "to stderr before converting. Useful for debugging shorthand resolution."
     ),
 )
-def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, include_files, debug, fail_closed):
+def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, include_files, debug,
+         fail_closed, provenance):
     if no_strict:
         strict = False
     """Convert ACAL policy documents between formats.
@@ -103,6 +117,17 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
             err=True,
         )
 
+    if provenance and validate:
+        # Say this up front rather than let the validator report a bare "not valid under
+        # any of the given schemas" for a key we knowingly added.
+        click.echo(
+            "Warning: --provenance emits a Metadata property, which the published ACAL "
+            "schemas do not yet admit — the spec change is proposed, not adopted "
+            "(acal-community/tools#12). --validate will therefore fail on this output "
+            "until it lands.",
+            err=True,
+        )
+
     if fmt is None:
         ext = Path(input_file).suffix or "(none)"
         choices = "|".join(READ_FORMATS)
@@ -112,7 +137,19 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
         )
 
     try:
-        data = load(input_file, fmt, strict=strict, include=include_files, debug=debug, fail_closed=fail_closed)
+        if provenance:
+            data, report = load_with_report(
+                input_file, fmt, strict=strict, include=include_files,
+                debug=debug, fail_closed=fail_closed,
+            )
+            acal_metadata.stamp_provenance(data, report, tool=_tool_identity())
+            # load_with_report captures the fidelity warnings instead of letting them
+            # reach stderr. Re-emit them, so --provenance adds a record to the document
+            # rather than trading the record you already had for one you have to go read.
+            for note in report.notes:
+                click.echo(f"Warning: {note.message}", err=True)
+        else:
+            data = load(input_file, fmt, strict=strict, include=include_files, debug=debug, fail_closed=fail_closed)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -133,6 +170,16 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
             )
         else:
             sys.exit(_validate(output, to_fmt))
+
+
+def _tool_identity() -> str:
+    """Name and version of this converter, for the provenance `tool` attribute."""
+    try:
+        from importlib.metadata import version
+        return f"acal-convert/{version('acal-converter')}"
+    except Exception:
+        # An editable checkout without installed metadata should still convert.
+        return "acal-convert"
 
 
 def _validate(path: str, fmt: str) -> int:

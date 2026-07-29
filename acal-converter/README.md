@@ -49,6 +49,7 @@ acal-convert [OPTIONS] FILE
 | `--to FORMAT` | **Required.** Output format: `yacal` or `jacal`. |
 | `--strict` / `--no-strict` | Whether to treat non-semantic deprecations (e.g. `IncludeInResult`) as errors. Default: `--no-strict`. |
 | `-o FILE`, `--output FILE` | Write output to `FILE` (default: stdout) |
+| `--provenance` | Stamp source language, tool version and the conversion report into a `Metadata` property, so fidelity travels with the document. See [Provenance](#provenance-experimental). |
 | `--validate` | Validate the output with the appropriate ACAL validator (requires `-o`) |
 | `--help` | Show help and exit |
 
@@ -139,6 +140,61 @@ acal-convert --to jacal -o out.json legacy-policy.xml --validate
 ```
 
 `--validate` requires `-o` (output file) because it invokes `jacal-validate` or `yacal-validate` on the written file. Validation is skipped with a warning if the output goes to stdout.
+
+---
+
+## Provenance (experimental)
+
+By default, what a conversion lost is reported to stderr and then gone. Convert an ALFA
+policy to YACAL and the resulting document has no memory that it was ever ALFA:
+
+```bash
+acal-convert policy.alfa --to yacal -o policy.yaml   # notes printed, then lost
+acal-explain policy.yaml                             # no idea this was ever ALFA
+```
+
+`--provenance` stamps that record into the document itself, in a `Metadata` property:
+
+```bash
+acal-convert policy.alfa --to yacal --provenance -o policy.yaml
+```
+
+```yaml
+Policy:
+  PolicyId: com.example.XPathTypePolicy
+  # ... the policy, unchanged ...
+  Metadata:
+    Attribute:
+      - AttributeId: urn:oasis:names:tc:acal:1.0:provenance:source-language
+        Value: [alfa]
+      - AttributeId: urn:oasis:names:tc:acal:1.0:provenance:tool
+        Value: [acal-convert/0.2.0]
+      - AttributeId: urn:oasis:names:tc:acal:1.0:provenance:fidelity
+        Value: [lossy]
+      - AttributeId: urn:oasis:names:tc:acal:1.0:provenance:conversion-report
+        Value: ['[{"kind":"lossy","message":"Attribute ''docPath'' declares type ''xpath''…"}]']
+```
+
+`Metadata` is non-normative: a PDP must evaluate the enclosing object exactly as if the
+property were absent. That is what distinguishes it from `PolicyIssuer`, which a PDP
+lacking the Administration and Delegation profile must reject outright.
+
+**This is not yet a spec feature.** The proposal is
+[acal-community/tools#12](https://github.com/acal-community/tools/issues/12); until the
+XACML TC adopts it, the published schemas do not admit a `Metadata` property, so
+`--provenance` output **will fail `yacal-validate` / `jacal-validate`**. That is why the
+flag is opt-in and the default behaviour is unchanged. Combining `--provenance` with
+`--validate` prints a warning saying so.
+
+Two shapes are deliberate and worth knowing:
+
+- **Attributes only, never `Content`.** ACAL makes `ContentType` support optional (§7.34),
+  and the JSON schema tells implementers they may delete the subschema outright. Metadata
+  that lived in `Content` would depend on a feature implementations may not have.
+- **No new datatype.** The conversion report is a JSON string at the default `string`
+  datatype; the `AttributeId` defines its format by convention. Minting a datatype for it
+  would pull a metadata blob into the type system, where datatypes carry equality and
+  matching functions.
 
 ---
 

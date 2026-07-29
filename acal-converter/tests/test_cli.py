@@ -15,6 +15,7 @@ from click.testing import CliRunner
 from acal_converter.cli import main
 from acal_core.readers.yacal import load as load_yacal
 from acal_core.readers.jacal import load as load_jacal
+from acal_core import metadata
 
 # Fixtures live in acal-core (canonical fixture set; acal-converter is a thin wrapper)
 _TOOLS_DIR = Path(__file__).parent.parent.parent
@@ -287,3 +288,70 @@ def test_from_and_to_choices_track_the_registry():
     params = {p.name: p for p in main.params}
     assert tuple(params["from_fmt"].type.choices) == READ_FORMATS
     assert tuple(params["to_fmt"].type.choices) == WRITE_FORMATS
+
+
+# ---------------------------------------------------------------------------
+# --provenance (acal-community/tools#12)
+# ---------------------------------------------------------------------------
+
+def test_provenance_stamps_the_source_language(runner, tmp_path):
+    out = tmp_path / "out.yaml"
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        "--provenance", "-o", str(out),
+        str(ALFA / "xpath-datatype.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+
+    doc = load_yacal(str(out))
+    recovered = metadata.provenance(doc)
+    assert recovered["source_format"] == "alfa"
+    assert recovered["tool"].startswith("acal-convert")
+
+
+def test_provenance_carries_the_fidelity_notes(runner, tmp_path):
+    """The whole point of #12: the lossy note outlives the process that found it."""
+    out = tmp_path / "out.json"
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "jacal",
+        "--provenance", "-o", str(out),
+        str(ALFA / "xpath-datatype.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+
+    recovered = metadata.provenance(load_jacal(str(out)))
+    assert recovered["lossy"] is True
+    assert any("xpath" in n["message"] for n in recovered["notes"])
+
+
+def test_provenance_still_reports_fidelity_on_stderr(runner, tmp_path):
+    """Stamping must add a record, not swap the one the user already got."""
+    out = tmp_path / "out.yaml"
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        "--provenance", "-o", str(out),
+        str(ALFA / "xpath-datatype.alfa"),
+    ])
+    assert result.exit_code == 0
+    assert "xpath" in result.output, "fidelity warning disappeared from stderr"
+
+
+def test_provenance_is_opt_in(runner, tmp_path):
+    """Default output must stay schema-valid, so it cannot carry Metadata."""
+    out = tmp_path / "out.yaml"
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal", "-o", str(out),
+        str(ALFA / "xpath-datatype.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+    assert metadata.read(load_yacal(str(out))) is None
+
+
+def test_provenance_with_validate_warns_that_the_spec_change_is_pending(runner, tmp_path):
+    out = tmp_path / "out.yaml"
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        "--provenance", "--validate", "-o", str(out),
+        str(ALFA / "xpath-datatype.alfa"),
+    ])
+    assert "proposed, not adopted" in result.output
