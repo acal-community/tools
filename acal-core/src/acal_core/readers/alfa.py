@@ -76,17 +76,55 @@ _CANONICAL_PREFIXES: dict[str, str] = {
     "Attributes.environment": ACAL_CATEGORY_MAP["environment"],
 }
 
+_ACAL_FN = "urn:oasis:names:tc:acal:1.0:function:"
+
 _INFIX_FUNCTION_MAP: dict[str, str] = {
-    "==":  "urn:oasis:names:tc:acal:1.0:function:string-equal",
-    "!=":  "urn:oasis:names:tc:acal:1.0:function:string-not-equal",
-    ">":   "urn:oasis:names:tc:acal:1.0:function:integer-greater-than",
-    "<":   "urn:oasis:names:tc:acal:1.0:function:integer-less-than",
-    ">=":  "urn:oasis:names:tc:acal:1.0:function:integer-greater-than-or-equal",
-    "<=":  "urn:oasis:names:tc:acal:1.0:function:integer-less-than-or-equal",
-    "&&":  "urn:oasis:names:tc:acal:1.0:function:and",
-    "||":  "urn:oasis:names:tc:acal:1.0:function:or",
-    "!":   "urn:oasis:names:tc:acal:1.0:function:not",
+    "&&":  _ACAL_FN + "and",
+    "||":  _ACAL_FN + "or",
+    "!":   _ACAL_FN + "not",
 }
+
+# ACAL comparison functions are per-datatype: there is no generic `equal`, and no
+# `*-not-equal` at all (`!=` is `not(<type>-equal(...))`). The datatype an infix operator
+# resolves to therefore decides the function, and picking the wrong one silently changes
+# the decision — `boolean == boolean` compiled as string-equal is not the same predicate.
+#
+# Types below are exactly those for which ACAL 1.0 defines the corresponding functions;
+# nothing here is synthesized from a naming pattern.
+_EQUALITY_TYPES: frozenset[str] = frozenset({
+    "string", "boolean", "integer", "double", "date", "dateTime", "time",
+    "anyURI", "hexBinary", "base64Binary", "rfc822Name", "x500Name",
+    "dayTimeDuration", "yearMonthDuration",
+})
+
+# Ordering is defined for a strictly smaller set — notably *not* boolean or anyURI.
+_ORDERED_TYPES: frozenset[str] = frozenset({
+    "string", "integer", "double", "date", "dateTime", "time",
+})
+
+# Function families that take single values in every argument position — the comparisons,
+# arithmetic, and the logical connectives. Used to decide whether a bag argument to an
+# explicitly named function call has to be reduced. Suffix matching is safe against the
+# bag-consuming families: "-set-equals" does not end with "-equal", and "-one-and-only",
+# "-bag-size", "-is-in", "-subset" and "-at-least-one-member-of" match nothing here.
+_SINGLE_VALUE_FUNCTION_SUFFIXES = (
+    "-equal", "-greater-than", "-less-than",
+    "-greater-than-or-equal", "-less-than-or-equal",
+    "-add", "-subtract", "-multiply", "-divide", "-mod", "-abs",
+)
+_SINGLE_VALUE_FUNCTION_NAMES = frozenset({"and", "or", "not", "n-of"})
+
+_ORDERING_SUFFIX: dict[str, str] = {
+    ">":  "greater-than",
+    "<":  "less-than",
+    ">=": "greater-than-or-equal",
+    "<=": "less-than-or-equal",
+}
+
+# Datatype assumed when neither operand reveals one. ACAL's own default for an unstated
+# DataType is string, so equality follows that; ordering has no meaningful default, and
+# an unresolved ordering comparison is reported rather than guessed.
+_DEFAULT_COMPARISON_TYPE = "string"
 
 # All named functions from system.alfa, converted to ACAL 1.0 URNs.
 # See https://alfa.guide/ for the canonical Axiomatics PDP 7.x dialect reference.
@@ -362,6 +400,89 @@ _NAMED_FUNCTION_MAP: dict[str, str] = {
 
 # Map from ALFA type name to the ACAL is-in function for bag membership tests.
 # Used in cmp_expr when is_bag=True and operator is == or !=.
+_ACAL_DATATYPE = "urn:oasis:names:tc:acal:1.0:data-type:"
+_ACAL_STRING_DATATYPE = _ACAL_DATATYPE + "string"
+
+# ALFA declares a datatype by short name (`type = boolean`); ACAL identifies it by URN.
+# Every name here was checked to exist as urn:oasis:names:tc:acal:1.0:data-type:<name>.
+# Two ALFA type names are deliberately absent:
+#   `xpath` — has no ACAL 1.0 equivalent, already reported by _process_attribute;
+#   `bag`   — a cardinality modifier, stripped at declaration time and never a DataType.
+_ALFA_DATATYPE_NAMES: frozenset[str] = frozenset({
+    "string", "boolean", "integer", "double", "date", "dateTime", "time",
+    "dayTimeDuration", "yearMonthDuration", "anyURI", "dnsName", "ipAddress",
+    "x500Name", "rfc822Name", "hexBinary", "base64Binary",
+})
+
+
+def _apply_return_type(fn_id: str) -> str | None:
+    """Datatype an Apply yields, where the function's own name settles it.
+
+    Only shapes whose return type is unambiguous from the ACAL function name are read:
+    ``<type>-one-and-only`` yields that type, ``<type>-bag-size`` yields integer, and
+    ``<type>-from-string`` yields that type. Anything else returns None rather than a guess.
+    """
+    tail = fn_id.rsplit(":", 1)[-1]
+    if tail.endswith("-bag-size"):
+        return "integer"
+    for suffix in ("-one-and-only", "-from-string"):
+        if tail.endswith(suffix):
+            candidate = tail[: -len(suffix)]
+            if candidate in _EQUALITY_TYPES:
+                return candidate
+    return None
+
+
+# Functions whose result is a bag rather than a single value. `<type>-bag-size` is
+# deliberately not matched by the `-bag` suffix — it returns an integer.
+_BAG_RETURNING_SUFFIXES = ("-bag", "-bag-intersection", "-bag-union")
+
+
+def _is_bag_valued(node: Any) -> bool:
+    """Whether an operand yields a bag rather than a single value.
+
+    An attribute designator always yields a bag — that is the model, not a property of how
+    the attribute was declared — so a comparison against one has to be bridged even when
+    the source treats the attribute as single-valued.
+    """
+    if not isinstance(node, dict):
+        return False
+    if "AttributeDesignator" in node or "AttributeSelector" in node:
+        return True
+    if "Apply" in node:
+        tail = node["Apply"].get("FunctionId", "").rsplit(":", 1)[-1]
+        return tail == "map" or tail.endswith(_BAG_RETURNING_SUFFIXES)
+    return False
+
+
+def _operand_datatype(node: Any) -> tuple[str | None, bool]:
+    """(datatype, is_declared) for a comparison operand.
+
+    ``is_declared`` marks evidence that settles the type — a designator's declared
+    DataType, a resolvable function return type, or a non-string literal. A bare string
+    literal is *not* declarative: ALFA compares string literals against several datatypes,
+    so it must not override the other operand's declared type.
+    """
+    if not isinstance(node, dict):
+        return None, False
+    if "AttributeDesignator" in node:
+        return node["AttributeDesignator"].get("DataType") or None, True
+    if "Apply" in node:
+        return _apply_return_type(node["Apply"].get("FunctionId", "")), True
+    if "Value" in node:
+        value = node["Value"]
+        # bool before int: bool is a subclass of int in Python.
+        if isinstance(value, bool):
+            return "boolean", True
+        if isinstance(value, int):
+            return "integer", True
+        if isinstance(value, float):
+            return "double", True
+        if isinstance(value, str):
+            return "string", False
+    return None, False
+
+
 _TYPE_IS_IN_MAP: dict[str, str] = {
     "string":              "urn:oasis:names:tc:acal:1.0:function:string-is-in",
     "integer":             "urn:oasis:names:tc:acal:1.0:function:integer-is-in",
@@ -925,7 +1046,10 @@ class AlfaTransformer(Transformer):
             p["CombinerInput"] = combiner_inputs
         if notices:
             p["NoticeExpression"] = notices
-        return {"PolicySet": p}
+        # ACAL 1.0 absorbed PolicySet into Policy — there is no PolicySet object, and
+        # CombinerInput admits only Rule / Policy / PolicyReference. Emitting a
+        # {"PolicySet": ...} member made every nested `policyset` structurally invalid.
+        return {"Policy": p}
 
     def policyset_body(self, items: list) -> list:
         return [i for i in items if i is not None]
@@ -1000,7 +1124,7 @@ class AlfaTransformer(Transformer):
                 notices.extend(item["NoticeExpression"])
             elif "Target" in item:
                 target = item["Target"]
-            elif "Rule" in item or "Policy" in item or "PolicySet" in item or "PolicyReference" in item:
+            elif "Rule" in item or "Policy" in item or "PolicyReference" in item:
                 combiner_inputs.append(item)
             elif "VariableDefinition" in item:
                 var_defs.append(item["VariableDefinition"])
@@ -1035,11 +1159,20 @@ class AlfaTransformer(Transformer):
                     condition = item["Condition"]
                 elif "NoticeExpression" in item:
                     notices.extend(item["NoticeExpression"])
+        # ACAL 1.0 RuleType has no Target — unlike PolicyType, a rule's applicability is
+        # carried entirely by Condition (RuleType sets additionalProperties: false, so a
+        # Rule.Target made the whole document structurally invalid). ALFA's rule-level
+        # `target clause` and `condition` are both conjunctive applicability predicates,
+        # so folding them under `and` preserves the source's meaning.
+        if target is not None:
+            condition = target if condition is None else {"Apply": {
+                "FunctionId": _INFIX_FUNCTION_MAP["&&"],
+                "Argument": [target, condition],
+            }}
+
         rule: dict = {"Effect": effect or "Permit"}
         if name:
             rule["Id"] = ".".join(self._decl_ns_parts(meta) + [name])
-        if target is not None:
-            rule["Target"] = target
         if condition is not None:
             rule["Condition"] = condition
         if notices:
@@ -1180,37 +1313,117 @@ class AlfaTransformer(Transformer):
         if len(non_tokens) == 1:
             return _strip(non_tokens[0])
 
-        lhs, rhs = non_tokens[0], non_tokens[1]
+        lhs = _strip(non_tokens[0])
+        rhs = _strip(non_tokens[1])
         op = str(tokens[0])
 
-        lhs_is_bag = isinstance(lhs, dict) and lhs.get("_bag")
-        rhs_is_bag = isinstance(rhs, dict) and rhs.get("_bag")
-        lhs = _strip(lhs)
-        rhs = _strip(rhs)
+        if op in _INFIX_FUNCTION_MAP:  # && || ! — not comparisons, no datatype involved
+            return {"Apply": {"FunctionId": _INFIX_FUNCTION_MAP[op], "Argument": [lhs, rhs]}}
+        return self._typed_comparison(op, lhs, rhs)
 
-        # Bag overloading: attr_bag == scalar → <type>-is-in(scalar, bag)
-        if (lhs_is_bag or rhs_is_bag) and op in ("==", "!="):
-            bag = lhs if lhs_is_bag else rhs
-            scalar = rhs if lhs_is_bag else lhs
-            dtype = bag.get("AttributeDesignator", {}).get("DataType", "string")
-            is_in_fn = _TYPE_IS_IN_MAP.get(dtype)
-            if is_in_fn:
-                base: dict = {"Apply": {"FunctionId": is_in_fn, "Argument": [scalar, bag]}}
-                if op == "!=":
-                    return {"Apply": {
-                        "FunctionId": _INFIX_FUNCTION_MAP["!"],
-                        "Argument": [base],
-                    }}
-                return base
-            self._warn_or_raise(
-                f"Bag attribute has unsupported type {dtype!r} for {op!r} comparison. "
-                "Using string-equal as fallback; result may be semantically incorrect."
-            )
+    def _typed_comparison(self, op: str, lhs: Any, rhs: Any) -> dict:
+        """Build a comparison Apply for the operands' datatype, bridging bag operands.
 
-        fn_id = _INFIX_FUNCTION_MAP.get(op)
-        if fn_id is None:
+        Two rules combine here. ACAL has no generic equality and no `*-not-equal`, so the
+        datatype decides the function and `!=` is `not(<type>-equal(...))`. And the typed
+        comparison functions take *single* values while an attribute designator yields a
+        *bag*, so a comparison involving a designator must be lifted rather than applied
+        directly — passing a bag straight in is a type error the schema does not catch.
+        """
+        if op not in _ORDERING_SUFFIX and op not in ("==", "!="):
             raise ALFAUnsupportedFeatureError(f"Unknown comparison operator: {op!r}")
-        return {"Apply": {"FunctionId": fn_id, "Argument": [lhs, rhs]}}
+
+        dtype = self._comparison_datatype(op, lhs, rhs)
+        negate = op == "!="
+
+        if op in ("==", "!="):
+            if dtype not in _EQUALITY_TYPES:
+                self._warn_or_raise(
+                    f"No ACAL equality function for datatype {dtype!r}; "
+                    f"using {_DEFAULT_COMPARISON_TYPE}-equal."
+                )
+                dtype = _DEFAULT_COMPARISON_TYPE
+            fn_id = f"{_ACAL_FN}{dtype}-equal"
+        else:
+            if dtype not in _ORDERED_TYPES:
+                raise ALFAUnsupportedFeatureError(
+                    f"ACAL defines no {op!r} comparison for datatype {dtype!r}. "
+                    f"Ordering is defined for {sorted(_ORDERED_TYPES)}. "
+                    "Declare the attribute's type, or compare a datatype that is ordered."
+                )
+            fn_id = f"{_ACAL_FN}{dtype}-{_ORDERING_SUFFIX[op]}"
+
+        result = self._bridge_bags(fn_id, dtype, negate or op == "==", lhs, rhs)
+        if negate:
+            # ALFA's `!=` on a bag means no member matches, which is the negation of the
+            # existential form above — the same shape the declared-bag path always used.
+            return {"Apply": {"FunctionId": _INFIX_FUNCTION_MAP["!"], "Argument": [result]}}
+        return result
+
+    def _bridge_bags(
+        self, fn_id: str, dtype: str, is_equality: bool, lhs: Any, rhs: Any
+    ) -> dict:
+        """Apply `fn_id` to operands that may be bags.
+
+        Three shapes, in order of how specifically they fit:
+
+        * neither operand is a bag — apply the function directly;
+        * equality with exactly one bag — ``<type>-is-in(single, bag)``, the two-argument
+          idiom for membership, and what the reader already emitted for attributes
+          declared ``type = bag``;
+        * anything else (two bags, or an ordering against a bag) — ``any-of-any``, which
+          takes the function plus operands that may each be a single value or a bag and
+          applies it across their cross product. Operand order is preserved, so an
+          ordering comparison keeps its orientation.
+        """
+        lhs_bag = _is_bag_valued(lhs)
+        rhs_bag = _is_bag_valued(rhs)
+
+        if not lhs_bag and not rhs_bag:
+            return {"Apply": {"FunctionId": fn_id, "Argument": [lhs, rhs]}}
+
+        if is_equality and lhs_bag != rhs_bag:
+            is_in = _TYPE_IS_IN_MAP.get(dtype)
+            if is_in:
+                single, bag = (rhs, lhs) if lhs_bag else (lhs, rhs)
+                return {"Apply": {"FunctionId": is_in, "Argument": [single, bag]}}
+
+        return {"Apply": {
+            "FunctionId": f"{_ACAL_FN}any-of-any",
+            "Argument": [{"Function": {"Id": fn_id}}, lhs, rhs],
+        }}
+
+    def _comparison_datatype(self, op: str, lhs: Any, rhs: Any) -> str:
+        """The datatype an infix comparison operates on.
+
+        A declared type on either side wins over a bare string literal. When both sides
+        declare and disagree, the source has a type mismatch that no single function can
+        honour, so it is reported rather than silently resolved to one side.
+        """
+        left, left_declared = _operand_datatype(lhs)
+        right, right_declared = _operand_datatype(rhs)
+
+        if left_declared and right_declared and left and right and left != right:
+            self._warn_or_raise(
+                f"Comparison {op!r} between {left!r} and {right!r} mixes datatypes; "
+                f"using {left!r}. Convert one side explicitly in the source."
+            )
+            return left
+
+        for dtype, declared in ((left, left_declared), (right, right_declared)):
+            if declared and dtype:
+                return dtype
+        # Only weak evidence (a string literal), or none at all.
+        for dtype, _ in ((left, left_declared), (right, right_declared)):
+            if dtype:
+                return dtype
+        if op in _ORDERING_SUFFIX:
+            self._warn_or_raise(
+                f"Cannot determine the datatype of an {op!r} comparison — neither operand "
+                "declares one. Declare the attribute's type with 'type =' so the correct "
+                "ordering function can be selected."
+            )
+        return _DEFAULT_COMPARISON_TYPE
 
     def primary_expr(self, items: list) -> Any:
         return items[0]
@@ -1231,8 +1444,35 @@ class AlfaTransformer(Transformer):
             )
         apply: dict = {"FunctionId": fn_id}
         if args:
-            apply["Argument"] = args
+            apply["Argument"] = [self._reduce_bag_argument(a, fn_id) for a in args]
         return {"Apply": apply}
+
+    def _reduce_bag_argument(self, argument: Any, fn_id: str) -> Any:
+        """Reduce a bag passed to an explicitly named single-value function.
+
+        Bridged by reduction (`<type>-one-and-only`) rather than by the existential lift
+        used for infix comparisons, and the difference is deliberate. An infix `==` is ALFA
+        sugar whose bag behaviour the reference compiler defines existentially. A written-out
+        `dateGreaterThan(hireDate, …)` instead names a function whose signature takes single
+        values, so the faithful reading is that the author means the single value. Reduction
+        also works for functions that do not return a boolean — `any-of-any` cannot lift
+        those, since it requires a Boolean function.
+        """
+        if not fn_id.startswith(_ACAL_FN):
+            return argument  # custom function: signature unknown, nothing to conclude
+        name = fn_id[len(_ACAL_FN):]
+        if not (name in _SINGLE_VALUE_FUNCTION_NAMES
+                or name.endswith(_SINGLE_VALUE_FUNCTION_SUFFIXES)):
+            return argument
+        if not _is_bag_valued(argument):
+            return argument
+        dtype, _ = _operand_datatype(argument)
+        if dtype not in _EQUALITY_TYPES:
+            return argument  # no <type>-one-and-only to reduce with
+        return {"Apply": {
+            "FunctionId": f"{_ACAL_FN}{dtype}-one-and-only",
+            "Argument": [argument],
+        }}
 
     def arg_list(self, items: list) -> list:
         return list(items)
@@ -1255,16 +1495,7 @@ class AlfaTransformer(Transformer):
                     "MustBePresent": self._must_be_present(),
                 }}
 
-        # Shorthand: declared attribute alias, matched either by its full
-        # namespace-qualified name (e.g. "resource.kind") or, failing that,
-        # by a bare local name as the leading segment (e.g. "role.something").
-        decl = self._symbols.attributes.get(dotted)
-        rest = ""
-        if decl is None:
-            first = dotted.split(".")[0]
-            decl = self._symbols.attributes.get(first)
-            if decl is not None:
-                rest = dotted[len(first):]
+        decl, rest = self._lookup_attribute(dotted)
         if decl is not None:
             attr_id = decl.id + rest if rest else decl.id
             desig: dict = {"Category": decl.category, "AttributeId": attr_id}
@@ -1278,15 +1509,57 @@ class AlfaTransformer(Transformer):
                 result["_bag"] = True
             return result
 
-        # Unresolvable
-        self._warn_or_raise(
-            f"Attribute path {dotted!r} could not be resolved. "
-            "Declare via 'attribute { }' block or use canonical 'Attributes.<category>.<id>' form."
+        # Unresolvable. This raises unconditionally rather than warning, per ADR-0002
+        # (docs/design/0002-no-silent-drops.md): the reader has no mapping for this
+        # reference, and the only alternative is a designator with an empty Category —
+        # which the ACAL schema rejects (Category is required, minLength 1) and no PDP
+        # could evaluate. There is no useful lenient output here, so --no-strict does not
+        # soften it; a wrong or unusable document is worse than a clear failure.
+        raise ALFAUnsupportedFeatureError(
+            f"Attribute path {dotted!r} could not be resolved to a declared attribute. "
+            "Declare it in an 'attribute { }' block, pass the registry that declares it "
+            "with --include, or write the canonical 'Attributes.<category>.<id>' form."
         )
-        return {"AttributeDesignator": {
-            "Category": "", "AttributeId": dotted,
-            "MustBePresent": self._must_be_present(),
-        }}
+
+    def _lookup_attribute(self, dotted: str) -> tuple[_AttributeDecl | None, str]:
+        """Find the declaration a reference names, plus any trailing path to append.
+
+        Tried in order of specificity:
+
+        1. the whole path as a declared name (a qualified name, or a single-segment local);
+        2. the whole path as a unique *suffix* of a declared qualified name — ALFA resolves
+           a reference relative to its enclosing namespace, so ``user.role`` written inside
+           ``namespace axiomatics.demo`` names ``axiomatics.demo.user.role``. This is the
+           partially-qualified form real ALFA policies are written in;
+        3. the leading segment as a declared local name, with the remainder appended to its
+           id — the compound-path fallback (``someAttr.sub.field``).
+
+        Suffix matching is tried before the leading-segment fallback because it consumes the
+        whole reference: matching only the first segment and blind-appending the rest would
+        resolve ``user.role`` against an unrelated attribute named ``user`` and silently
+        fabricate the id ``<user's id>.role``.
+        """
+        attrs = self._symbols.attributes
+
+        decl = attrs.get(dotted)
+        if decl is not None:
+            return decl, ""
+
+        candidates = sorted(key for key in attrs if key.endswith("." + dotted))
+        distinct_ids = {attrs[key].id for key in candidates}
+        if len(distinct_ids) == 1:
+            return attrs[candidates[0]], ""
+        if len(distinct_ids) > 1:
+            raise ALFAUnsupportedFeatureError(
+                f"Attribute reference {dotted!r} is ambiguous: it matches "
+                f"{sorted(distinct_ids)}. Qualify the reference to disambiguate."
+            )
+
+        first = dotted.split(".")[0]
+        decl = attrs.get(first)
+        if decl is not None:
+            return decl, dotted[len(first):]
+        return None, ""
 
     # -----------------------------------------------------------------------
     # Literals
@@ -1308,6 +1581,153 @@ class AlfaTransformer(Transformer):
 # ---------------------------------------------------------------------------
 # Post-processing: synthesize anonymous Rule IDs
 # ---------------------------------------------------------------------------
+
+
+def _bundle_policies(doc: dict) -> list[dict]:
+    """Top-level policies, whether the document is a Bundle or a bare Policy."""
+    if "Bundle" in doc:
+        return doc["Bundle"].get("Policy", [])
+    if "Policy" in doc:
+        return [doc["Policy"]]
+    return []
+
+
+def _walk_policy_refs(node: Any, out: list[dict]) -> None:
+    """Collect every PolicyReference object anywhere in the document."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "PolicyReference" and isinstance(value, dict):
+                out.append(value)
+            else:
+                _walk_policy_refs(value, out)
+    elif isinstance(node, list):
+        for item in node:
+            _walk_policy_refs(item, out)
+
+
+def _all_policy_ids(node: Any, out: set[str]) -> None:
+    if isinstance(node, dict):
+        pid = node.get("PolicyId")
+        if isinstance(pid, str):
+            out.add(pid)
+        for value in node.values():
+            _all_policy_ids(value, out)
+    elif isinstance(node, list):
+        for item in node:
+            _all_policy_ids(item, out)
+
+
+def _resolve_policy_references(doc: dict, strict: bool = False) -> dict:
+    """Rewrite relative cross-references to the PolicyId they actually name.
+
+    ALFA resolves a reference relative to its enclosing namespace: inside
+    ``namespace aerospace``, the statement ``globalchecks`` names
+    ``aerospace.globalchecks``. The transformer records the reference as written, so a
+    relative reference would otherwise point at a PolicyId no policy in the document has
+    — a dangling reference the ACAL schema does not reject (an Id is just a URI).
+
+    Resolution is by unique suffix match against the real PolicyIds, which handles the
+    relative and already-qualified forms without needing namespace context here. A
+    reference that resolves to nothing is left untouched: it may legitimately target a
+    policy in another file, which is the validator's ``--include`` case, not an error.
+    """
+    known: set[str] = set()
+    _all_policy_ids(doc, known)
+    refs: list[dict] = []
+    _walk_policy_refs(doc, refs)
+
+    for ref in refs:
+        name = ref.get("Id")
+        if not isinstance(name, str) or name in known:
+            continue
+        candidates = sorted(pid for pid in known if pid.endswith("." + name))
+        if len(candidates) == 1:
+            ref["Id"] = candidates[0]
+        elif len(candidates) > 1:
+            msg = (
+                f"Policy reference {name!r} is ambiguous — it matches {candidates}. "
+                "Qualify the reference in the source to disambiguate."
+            )
+            if strict:
+                raise ALFAUnsupportedFeatureError(msg)
+            warnings.warn(msg, UserWarning, stacklevel=3)
+    return doc
+
+
+def _designate_bundle_entry_point(doc: dict, strict: bool = False) -> dict:
+    """Name the policy that decides, per ADR-0004 (docs/design/0004-unambiguous-output.md).
+
+    ``Bundle.Policy[]`` is a definition pool; ``Bundle.PolicyReference`` names the entry
+    point. Without it, a multi-policy Bundle is schema-valid but does not say which policy
+    is the decision. ALFA has no explicit "main policy" declaration, so the entry point is
+    inferred structurally: the one top-level policy that nothing else references.
+
+    No Version is emitted on the reference. ALFA has no policy-version syntax, and Version
+    on a reference is an optional *match* pattern — omitting it matches any version, which
+    is the faithful reading of a language that does not express versions at all.
+    """
+    bundle = doc.get("Bundle")
+    if not isinstance(bundle, dict) or "PolicyReference" in bundle:
+        return doc
+    policies = bundle.get("Policy", [])
+    if len(policies) < 2:
+        return doc  # a single policy is the decision by construction
+
+    top_ids = [p["PolicyId"] for p in policies if isinstance(p.get("PolicyId"), str)]
+    refs: list[dict] = []
+    _walk_policy_refs(bundle, refs)
+    referenced = {r["Id"] for r in refs if isinstance(r.get("Id"), str)}
+    roots = [pid for pid in top_ids if pid not in referenced]
+
+    if len(roots) == 1:
+        bundle["PolicyReference"] = {"Id": roots[0]}
+        return doc
+
+    detail = (
+        f"none of them are unreferenced (a reference cycle): {top_ids}"
+        if not roots else
+        f"these are all unreferenced: {roots}"
+    )
+    msg = (
+        f"Cannot determine which policy decides — {detail}. The Bundle is a definition pool "
+        "with no entry point, so which policy produces the decision is undefined. Give the "
+        "source a single top-level policyset that references the others."
+    )
+    if strict:
+        raise ALFAUnsupportedFeatureError(msg)
+    warnings.warn(msg, UserWarning, stacklevel=3)
+    return doc
+
+
+def _normalize_datatypes(node: Any) -> None:
+    """Rewrite ALFA short-name DataTypes as ACAL data-type URNs, in place.
+
+    Runs as a post-pass rather than at emission because the reader's own type logic keys
+    off the ALFA short names — typed comparison selection (`_operand_datatype`) and bag
+    function selection (`_TYPE_IS_IN_MAP`) both look up `boolean`, `double` and friends.
+    Normalizing at emission would force every one of those consumers to parse URNs back
+    into short names.
+
+    A DataType resolving to the ACAL default is dropped rather than restated, matching the
+    XACML reader's ``optional_datatype()`` and the convention in ``test_attribute_omits_datatype``:
+    the schema already defaults DataType to string, so spelling it out adds bytes, not meaning.
+
+    Values that already contain ``:`` are left alone, so this is idempotent, and an
+    unrecognized short name (``xpath``) passes through — its lack of an ACAL equivalent was
+    already reported when the attribute was declared.
+    """
+    if isinstance(node, dict):
+        dtype = node.get("DataType")
+        if isinstance(dtype, str) and ":" not in dtype and dtype in _ALFA_DATATYPE_NAMES:
+            if dtype == "string":
+                del node["DataType"]
+            else:
+                node["DataType"] = _ACAL_DATATYPE + dtype
+        for value in node.values():
+            _normalize_datatypes(value)
+    elif isinstance(node, list):
+        for item in node:
+            _normalize_datatypes(item)
 
 
 def _synthesize_rule_ids(doc: dict) -> dict:
@@ -1441,4 +1861,13 @@ def load(
         if isinstance(cause, (ALFASyntaxError, ALFAUnsupportedFeatureError)):
             raise cause from None
         raise
-    return _synthesize_rule_ids(doc)
+    doc = _synthesize_rule_ids(doc)
+    # Order matters: references must be resolved to real PolicyIds before the entry point
+    # can be inferred, since inference asks which top-level policy nothing references.
+    doc = _resolve_policy_references(doc, strict=strict)
+    doc = _designate_bundle_entry_point(doc, strict=strict)
+    # Must stay outside the transformer: the type logic in cmp_expr matches ALFA short
+    # names, so normalizing at the designator instead would make every lookup miss and
+    # silently fall back to string-equal. Position among the post-passes does not matter.
+    _normalize_datatypes(doc)
+    return doc

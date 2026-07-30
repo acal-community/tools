@@ -116,16 +116,21 @@ def test_cli_alfa_accepted_without_writing_a_policy_file(runner, tmp_path):
 
 
 def test_cli_alfa_reports_import_fidelity(runner):
-    """Unresolvable ALFA constructs surface as import-fidelity notes, not stderr noise."""
+    """Lossy-but-convertible ALFA constructs surface as import-fidelity notes, not stderr noise.
+
+    Uses unknown-function.alfa rather than unresolvable-attr.alfa: an unresolvable attribute
+    is now a hard error (no Category can be supplied, so there is nothing valid to emit),
+    whereas an unknown function still converts to a custom URN and is reportable as a note.
+    """
     with patch("acal_explain.llm.litellm") as mock_litellm:
         mock_litellm.completion.side_effect = _mock_completion()
         result = runner.invoke(
-            main, ["--format", "json", str(_CORE_FIXTURES / "alfa" / "unresolvable-attr.alfa")]
+            main, ["--format", "json", str(_CORE_FIXTURES / "alfa" / "unknown-function.alfa")]
         )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["format"] == "alfa"
-    assert any("could not be resolved" in n for n in payload["import_notes"])
+    assert any("myCustomFunc" in n for n in payload["import_notes"])
 
 
 def test_cli_alfa_fidelity_notes_render_in_text(runner):

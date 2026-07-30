@@ -659,3 +659,82 @@ Memtoad diary scaffolded at project inception. No architectural decisions have b
 When a Lark `Transformer` subclass needs top-down context (e.g. "which namespace encloses this node") that its own bottom-up, per-node callback signature can't supply, a separate pass over the *same* parse tree records that context keyed by `id(node.meta)`, and the transformer looks it up by `id(meta)` via `@v_args(meta=True)` on just the methods that need it.
 
 **Why:** Lark's `Transformer` visits nodes strictly bottom-up — a node's callback only receives its already-transformed children, never a handle on its own position in the tree, so there's no way to thread "current namespace" downward as recursion proceeds. `Tree.meta` is the one thing that survives identically across two independent passes over the same parsed tree (`Lark.parse()` is only called once; both the symbol-collection pass and the transform pass walk that one tree object), even without `propagate_positions=True` — the `Meta` object itself is created once per node and stays the same object across repeated `.meta` access. This let the ALFA reader's `policy_decl`/`policyset_decl`/`rule_decl` recover their true enclosing namespace without switching the whole transformer to a top-down `Interpreter`, which would have required rewriting every method's signature.
+
+---
+
+## bag-to-single-value-bridging-is-the-readers-job (July 2026)
+
+An attribute designator yields a *bag*; the comparison, arithmetic and logical functions take
+*single* values. A reader that emits a comparison over a designator must bridge the two explicitly.
+Three encodings, chosen by operand shape:
+
+| Case | Encoding |
+|---|---|
+| Neither operand a bag | apply the function directly |
+| Equality, exactly one bag | `<type>-is-in(single, bag)` |
+| Two bags, or an ordering against a bag | `any-of-any(function, left, right)` |
+| Bag passed to an explicitly *named* single-value function | `<type>-one-and-only(bag)` |
+
+**Why:** Passing a bag straight into `string-equal` is a type error no PDP can evaluate, but it is
+structurally well-formed — the schema admits it and every catalog rule passes it, so nothing in the
+toolchain noticed until output was read against an independent implementation. The bridge is
+mandatory, so it is the reader's job rather than something to leave to the document author.
+
+The last row differs from the others deliberately. An infix `==` is source-language sugar whose bag
+behaviour is defined existentially, so it is *lifted*. A written-out function call names a signature
+that takes single values, so the faithful reading is that the author means the single value, and it
+is *reduced*. Reduction also works for functions that do not return a boolean, which `any-of-any`
+cannot lift at all — it requires a Boolean function.
+
+`<type>-is-in` is preferred over `any-of-any` for the one-bag equality case because it takes two
+arguments instead of three, needs no nested `Function` wrapper, and was already the idiom emitted
+for attributes declared as bags — this extends a tested path rather than adding a second one.
+
+Note that the hub's flattening makes the bridge more visible than it was in XACML, where `<Match>`
+carried the bag rule inside its own semantics. With `Target` reduced to a plain boolean expression,
+what an element once handled implicitly must now be written out.
+
+(→ `schema-valid-is-not-type-correct` in [`lessons_learned.md`](lessons_learned.md))
+
+---
+
+## cross-reader-invariants-sweep-every-registered-language (July 2026)
+
+Invariants that every reader must satisfy are asserted by parametrised sweeps over *all* fixtures,
+with the fixture list derived from the language registry (`EXT_TO_FORMAT`) and dispatched by
+extension rather than by content sniffing.
+
+**Why:** Per-reader tests assert on the intermediate dict, so a reader can pass everything it owns
+while emitting a document the schema or the type system rejects. Sweeps catch the class rather than
+the instance: one reader's fix cannot silently regress in another.
+
+Both details in that sentence were paid for. The previous sweep matched a hardcoded extension set
+that omitted `.cedar`, so every Cedar fixture was silently excluded from the only cross-reader test
+that existed — deriving from the registry means registering a language sweeps its fixtures
+automatically. And dispatch is by extension because these are *reader* invariants: a content-sniff
+miss routes a fixture to the wrong reader and asserts against the wrong code, which is not
+hypothetical (two Cedar fixtures currently sniff as YACAL). Detection has its own dedicated tests.
+
+Each sweep must be verified to have teeth by reverting its fix and confirming exactly the expected
+fixtures fail; a sweep that passes because it never looks at anything is worse than none.
+
+---
+
+## validator-supplements-cover-typing-not-just-structure (July 2026)
+
+Supplementary constraint checks in the validators may enforce *typing* rules, not only structural
+and uniqueness ones, and a rule belonging to the ACAL model is implemented identically in every
+serialization's validator.
+
+**Why:** The upstream catalog does not type-check function arguments at all, so a document that
+passes every catalog rule can still be unevaluatable. Cardinality — bag versus single value — is the
+first such rule implemented (`no-bag-in-single-value-function`), and it lives in both
+`yacal-validator` and `jacal-validator` with identical wording because it constrains the model, not
+a serialization of it. The tools share no library by design, so this is duplicated deliberately.
+
+Scope is an **allow-list** of function families verified to take single values, not a deny-list of
+known bag consumers. The validators resolve no ShortIdSets, so a function may appear as a short
+identifier whose meaning is not knowable; an allow-list leaves anything unrecognised alone instead
+of guessing, which keeps false positives at zero. Remaining limits are documented in the check's
+docstring rather than left silent: `VariableReference` is not resolved to its definition, and a
+short identifier is read as the core name.

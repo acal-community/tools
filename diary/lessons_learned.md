@@ -605,3 +605,65 @@ Without local normalization, entire rule families appear "covered" in theory but
 **Rule:** Never build a `gh issue create`/`gh issue edit --body` string via `--body "$(cat <<'EOF' ... EOF)"` when the markdown contains inline single-backtick code spans. Write the body to a file (e.g. with the Write tool) and pass `--body-file <path>` instead.
 
 **Why:** A heredoc body containing markdown like `` `--strict` `` and `` `namespace.name` `` was silently corrupted mid-command — those two inline-code phrases were dropped, and a stray `EOF` `)` was appended to the issue body — even though the heredoc delimiter was quoted (`<<'EOF'`), which should have suppressed all expansion. The corruption had to be caught by viewing the issue back (`gh issue view N --json body`) and repaired with `gh issue edit --body-file`. Writing the body to a file up front avoids the shell entirely and is the safer default any time a `gh` body contains backticks, quotes, or other shell-meaningful characters.
+
+---
+
+## schema-valid-is-not-type-correct (July 2026)
+
+**Rule:** A document passing every structural rule and every constraint may still be unevaluatable.
+When a converter's output validates clean, that is evidence about *shape*, not about whether the
+expression tree type-checks. Read the output against what the functions actually accept.
+
+**Why:** Converted policies passed `yacal-validate` 38/38 while passing bag-valued attribute
+designators straight into `string-equal`, which takes single values — a type error no PDP can
+evaluate. The catalog does not type-check function arguments at all, so nothing flagged it: not the
+schema, not the constraints, not the reader's own tests, which asserted on the intermediate dict. It
+surfaced only by reading the emitted expressions beside an independent implementation's. The
+toolchain now enforces it (`no-bag-in-single-value-function` in both validators, plus a reader-side
+sweep), but the general lesson stands for every rule the catalog does not yet cover.
+
+---
+
+## verify-the-premise-before-designing-the-fix (July 2026)
+
+**Rule:** When a defect is framed in terms of an assumed cause, spend one probe confirming the cause
+before designing around it — especially when the framing implies a policy or contract decision.
+
+**Why:** An "unresolvable attribute" defect presented as *six fixtures reference undeclared
+attributes*, which pointed at a CLI-contract question about how leniently to fail. Checking whether
+those attributes were actually undeclared showed 17 of 19 were declared all along, in an include
+that was already loaded — the reader simply could not resolve the partially-qualified form real
+policies are written in. The real defect was a resolver gap; the contract question was secondary and
+much smaller. One probe changed the entire shape of the fix. The same session repeated the pattern
+in miniature: a "known deferral" blocked on missing type-resolution logic turned out to be
+unblocked, because a fix landed earlier that day had built exactly that logic.
+
+---
+
+## locate-nodes-structurally-in-tests-not-by-argument-index (July 2026)
+
+**Rule:** Tests that reach into a converted expression tree should find the node they care about by
+walking for it, not by indexing a fixed argument position.
+
+**Why:** Eleven tests broke at once when comparisons began wrapping their operands to bridge bag
+semantics — every one of them navigated `Argument[0]["AttributeDesignator"]`, and the designator had
+moved. None of the assertions were wrong about *behaviour*; they were coupled to a shape that was
+always subject to change. Rewriting them to search for the designator made them survive the change
+and stay readable. The tell is an assertion that hardcodes a position it does not actually care
+about. A helper that returns every designator under a node costs four lines and removes the whole
+class of breakage.
+
+---
+
+## a-test-that-overclaims-its-protection-is-worse-than-none (July 2026)
+
+**Rule:** Verify a regression test by breaking the thing it claims to protect. If it still passes,
+fix the test or its docstring — do not leave a claim the test does not deliver.
+
+**Why:** A test was written asserting it "pins the ordering" of a datatype-normalization post-pass
+against the type logic that consumes short names. Deliberately moving normalization earlier left the
+test green: the type logic runs inside the transformer, so no post-pass reordering could break it,
+and the only real hazard (normalizing at the point of emission) was covered by *different* tests
+entirely. The docstring was corrected to state what the test actually guarantees and the real
+constraint moved into a comment at the call site. Every invariant sweep added this session was
+verified the same way — revert the fix, confirm exactly the expected fixtures fail, restore.

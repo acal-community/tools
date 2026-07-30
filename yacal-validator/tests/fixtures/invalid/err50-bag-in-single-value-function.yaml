@@ -1,0 +1,23 @@
+# ERROR FIXTURE: a bag-valued expression passed to a function that takes single values.
+# An AttributeDesignator yields a bag; string-equal takes two single values. The bag must be
+# bridged — reduced with <type>-one-and-only, or lifted with <type>-is-in or a higher-order
+# function such as any-of-any.
+# Structurally well-formed, so the schema admits it and every catalog rule passes; detected
+# only by the supplementary check no-bag-in-single-value-function (ACAL §A.3).
+# Note: the catalog does not type-check function arguments at all — filed as a gap.
+Policy:
+  PolicyId: "urn:example:policy:bag-in-single-value-function"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: permit-readers
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{string-equal}"
+            Argument:
+              - AttributeDesignator:
+                  Category: "{access-subject}"
+                  AttributeId: "{role}"
+              - Value: reader

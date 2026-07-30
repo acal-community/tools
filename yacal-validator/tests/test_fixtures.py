@@ -97,6 +97,7 @@ CONSTRAINT_INVALID_RULES = {
     "err46-applicablepolicyreference-duplicate-ids.yaml": "result-applicablepolicyreference-id-unique",
     "err47-graph-indirect-repeat.yaml": "shortidset-reference-no-repeat",
     "err48-sharedvar-nested-variable-reference.yaml": "shared-variable-definition-no-variable-reference",
+    "err50-bag-in-single-value-function.yaml": "no-bag-in-single-value-function",
 }
 
 YAML_INVALID_RULES = {

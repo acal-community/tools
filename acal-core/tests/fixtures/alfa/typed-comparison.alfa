@@ -1,0 +1,34 @@
+// Infix comparisons must select the ACAL function for the operands' datatype.
+// ACAL has no generic equality and no *-not-equal, so `!=` is not(<type>-equal(...)).
+namespace com.example {
+    attribute active {
+        category = subjectCat
+        id = "urn:example:attribute:active"
+        type = boolean
+    }
+    attribute score {
+        category = subjectCat
+        id = "urn:example:attribute:score"
+        type = double
+    }
+    attribute label {
+        category = resourceCat
+        id = "urn:example:attribute:label"
+        type = string
+    }
+
+    policy TypedComparisons apply denyOverrides {
+        rule BooleanEquality {
+            permit
+            condition active == true
+        }
+        rule DoubleOrdering {
+            permit
+            condition score >= 4.5
+        }
+        rule StringInequality {
+            permit
+            condition label != "draft"
+        }
+    }
+}

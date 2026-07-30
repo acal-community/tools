@@ -1,0 +1,29 @@
+{
+  "Policy": {
+    "PolicyId": "urn:example:policy:bag-in-single-value-function",
+    "Version": "1.0",
+    "CombiningAlgId": "urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-unless-permit",
+    "CombinerInput": [
+      {
+        "Rule": {
+          "Id": "permit-readers",
+          "Effect": "Permit",
+          "Condition": {
+            "Apply": {
+              "FunctionId": "urn:oasis:names:tc:acal:1.0:function:string-equal",
+              "Argument": [
+                {
+                  "AttributeDesignator": {
+                    "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+                    "AttributeId": "urn:example:role"
+                  }
+                },
+                { "Value": "reader" }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -289,3 +289,113 @@ def test_constraint_skips_in_json_output(yaml_schemas):
     assert data["constraints"]["evaluated"] == evaluated
     assert data["constraints"]["skipped"] == skipped
     assert data["constraints"]["skipped"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Bag / single-value function arguments (supplementary check)
+# ---------------------------------------------------------------------------
+
+def _bag_issues(result):
+    return [i for i in result.issues if i.rule_id == "yacal:no-bag-in-single-value-function"]
+
+
+def _validate_policy_yaml(body, yaml_schemas, tmp_path, name="bagcheck.yaml"):
+    path = tmp_path / name
+    path.write_text(body)
+    return validate(
+        path,
+        yaml_schemas["structure"],
+        yaml_schemas["constraints"],
+        yaml_schemas["xpath"],
+        None,
+    )
+
+
+_BRIDGED_FORMS = {
+    "is-in": '''
+            FunctionId: "{string-is-in}"
+            Argument:
+              - Value: reader
+              - AttributeDesignator: {Category: "{access-subject}", AttributeId: "{role}"}''',
+    "one-and-only": '''
+            FunctionId: "{string-equal}"
+            Argument:
+              - Apply:
+                  FunctionId: "{string-one-and-only}"
+                  Argument:
+                    - AttributeDesignator: {Category: "{access-subject}", AttributeId: "{role}"}
+              - Value: reader''',
+    "any-of-any": '''
+            FunctionId: "{any-of-any}"
+            Argument:
+              - Function: {Id: "{string-equal}"}
+              - AttributeDesignator: {Category: "{access-subject}", AttributeId: "{role}"}
+              - Value: reader''',
+}
+
+
+@pytest.mark.parametrize("label", sorted(_BRIDGED_FORMS))
+def test_bridged_bag_forms_do_not_fire(label, yaml_schemas, tmp_path):
+    """The three legitimate ways to bridge a bag must not be reported.
+
+    These are the shapes a correct converter emits; flagging any of them would make the
+    check worse than useless.
+    """
+    result = _validate_policy_yaml(f'''
+Policy:
+  PolicyId: "urn:example:policy:bridged-{label}"
+  Version: "1.0"
+  CombiningAlgId: "{{deny-unless-permit}}"
+  CombinerInput:
+    - Rule:
+        Id: r1
+        Effect: Permit
+        Condition:
+          Apply:{_BRIDGED_FORMS[label]}
+''', yaml_schemas, tmp_path, name=f"bridged-{label}.yaml")
+    assert not _bag_issues(result), [i.message for i in _bag_issues(result)]
+
+
+def test_unbridged_bag_is_reported_with_a_path(yaml_schemas, tmp_path):
+    """A designator passed straight to string-equal is an error, located precisely."""
+    result = _validate_policy_yaml('''
+Policy:
+  PolicyId: "urn:example:policy:unbridged"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: r1
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "{string-equal}"
+            Argument:
+              - AttributeDesignator: {Category: "{access-subject}", AttributeId: "{role}"}
+              - Value: reader
+''', yaml_schemas, tmp_path)
+    issues = _bag_issues(result)
+    assert len(issues) == 1, [i.message for i in result.issues]
+    assert issues[0].path.endswith("Argument[0]")
+    assert not result.valid
+
+
+def test_custom_function_is_not_second_guessed(yaml_schemas, tmp_path):
+    """A non-ACAL function has an unknown signature, so nothing is concluded about it."""
+    result = _validate_policy_yaml('''
+Policy:
+  PolicyId: "urn:example:policy:custom-fn"
+  Version: "1.0"
+  CombiningAlgId: "{deny-unless-permit}"
+  CombinerInput:
+    - Rule:
+        Id: r1
+        Effect: Permit
+        Condition:
+          Apply:
+            FunctionId: "urn:example:custom:function:matches-somehow"
+            Argument:
+              - AttributeDesignator: {Category: "{access-subject}", AttributeId: "{role}"}
+              - Value: reader
+''', yaml_schemas, tmp_path)
+    assert not _bag_issues(result)

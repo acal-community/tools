@@ -6,6 +6,7 @@ import pytest
 import ruamel.yaml
 
 from acal_core import convert
+from acal_core.languages import EXT_TO_FORMAT
 from acal_core.readers import detect_format, detect_format_from_bytes, load, load_with_report
 from acal_core.readers.yacal import load as load_yacal
 from acal_core.readers.jacal import load as load_jacal
@@ -346,15 +347,15 @@ def test_alfa_condition_expression_maps_to_apply():
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]
     cond = rule["Condition"]
     assert "Apply" in cond
-    apply = cond["Apply"]
-    assert apply["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-equal"
+    # A designator yields a bag, so equality bridges through string-is-in(value, bag)
+    # rather than applying string-equal to a bag directly.
+    assert cond["Apply"]["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-is-in"
 
 
 def test_alfa_condition_canonical_attr_designator():
     doc = load_alfa(str(ALFA / "condition.alfa"))
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]
-    args = rule["Condition"]["Apply"]["Argument"]
-    desig = args[0]["AttributeDesignator"]
+    desig = _designator_list(rule["Condition"])[0]
     assert desig["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
     assert desig["AttributeId"] == "role"
 
@@ -383,28 +384,37 @@ def test_alfa_attribute_shorthand_resolves_category():
         include=[str(ALFA / "acal-attributes.alfa")],
     )
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]
-    args = rule["Condition"]["Apply"]["Argument"]
-    user_desig = args[0]["Apply"]["Argument"][0]["AttributeDesignator"]
+    user_desig = _designator_list(rule["Condition"])[0]
     assert user_desig["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
     assert user_desig["AttributeId"] == "urn:example:attribute:user-id"
 
 
 def test_alfa_attribute_shorthand_datatype_propagated():
+    """A declared `type = string` is carried by the schema default, not restated.
+
+    ALFA's short name is normalized to an ACAL data-type URN on the way out, and the
+    default (string) is dropped rather than spelled out — same rule the XACML reader's
+    optional_datatype() applies, and the convention in test_attribute_omits_datatype.
+    """
     doc = load_alfa(
         str(ALFA / "shorthand-policy.alfa"),
         include=[str(ALFA / "acal-attributes.alfa")],
     )
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]
-    args = rule["Condition"]["Apply"]["Argument"]
-    user_desig = args[0]["Apply"]["Argument"][0]["AttributeDesignator"]
-    assert user_desig.get("DataType") == "string"
+    user_desig = _designator_list(rule["Condition"])[0]
+    assert "DataType" not in user_desig
 
 
-def test_alfa_unresolvable_without_include_warns():
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
+def test_alfa_unresolvable_without_include_raises():
+    """Omitting the registry that declares an attribute is a hard error, not a warning.
+
+    This previously warned and emitted a designator with Category: "" — which the ACAL
+    schema rejects outright (Category is required, minLength 1), so the "lenient" path
+    produced a document that could not be validated or evaluated. Per ADR-0002 there is
+    nothing useful to degrade to, so it raises regardless of strict.
+    """
+    with pytest.raises(ALFAUnsupportedFeatureError, match="could not be resolved"):
         load_alfa(str(ALFA / "shorthand-policy.alfa"))
-    assert len(w) >= 1, "Expected at least one unresolvable-path warning"
 
 
 def test_alfa_variable_declaration_and_reference():
@@ -420,6 +430,325 @@ def test_alfa_variable_declaration_and_reference():
     assert args[0]["VariableReference"]["VariableId"] == "com.example.myRole"
 
 
+_SINGLE_VALUE_COMPARISONS = tuple(
+    f"urn:oasis:names:tc:acal:1.0:function:{t}-{suffix}"
+    for t in ("string", "boolean", "integer", "double", "date", "dateTime", "time")
+    for suffix in ("equal", "greater-than", "less-than",
+                   "greater-than-or-equal", "less-than-or-equal")
+)
+
+
+def _bag_reaches_single_value_function(node, out):
+    """Record any single-value comparison applied directly to a bag-valued operand."""
+    if isinstance(node, dict):
+        apply_ = node.get("Apply")
+        if isinstance(apply_, dict) and apply_.get("FunctionId") in _SINGLE_VALUE_COMPARISONS:
+            for arg in apply_.get("Argument", []):
+                if isinstance(arg, dict) and "AttributeDesignator" in arg:
+                    out.append((apply_["FunctionId"], arg["AttributeDesignator"]["AttributeId"]))
+        for value in node.values():
+            _bag_reaches_single_value_function(value, out)
+    elif isinstance(node, list):
+        for item in node:
+            _bag_reaches_single_value_function(item, out)
+
+
+def test_alfa_no_bag_is_passed_to_a_single_value_function():
+    """An attribute designator yields a bag; typed comparisons take single values.
+
+    Passing one straight into the other is a type error the ACAL schema does not catch —
+    `yacal-validate` reports 38/38 on such a document because bag-ness is a function
+    argument question, not a structural one. So it is asserted here instead. Comparisons
+    must bridge via `<type>-is-in` or `any-of-any`, or reduce with `<type>-one-and-only`.
+    """
+    for name in ("typed-comparison.alfa", "condition.alfa", "healthcare.alfa",
+                 "banking.alfa", "api.alfa", "aerospace.alfa", "portal.alfa"):
+        try:
+            doc = load_alfa(str(ALFA / name), include=_AX_INCLUDES)
+        except ValueError:
+            continue
+        offenders = []
+        _bag_reaches_single_value_function(doc, offenders)
+        assert not offenders, f"{name}: bag passed to a single-value function: {offenders}"
+
+
+def test_alfa_equality_against_a_bag_uses_is_in():
+    """`attr == literal` becomes `<type>-is-in(literal, attr)` — membership, two arguments.
+
+    Equivalent to what XACML expressed with `<Match>`, whose bag semantics were implicit in
+    the element. ACAL replaced that machinery with plain boolean expressions, so the bridge
+    has to be written out.
+    """
+    doc = load_alfa(str(ALFA / "condition.alfa"))
+    cond = doc["Policy"]["CombinerInput"][0]["Rule"]["Condition"]
+    assert cond["Apply"]["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-is-in"
+    single, bag = cond["Apply"]["Argument"]
+    assert "Value" in single
+    assert "AttributeDesignator" in bag
+
+
+def _applications_of(node, fn_suffix):
+    """Every Apply whose FunctionId ends with `fn_suffix`."""
+    out = []
+
+    def walk(n):
+        if isinstance(n, dict):
+            apply_ = n.get("Apply")
+            if isinstance(apply_, dict) and apply_.get("FunctionId", "").endswith(fn_suffix):
+                out.append(apply_)
+            for value in n.values():
+                walk(value)
+        elif isinstance(n, list):
+            for item in n:
+                walk(item)
+
+    walk(node)
+    return out
+
+
+def test_alfa_bag_to_bag_comparison_uses_any_of_any():
+    """Two designators compared to each other need the cross-product form.
+
+    `<type>-is-in` cannot express it — its first argument must be a single value. Exercised
+    by api.alfa's `user.clearance < record.classification`, both integer designators.
+    """
+    doc = _ax_load("api.alfa")
+    lifted = _applications_of(doc, ":any-of-any")
+    assert lifted, "expected a bag-to-bag comparison to lift through any-of-any"
+
+    fn, left, right = lifted[0]["Argument"]
+    assert fn == {"Function": {"Id": "urn:oasis:names:tc:acal:1.0:function:integer-less-than"}}
+    assert left["AttributeDesignator"]["AttributeId"].endswith("user.clearance")
+    assert right["AttributeDesignator"]["AttributeId"].endswith("record.classification")
+
+
+def test_alfa_explicit_one_and_only_needs_no_bridge():
+    """A source that reduces the bag itself is left alone.
+
+    healthcare.alfa writes `stringOneAndOnly(a) == stringOneAndOnly(b)`, which yields single
+    values on both sides — bridging it again would be wrong, not merely redundant.
+    """
+    doc = _ax_load("healthcare.alfa")
+    equals = _applications_of(doc, ":string-equal")
+    assert equals, "expected the explicit one-and-only comparison to stay a direct string-equal"
+    for apply_ in equals:
+        for arg in apply_["Argument"]:
+            assert "AttributeDesignator" not in arg, "a reduced operand must not be a raw bag"
+
+
+def test_alfa_datatype_normalized_to_acal_urn():
+    """A non-default ALFA type name becomes an ACAL data-type URN, not a bare short name.
+
+    The reader previously emitted the raw ALFA token (`boolean`), leaving a document that
+    mixed a full URN for FunctionId with an unanchored short name for DataType.
+    """
+    doc = load_alfa(str(ALFA / "typed-comparison.alfa"), strict=True)
+    cond = _rule_by_id(doc, "BooleanEquality")["Condition"]
+    assert _designator_list(cond)[0]["DataType"] == "urn:oasis:names:tc:acal:1.0:data-type:boolean"
+
+    cond = _rule_by_id(doc, "DoubleOrdering")["Condition"]
+    assert _designator_list(cond)[0]["DataType"] == "urn:oasis:names:tc:acal:1.0:data-type:double"
+
+
+def test_alfa_default_datatype_is_dropped_not_restated():
+    """string is the schema default, so it is omitted rather than spelled out."""
+    doc = load_alfa(str(ALFA / "typed-comparison.alfa"), strict=True)
+    cond = _rule_by_id(doc, "StringInequality")["Condition"]
+    assert "DataType" not in _designator_list(cond)[0]
+
+
+def test_alfa_no_bare_short_name_datatype_survives():
+    """No emitted DataType may be a bare short name — every one is a URN or absent.
+
+    Guards the inconsistency this fixed: a full URN for FunctionId alongside an
+    unanchored `string`/`boolean` for DataType in the same expression. `xpath` is the one
+    permitted exception: it has no ACAL equivalent and is reported at declaration time.
+    """
+    for name in ("typed-comparison.alfa", "date-comparison.alfa", "bag-attribute.alfa",
+                 "aerospace.alfa", "banking.alfa", "healthcare.alfa"):
+        try:
+            doc = load_alfa(str(ALFA / name), include=_AX_INCLUDES)
+        except ValueError:
+            continue
+        found = []
+        _collect_datatypes(doc, found)
+        bare = [d for d in found if ":" not in d and d != "xpath"]
+        assert not bare, f"{name}: emitted bare short-name DataType(s) {sorted(set(bare))}"
+
+
+def _collect_datatypes(node, out):
+    if isinstance(node, dict):
+        dtype = node.get("DataType")
+        if isinstance(dtype, str):
+            out.append(dtype)
+        for value in node.values():
+            _collect_datatypes(value, out)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_datatypes(item, out)
+
+
+def test_alfa_datatype_normalization_preserves_typed_comparison():
+    """Normalized DataTypes and datatype-selected functions must coexist on one document.
+
+    The two features are coupled: `_operand_datatype` matches ALFA short names, so
+    normalization has to happen after the transformer rather than inside
+    `_resolve_attr_path`. Emitting URNs at the designator instead would make every lookup
+    miss and silently fall back to string-equal — the typed-comparison tests above are what
+    catch that. This one pins that both results appear together, which is the symptom a
+    reader of the output would notice.
+    """
+    doc = load_alfa(str(ALFA / "typed-comparison.alfa"), strict=True)
+    # The datatype still drives the function choice through the bag-bridging wrapper.
+    assert _rule_by_id(doc, "BooleanEquality")["Condition"]["Apply"]["FunctionId"] == \
+        "urn:oasis:names:tc:acal:1.0:function:boolean-is-in"
+    ordering = _rule_by_id(doc, "DoubleOrdering")["Condition"]["Apply"]["Argument"][0]
+    assert ordering["Function"]["Id"] == \
+        "urn:oasis:names:tc:acal:1.0:function:double-greater-than-or-equal"
+
+
+def _designator_list(node):
+    """Every AttributeDesignator under `node`, in document order.
+
+    Tests locate designators structurally rather than by argument index: a comparison
+    against a designator is wrapped to bridge bag-to-single-value (`<type>-is-in`,
+    `any-of-any`), so a designator's position depends on the bridging shape rather than on
+    anything in the source. Wraps the `_designators` generator defined further down.
+    """
+    return list(_designators(node))
+
+
+def _rule_by_id(doc, suffix):
+    for entry in doc["Policy"]["CombinerInput"]:
+        if entry.get("Rule", {}).get("Id", "").endswith(suffix):
+            return entry["Rule"]
+    raise AssertionError(f"no rule ending {suffix!r}")
+
+
+def test_alfa_infix_equality_uses_the_operand_datatype():
+    """`active == true` on a boolean attribute is boolean-equal, not string-equal.
+
+    ACAL comparison functions are per-datatype; there is no generic equality. Compiling a
+    boolean comparison as string-equal is a different predicate, so this changes the
+    decision rather than merely the spelling.
+    """
+    doc = load_alfa(str(ALFA / "typed-comparison.alfa"), strict=True)
+    cond = _rule_by_id(doc, "BooleanEquality")["Condition"]
+    # boolean, not string — and bridged, because the designator yields a bag.
+    assert cond["Apply"]["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:boolean-is-in"
+    single, bag = cond["Apply"]["Argument"]
+    assert single == {"Value": True}, "<type>-is-in takes the single value first"
+    assert "AttributeDesignator" in bag, "<type>-is-in takes the bag second"
+
+
+def test_alfa_infix_ordering_uses_the_operand_datatype():
+    """`score >= 4.5` on a double attribute is double-*, not the integer default.
+
+    Ordering against a bag lifts through any-of-any rather than `<type>-is-in`, which is
+    membership and only meaningful for equality. Operand order must survive the lift, or
+    the comparison silently inverts.
+    """
+    doc = load_alfa(str(ALFA / "typed-comparison.alfa"), strict=True)
+    cond = _rule_by_id(doc, "DoubleOrdering")["Condition"]
+    apply_ = cond["Apply"]
+    assert apply_["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:any-of-any"
+    fn, left, right = apply_["Argument"]
+    assert fn == {"Function": {
+        "Id": "urn:oasis:names:tc:acal:1.0:function:double-greater-than-or-equal"
+    }}
+    assert "AttributeDesignator" in left, "score must stay the left operand of >="
+    assert right == {"Value": 4.5}
+
+
+def test_alfa_infix_not_equal_becomes_not_of_equal():
+    """ACAL defines no *-not-equal function, so `!=` must be not(<type>-equal(...)).
+
+    The reader previously emitted `string-not-equal`, a URN ACAL does not define at all.
+    """
+    doc = load_alfa(str(ALFA / "typed-comparison.alfa"), strict=True)
+    cond = _rule_by_id(doc, "StringInequality")["Condition"]
+    assert cond["Apply"]["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:not"
+    inner = cond["Apply"]["Argument"][0]
+    # Negation wraps the bridged form: "no member of the bag equals draft".
+    assert inner["Apply"]["FunctionId"] == "urn:oasis:names:tc:acal:1.0:function:string-is-in"
+
+
+def test_alfa_no_reader_emits_a_nonexistent_not_equal_function(tmp_path):
+    """No ALFA fixture may produce a *-not-equal URN, since ACAL defines none."""
+    for name in ("typed-comparison.alfa", "condition.alfa", "aerospace.alfa"):
+        try:
+            doc = load_alfa(str(ALFA / name), include=_AX_INCLUDES)
+        except ValueError:
+            continue
+        assert "not-equal" not in json.dumps(doc), f"{name} emitted a *-not-equal function"
+
+
+def test_alfa_ordering_on_an_unordered_datatype_raises(tmp_path):
+    """ACAL defines no boolean ordering, so `boolean > boolean` cannot be represented.
+
+    Raises rather than falling back to an integer or string ordering function, which would
+    compare something other than what the source asked for.
+    """
+    bad = (ALFA / "typed-comparison.alfa").read_text().replace(
+        "condition active == true", "condition active > true"
+    )
+    target = tmp_path / "bad-ordering.alfa"
+    target.write_text(bad)
+    with pytest.raises(ALFAUnsupportedFeatureError, match="no '>' comparison"):
+        load_alfa(str(target))
+
+
+def test_alfa_partially_qualified_attribute_reference_resolves():
+    """`user.role` must resolve to `axiomatics.demo.user.role` declared in an include.
+
+    Real ALFA policies reference attributes relative to the enclosing namespace, so the
+    reference is neither the bare local name (`role`) nor the full qualified name. This was
+    the actual cause of the "unresolvable attribute" warnings on four Axiomatics fixtures —
+    the attributes were declared in the include chain the whole time.
+    """
+    doc = _ax_load("healthcare.alfa", strict=True)
+    ids = []
+    _collect_designator_ids(doc, ids)
+    assert "axiomatics.demo.user.role" in ids
+    assert "axiomatics.demo.medicalrecord.patientId" in ids
+    assert all(i for i in ids), "no designator may carry an empty AttributeId"
+
+
+def test_alfa_no_designator_has_an_empty_category():
+    """Category is required and minLength 1 — an empty one is schema-invalid.
+
+    Guards the specific shape the old unresolvable-attribute fallback produced.
+    """
+    for name in ("healthcare.alfa", "banking.alfa", "api.alfa", "online_trial_tutorial.alfa"):
+        doc = _ax_load(name)
+        cats = []
+        _collect_designator_categories(doc, cats)
+        assert cats, f"{name}: expected at least one designator"
+        assert all(cats), f"{name}: emitted a designator with an empty Category"
+
+
+def _collect_designator_ids(node, out):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "AttributeDesignator" and isinstance(value, dict):
+                out.append(value.get("AttributeId"))
+            _collect_designator_ids(value, out)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_designator_ids(item, out)
+
+
+def _collect_designator_categories(node, out):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "AttributeDesignator" and isinstance(value, dict):
+                out.append(value.get("Category"))
+            _collect_designator_categories(value, out)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_designator_categories(item, out)
+
+
 def test_alfa_namespace_qualified_attribute_reference_resolves():
     """A reference like `resource.kind` must resolve even though the attribute's
     declared local name is just `kind` — matching by the declaration's own
@@ -428,8 +757,9 @@ def test_alfa_namespace_qualified_attribute_reference_resolves():
         warnings.simplefilter("always")
         doc = load_alfa(str(ALFA / "namespace-qualified-attribute.alfa"), strict=True)
     assert not w
-    target = doc["Policy"]["CombinerInput"][0]["Rule"]["Target"]
-    desig = target["Apply"]["Argument"][0]["AttributeDesignator"]
+    # A rule-level `target clause` lands in Condition: ACAL RuleType has no Target.
+    cond = doc["Policy"]["CombinerInput"][0]["Rule"]["Condition"]
+    desig = _designator_list(cond)[0]
     assert desig["AttributeId"] == "resource.kind"
     assert desig["Category"] == "urn:oasis:names:tc:acal:1.0:attribute-category:resource"
 
@@ -488,16 +818,16 @@ def test_alfa_custom_combining_algo_strict_raises():
         load_alfa(str(ALFA / "custom-combining-algo.alfa"), strict=True)
 
 
-def test_alfa_unresolvable_attr_warns():
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        load_alfa(str(ALFA / "unresolvable-attr.alfa"))
-    assert any("unknownCategory.attr" in str(x.message) for x in w)
+@pytest.mark.parametrize("strict", [False, True], ids=["no-strict", "strict"])
+def test_alfa_unresolvable_attr_raises_either_way(strict):
+    """An undeclared attribute raises whether or not --strict is set.
 
-
-def test_alfa_unresolvable_attr_strict_raises():
-    with pytest.raises(ALFAUnsupportedFeatureError):
-        load_alfa(str(ALFA / "unresolvable-attr.alfa"), strict=True)
+    Unlike the warning-eligible constructs around it (a custom combining algorithm, an
+    unknown function), an unresolvable attribute has no representable fallback: the
+    designator needs a Category, and there is none to supply.
+    """
+    with pytest.raises(ALFAUnsupportedFeatureError, match="unknownCategory.attr"):
+        load_alfa(str(ALFA / "unresolvable-attr.alfa"), strict=strict)
 
 
 def test_alfa_unknown_function_warns():
@@ -1144,13 +1474,46 @@ def _find_nulls(node, path="$"):
 
 
 def _all_loadable_fixtures():
+    """Every fixture, paired with the reader its extension registers to.
+
+    Extensions come from the language registry rather than a literal set, so registering a
+    language sweeps its fixtures automatically. The hardcoded set this replaced omitted
+    ``.cedar``, which silently excluded every Cedar fixture from the cross-reader
+    invariants below — the sweep was not sweeping every reader.
+
+    Dispatch is by extension, not ``detect_format()``, because these are *reader*
+    invariants: a content-sniff miss would route a fixture to the wrong reader and assert
+    the invariant against the wrong code. Detection has its own dedicated tests above.
+    """
     for path in sorted(FIXTURES.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in {".xml", ".yaml", ".yml", ".json", ".alfa"}:
+        if not path.is_file():
             continue
-        fmt = detect_format(str(path))
+        fmt = EXT_TO_FORMAT.get(path.suffix.lower())
         if fmt is None:
             continue
         yield path, fmt
+
+
+def _load_fixture_or_skip(path, fmt):
+    """Load a fixture, or None if it is invalid-by-design (rejection covered elsewhere)."""
+    try:
+        return load(str(path), fmt)
+    except (ValueError, Warning):
+        return None
+
+
+def _iter_policies(node):
+    """Every Policy object in a document, at any nesting depth."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "Policy" and isinstance(value, dict):
+                yield value
+            if key == "Policy" and isinstance(value, list):
+                yield from (p for p in value if isinstance(p, dict))
+            yield from _iter_policies(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _iter_policies(item)
 
 
 @pytest.mark.parametrize(
@@ -1158,12 +1521,138 @@ def _all_loadable_fixtures():
     [pytest.param(p, f, id=f"{f}/{p.name}") for p, f in _all_loadable_fixtures()],
 )
 def test_no_reader_ever_emits_a_null(path, fmt):
-    try:
-        doc = load(str(path), fmt)
-    except (ValueError, Warning):
-        return  # invalid-by-design fixture; its rejection is covered elsewhere
+    doc = _load_fixture_or_skip(path, fmt)
+    if doc is None:
+        return
     nulls = _find_nulls(doc)
     assert not nulls, f"{fmt} reader emitted null(s) at: {nulls} — YACAL prohibits nulls"
+
+
+# ---------------------------------------------------------------------------
+# Cross-reader structural invariants (ADR-0004: unambiguous, not merely valid)
+#
+# Each of these was a real defect that passed the per-reader tests, because those
+# assert on the intermediate dict rather than on what the schema actually admits.
+# They are swept across every reader so one reader's fix cannot silently regress
+# in another — the ALFA reader had all three while Cedar and XACML had none.
+# ---------------------------------------------------------------------------
+
+_LEGAL_COMBINER_INPUT_KEYS = {"Rule", "Policy", "PolicyReference"}
+
+
+@pytest.mark.parametrize(
+    "path,fmt",
+    [pytest.param(p, f, id=f"{f}/{p.name}") for p, f in _all_loadable_fixtures()],
+)
+def test_no_reader_emits_an_ambiguous_bundle(path, fmt):
+    """A multi-policy Bundle must name the policy that decides.
+
+    Bundle.Policy[] is a definition pool; Bundle.PolicyReference names the entry point.
+    The schema permits omitting it, so this is a project invariant, not a schema check:
+    with several policies and no entry point, which one produces the decision is undefined.
+    """
+    doc = _load_fixture_or_skip(path, fmt)
+    if doc is None or "Bundle" not in doc:
+        return
+    bundle = doc["Bundle"]
+    pool = bundle.get("Policy", [])
+    if len(pool) < 2:
+        return  # a single policy is the decision by construction
+    assert "PolicyReference" in bundle, (
+        f"{fmt} reader emitted a Bundle with {len(pool)} policies and no "
+        f"Bundle.PolicyReference — which policy decides is undefined. "
+        f"Pool: {[p.get('PolicyId') for p in pool]}"
+    )
+
+
+@pytest.mark.parametrize(
+    "path,fmt",
+    [pytest.param(p, f, id=f"{f}/{p.name}") for p, f in _all_loadable_fixtures()],
+)
+def test_no_reader_emits_an_illegal_combiner_input(path, fmt):
+    """CombinerInput admits only Rule, Policy, or PolicyReference.
+
+    ACAL 1.0 absorbed PolicySet into Policy, so there is no PolicySet object; a reader
+    that emits one produces a structurally invalid document that per-reader dict
+    assertions do not notice.
+    """
+    doc = _load_fixture_or_skip(path, fmt)
+    if doc is None:
+        return
+    for policy in _iter_policies(doc):
+        for entry in policy.get("CombinerInput", []):
+            if not isinstance(entry, dict):
+                continue
+            illegal = set(entry) - _LEGAL_COMBINER_INPUT_KEYS
+            assert not illegal, (
+                f"{fmt} reader emitted CombinerInput member(s) {sorted(illegal)} in "
+                f"{policy.get('PolicyId')!r}; only {sorted(_LEGAL_COMBINER_INPUT_KEYS)} are legal"
+            )
+
+
+@pytest.mark.parametrize(
+    "path,fmt",
+    [pytest.param(p, f, id=f"{f}/{p.name}") for p, f in _all_loadable_fixtures()],
+)
+def test_no_reader_emits_a_rule_target(path, fmt):
+    """ACAL RuleType has no Target — a rule's applicability is its Condition alone.
+
+    RuleType sets additionalProperties: false, so an emitted Rule.Target invalidates the
+    whole document. Unlike PolicyType, which does carry a Target, a rule-level target in
+    a source language must fold into Condition.
+    """
+    doc = _load_fixture_or_skip(path, fmt)
+    if doc is None:
+        return
+    for policy in _iter_policies(doc):
+        for entry in policy.get("CombinerInput", []):
+            if isinstance(entry, dict) and isinstance(entry.get("Rule"), dict):
+                assert "Target" not in entry["Rule"], (
+                    f"{fmt} reader emitted Rule.Target on {entry['Rule'].get('Id')!r}; "
+                    "ACAL RuleType has no Target — fold it into Condition"
+                )
+
+
+@pytest.mark.parametrize(
+    "path,fmt",
+    [pytest.param(p, f, id=f"{f}/{p.name}") for p, f in _all_loadable_fixtures()],
+)
+def test_no_reader_emits_a_dangling_policy_reference(path, fmt):
+    """Every intra-document PolicyReference resolves to a PolicyId in the document.
+
+    Worth asserting here because the validator does *not* catch this: a dangling
+    reference is a well-formed URI, and reference resolution is deferred to --include for
+    the cross-file case, so an unresolvable reference validates clean with exit 0.
+    A reference naming nothing in a self-contained document is a conversion bug.
+    """
+    doc = _load_fixture_or_skip(path, fmt)
+    if doc is None:
+        return
+    known = {p["PolicyId"] for p in _iter_policies(doc) if isinstance(p.get("PolicyId"), str)}
+    if not known:
+        return
+    refs = []
+    _collect_policy_reference_ids(doc, refs)
+    # Templates and cross-file references legitimately name policies defined elsewhere;
+    # only flag a reference whose bare name looks like it meant something in this document.
+    dangling = [r for r in refs if r not in known and any(k.endswith("." + r) for k in known)]
+    assert not dangling, (
+        f"{fmt} reader emitted PolicyReference(s) {dangling} that match no PolicyId; "
+        f"a relative reference was left unresolved. Known ids: {sorted(known)}"
+    )
+
+
+def _collect_policy_reference_ids(node, out):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "PolicyReference" and isinstance(value, dict):
+                if isinstance(value.get("Id"), str):
+                    out.append(value["Id"])
+            else:
+                _collect_policy_reference_ids(value, out)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_policy_reference_ids(item, out)
 
 
 def test_versionless_xacml3_policy_gets_the_schema_default(tmp_path):

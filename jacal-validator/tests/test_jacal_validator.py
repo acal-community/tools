@@ -353,3 +353,85 @@ class TestIncludePathResolution:
         )
         assert result.valid
         assert result.incomplete
+
+
+# ---------------------------------------------------------------------------
+# Bag / single-value function arguments (supplementary check)
+#
+# The same model-level rule the YACAL validator enforces: an AttributeDesignator
+# yields a bag, the comparison/arithmetic/logical functions take single values, and
+# the two must be bridged. JACAL is a serialization of the same ACAL model, so the
+# rule and its wording are identical here.
+# ---------------------------------------------------------------------------
+
+_DESIGNATOR = {
+    "AttributeDesignator": {
+        "Category": "urn:oasis:names:tc:acal:1.0:subject-category:access-subject",
+        "AttributeId": "urn:example:role",
+    }
+}
+_FN = "urn:oasis:names:tc:acal:1.0:function:"
+
+
+def _policy_with_condition(condition: dict) -> dict:
+    return {
+        "Policy": {
+            "PolicyId": "urn:example:policy:bagcheck",
+            "Version": "1.0",
+            "CombiningAlgId": f"{_FN.replace('function', 'combining-algorithm')}deny-unless-permit",
+            "CombinerInput": [
+                {"Rule": {"Id": "r1", "Effect": "Permit", "Condition": condition}}
+            ],
+        }
+    }
+
+
+class TestBagInSingleValueFunction:
+    def _validate_doc(self, doc: dict, store, tmp_path: Path):
+        path = tmp_path / "bagcheck.json"
+        path.write_text(json.dumps(doc))
+        return validate(
+            json_path=path,
+            core_structure_path=store.resolve(SCHEMA_FILES["core_structure"]),
+            core_constraints_path=store.resolve(SCHEMA_FILES["core_constraints"]),
+            xpath_structure_path=store.try_resolve(SCHEMA_FILES["xpath_structure"]),
+            jsonpath_structure_path=store.try_resolve(SCHEMA_FILES["jsonpath_structure"]),
+        )
+
+    @staticmethod
+    def _bag_issues(result):
+        return [i for i in result.issues if i.rule_id == "jacal:no-bag-in-single-value-function"]
+
+    def test_unbridged_bag_is_reported(self, store, tmp_path) -> None:
+        doc = _policy_with_condition({
+            "Apply": {"FunctionId": f"{_FN}string-equal",
+                      "Argument": [_DESIGNATOR, {"Value": "reader"}]}
+        })
+        result = self._validate_doc(doc, store, tmp_path)
+        issues = self._bag_issues(result)
+        assert len(issues) == 1, [i.message for i in result.issues]
+        assert issues[0].path.endswith("Argument[0]")
+        assert not result.valid
+
+    @pytest.mark.parametrize("label,condition", [
+        ("is-in", {"Apply": {"FunctionId": f"{_FN}string-is-in",
+                             "Argument": [{"Value": "reader"}, _DESIGNATOR]}}),
+        ("one-and-only", {"Apply": {"FunctionId": f"{_FN}string-equal", "Argument": [
+            {"Apply": {"FunctionId": f"{_FN}string-one-and-only", "Argument": [_DESIGNATOR]}},
+            {"Value": "reader"},
+        ]}}),
+        ("any-of-any", {"Apply": {"FunctionId": f"{_FN}any-of-any", "Argument": [
+            {"Function": {"Id": f"{_FN}string-equal"}}, _DESIGNATOR, {"Value": "reader"},
+        ]}}),
+    ])
+    def test_bridged_forms_do_not_fire(self, label, condition, store, tmp_path) -> None:
+        result = self._validate_doc(_policy_with_condition(condition), store, tmp_path)
+        assert not self._bag_issues(result), [i.message for i in self._bag_issues(result)]
+
+    def test_custom_function_is_not_second_guessed(self, store, tmp_path) -> None:
+        doc = _policy_with_condition({
+            "Apply": {"FunctionId": "urn:example:custom:function:matches-somehow",
+                      "Argument": [_DESIGNATOR, {"Value": "reader"}]}
+        })
+        result = self._validate_doc(doc, store, tmp_path)
+        assert not self._bag_issues(result)

@@ -1039,7 +1039,110 @@ def _check_shortidset_reference_graph(document: Any, out: list[ValidationIssue])
             ))
 
 
+_ACAL_FN_PREFIX = "urn:oasis:names:tc:acal:1.0:function:"
+
+# Function families that take single values in *every* argument position. Deliberately an
+# allow-list: a document may name functions by short identifier, and this validator does
+# not resolve ShortIdSets, so a name that is not recognised must be left alone rather than
+# assumed. Each family below is one the spec states takes single-valued arguments — the
+# comparisons, arithmetic ("SHALL take two arguments of the specified data type"), and the
+# logical connectives ("zero or more arguments of data type boolean").
+#
+# Suffix matching is safe against the bag-consuming families: "-set-equals" does not end
+# with "-equal", and "-one-and-only", "-bag-size", "-is-in", "-subset",
+# "-at-least-one-member-of", "-union" and "-intersection" match nothing here.
+_SINGLE_VALUE_FUNCTION_SUFFIXES = (
+    "-equal", "-greater-than", "-less-than",
+    "-greater-than-or-equal", "-less-than-or-equal",
+    "-add", "-subtract", "-multiply", "-divide", "-mod", "-abs",
+)
+_SINGLE_VALUE_FUNCTION_NAMES = frozenset({"and", "or", "not", "n-of"})
+
+# Functions that *return* a bag, so an Apply of one is itself a bag-valued expression.
+# "<type>-bag-size" returns an integer and is deliberately not matched by "-bag".
+_BAG_RETURNING_SUFFIXES = ("-bag", "-union", "-intersection")
+_BAG_RETURNING_NAMES = frozenset({"map"})
+
+
+def _function_local_name(fn_id: Any) -> str | None:
+    """Local name of a function, from either a full ACAL URN or a short identifier.
+
+    ``urn:oasis:names:tc:acal:1.0:function:string-equal`` and ``{string-equal}`` both give
+    ``string-equal``. Anything else — a custom URN, or a short identifier this validator
+    cannot interpret — gives None, and callers leave it alone.
+    """
+    if not isinstance(fn_id, str):
+        return None
+    if fn_id.startswith(_ACAL_FN_PREFIX):
+        return fn_id[len(_ACAL_FN_PREFIX):]
+    if fn_id.startswith("{") and fn_id.endswith("}") and "{" not in fn_id[1:-1]:
+        return fn_id[1:-1]
+    return None
+
+
+def _takes_only_single_values(name: str) -> bool:
+    return name in _SINGLE_VALUE_FUNCTION_NAMES or name.endswith(_SINGLE_VALUE_FUNCTION_SUFFIXES)
+
+
+def _is_bag_valued_expression(node: Any) -> bool:
+    """Whether an expression yields a bag rather than a single value."""
+    if not isinstance(node, dict):
+        return False
+    if "AttributeDesignator" in node or "AttributeSelector" in node:
+        return True
+    if "Apply" in node and isinstance(node["Apply"], dict):
+        name = _function_local_name(node["Apply"].get("FunctionId"))
+        if name is None:
+            return False
+        return name in _BAG_RETURNING_NAMES or name.endswith(_BAG_RETURNING_SUFFIXES)
+    return False
+
+
+def _check_no_bag_in_single_value_function(document: Any, out: list[ValidationIssue]) -> None:
+    """Catalog gap: nothing checks that a function's arguments have the right cardinality.
+
+    An attribute designator yields a *bag*; the comparison, arithmetic and logical
+    functions take *single* values. The two must be bridged explicitly — by reducing with
+    `<type>-one-and-only`, or by lifting with `<type>-is-in` or a higher-order function
+    such as `any-of-any`. Passing a bag straight into `string-equal` is a type error no PDP
+    can evaluate, yet it is structurally well-formed: the schema admits it and every
+    catalog rule passes it, so nothing else in the toolchain notices.
+
+    Scope is an allow-list of function families known to take single values, so an
+    unrecognised or custom function is never second-guessed. Two gaps remain, both
+    deliberate rather than overlooked: a `VariableReference` is not resolved to its
+    definition, and a short identifier is read as the ACAL core name without consulting the
+    document's ShortIdSets.
+    """
+    spec = "ACAL §A.3 (function signatures)"
+    for apply_path, apply_ in _find_all(document, "Apply"):
+        if not isinstance(apply_, dict):
+            continue
+        name = _function_local_name(apply_.get("FunctionId"))
+        if name is None or not _takes_only_single_values(name):
+            continue
+        arguments = apply_.get("Argument")
+        if not isinstance(arguments, list):
+            continue
+        for index, argument in enumerate(arguments):
+            if not _is_bag_valued_expression(argument):
+                continue
+            out.append(ValidationIssue(
+                severity=Severity.ERROR,
+                message=(
+                    f"Argument {index} of '{name}' is a bag-valued expression, but "
+                    f"'{name}' takes single values. Reduce the bag with "
+                    f"<type>-one-and-only, or lift the comparison with <type>-is-in or a "
+                    f"higher-order function such as any-of-any."
+                ),
+                path=f"{apply_path}.Argument[{index}]",
+                rule_id="jacal:no-bag-in-single-value-function",
+                spec_ref=spec,
+            ))
+
+
 _SUPPLEMENTARY_CHECKS = [
+    _check_no_bag_in_single_value_function,
     _check_rule_id_unique_within_policy,
     _check_shortid_name_unique,
     _check_policy_variable_scope,

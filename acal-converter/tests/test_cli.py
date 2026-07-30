@@ -183,6 +183,24 @@ def test_cli_alfa_no_strict_succeeds_with_warning(runner):
     assert result.exit_code == 0, result.output
 
 
+def _first_designator(node):
+    """The first AttributeDesignator anywhere under `node`, in document order."""
+    if isinstance(node, dict):
+        found = node.get("AttributeDesignator")
+        if found is not None:
+            return found
+        for value in node.values():
+            hit = _first_designator(value)
+            if hit is not None:
+                return hit
+    elif isinstance(node, list):
+        for item in node:
+            hit = _first_designator(item)
+            if hit is not None:
+                return hit
+    return None
+
+
 def test_cli_alfa_include_resolves_shorthands(runner):
     """--include resolves shorthand attributes in Axiomatics PDP 7.x ALFA dialect policies."""
     result = runner.invoke(main, [
@@ -194,8 +212,9 @@ def test_cli_alfa_include_resolves_shorthands(runner):
     yaml = ruamel.yaml.YAML()
     doc = dict(yaml.load(result.output))
     rule = doc["Policy"]["CombinerInput"][0]["Rule"]
-    args = rule["Condition"]["Apply"]["Argument"]
-    user_desig = args[0]["Apply"]["Argument"][0]["AttributeDesignator"]
+    # Located structurally: a comparison against a designator is wrapped to bridge
+    # bag-to-single-value, so the designator's argument index depends on that shape.
+    user_desig = _first_designator(rule["Condition"])
     assert user_desig["Category"] == "urn:oasis:names:tc:acal:1.0:subject-category:access-subject"
     assert user_desig["AttributeId"] == "urn:example:attribute:user-id"
 

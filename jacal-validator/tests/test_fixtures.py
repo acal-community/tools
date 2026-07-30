@@ -86,6 +86,7 @@ CONSTRAINT_INVALID_FIXTURES: dict[str, str] = {
     "err06-duplicate-rule-ids.json": "jacal:rule-id-unique-within-policy",
     "err07-duplicate-shortid-names.json": "jacal:shortidset-shortid-name-unique",
     "err08-request-duplicate-entity-ids.json": "jacal:request-entity-id-unique",
+    "err38-bag-in-single-value-function.json": "jacal:no-bag-in-single-value-function",
     "err09-request-duplicate-attribute-ids.json": "jacal:request-attribute-id-unique-within-entity",
     # err10 moved to STRUCTURAL_INVALID_FIXTURES — see the note there.
     "err11-requestentityreference-unresolved.json": "jacal:requestreference-requestentityreference-resolves",
