@@ -23,6 +23,10 @@ class ValidationIssue:
 class ValidationResult:
     format: str  # "yacal"
     profiles: list[str] = field(default_factory=list)
+    # Unadopted schema proposals applied for this run. Non-empty means the document was
+    # checked against something the published schemas do not say, so the result is not a
+    # conformance result and every reporter must say which proposals were in play.
+    proposals: list[str] = field(default_factory=list)
     valid: bool = True
     issues: list[ValidationIssue] = field(default_factory=list)
     constraints_total: int = 0

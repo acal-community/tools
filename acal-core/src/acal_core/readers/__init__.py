@@ -113,7 +113,18 @@ def load_with_report(
     report = ConversionReport(source_format=fmt, source_dialect=dialect, strict=strict)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        doc = load(path, fmt, strict=strict, include=include, debug=debug, fail_closed=fail_closed)
+        if fmt == "alfa":
+            # ALFA is the one reader that consumes declarations the document cannot hold.
+            # Collecting them needs a wider return type, so it gets its own entry point
+            # rather than distorting `load` for every other format.
+            from . import alfa
+            doc, report.source_symbols = alfa.load_with_symbols(
+                path, strict=strict, include=include, debug=debug, fail_closed=fail_closed
+            )
+        else:
+            doc = load(
+                path, fmt, strict=strict, include=include, debug=debug, fail_closed=fail_closed
+            )
 
     for entry in caught:
         if issubclass(entry.category, UserWarning):

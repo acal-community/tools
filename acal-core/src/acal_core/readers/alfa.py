@@ -1796,20 +1796,53 @@ def _syntax_error(label: str, exc: UnexpectedInput) -> ALFASyntaxError:
     return ALFASyntaxError(f"Syntax error in {label}{loc}: {exc}")
 
 
+def symbol_table_as_dict(st: _SymbolTable) -> dict[str, Any]:
+    """Project the symbol table into plain JSON-able data.
+
+    ALFA declarations do not survive conversion. An attribute declaration binds four
+    facts — short name, `id`, `category`, `type` — and the transformer spends three of
+    them: it resolves the short name away and stamps category and datatype onto every
+    referencing `AttributeDesignator`. The binding itself is gone, and with it the only
+    record that the source ever used a name rather than a URN.
+
+    This projection is what a future ALFA writer would need to put the declarations back.
+    It preserves; it does not restore. There is no ALFA writer today
+    (`languages.py`: ALFA is ``can_write=False``), so nothing consumes it yet beyond
+    ``--provenance``.
+
+    Only what the symbol table actually holds is projected: attribute, obligation and
+    advice declarations. ALFA's category, type, function and combining-algorithm
+    declarations are parsed and discarded during collection, so they are absent here —
+    a gap in the reader, not in the container carrying this.
+
+    Returns an empty dict when the source declared nothing, so callers can treat "no
+    declarations" and "nothing worth recording" as the same falsy case.
+    """
+    attributes = {
+        name: {"id": d.id, "category": d.category, "type": d.type, "is_bag": d.is_bag}
+        for name, d in st.attributes.items()
+    }
+    if not (attributes or st.obligations or st.advice):
+        return {}
+
+    data: dict[str, Any] = {}
+    # The namespace is only meaningful alongside declarations that sit in it.
+    if st.namespace_parts:
+        data["namespace"] = ".".join(st.namespace_parts)
+    if attributes:
+        data["attributes"] = attributes
+    if st.obligations:
+        data["obligations"] = dict(st.obligations)
+    if st.advice:
+        data["advice"] = dict(st.advice)
+    return data
+
+
 def _dump_symbol_table(st: _SymbolTable) -> None:
     import json as _json
-    data = {
-        "namespace": ".".join(st.namespace_parts),
-        "attributes": {
-            k: {"id": v.id, "category": v.category, "type": v.type, "is_bag": v.is_bag}
-            for k, v in st.attributes.items()
-        },
-        "obligations": st.obligations,
-        "advice": st.advice,
-    }
     import sys as _sys
     print("=== ALFA symbol table ===", file=_sys.stderr)
-    print(_json.dumps(data, indent=2), file=_sys.stderr)
+    print(_json.dumps(symbol_table_as_dict(st), indent=2), file=_sys.stderr)
     print("=========================", file=_sys.stderr)
 
 
@@ -1830,6 +1863,25 @@ def load(
 
     debug: if True, dump the combined symbol table to stderr before transforming.
     Useful for troubleshooting shorthand resolution or namespace issues.
+    """
+    return load_with_symbols(
+        path, strict=strict, include=include, debug=debug, fail_closed=fail_closed
+    )[0]
+
+
+def load_with_symbols(
+    path: str,
+    strict: bool = False,
+    include: Sequence[str] = (),
+    debug: bool = False,
+    fail_closed: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """`load`, but also returning the declarations the conversion consumed.
+
+    Same document, plus the projection described in `symbol_table_as_dict`. Split from
+    `load` rather than folded into it because the symbol table is a fact about the
+    *source*, not about the ACAL document — most callers want the document alone, and
+    widening the common return type to make one caller happy would be the wrong trade.
     """
     combined = _SymbolTable()
 
@@ -1870,4 +1922,4 @@ def load(
     # names, so normalizing at the designator instead would make every lookup miss and
     # silently fall back to string-equal. Position among the post-passes does not matter.
     _normalize_datatypes(doc)
-    return doc
+    return doc, symbol_table_as_dict(combined)

@@ -44,6 +44,11 @@ class ConversionReport:
     source_dialect: str | None = None
     strict: bool = False
     notes: list[ConversionNote] = field(default_factory=list)
+    # Declarations the source language bound and the conversion spent — currently only
+    # ALFA's symbol table. Not a note: nothing was lost in a way that compromises the
+    # policy, so reporting it as fidelity loss would cry wolf. It is source material a
+    # writer back to that language would need, and it is empty for every other reader.
+    source_symbols: dict = field(default_factory=dict)
 
     @property
     def lossy(self) -> bool:

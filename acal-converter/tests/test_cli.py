@@ -12,6 +12,7 @@ import pytest
 import ruamel.yaml
 from click.testing import CliRunner
 
+from acal_converter import cli
 from acal_converter.cli import main
 from acal_core.readers.yacal import load as load_yacal
 from acal_core.readers.jacal import load as load_jacal
@@ -366,7 +367,9 @@ def test_provenance_is_opt_in(runner, tmp_path):
     assert metadata.read(load_yacal(str(out))) is None
 
 
-def test_provenance_with_validate_warns_that_the_spec_change_is_pending(runner, tmp_path):
+def test_provenance_with_validate_says_the_pass_is_not_conformance(runner, tmp_path):
+    """--validate now succeeds on stamped output, so the caveat matters more, not less:
+    it is the only thing standing between a PASS and someone reading it as conformance."""
     out = tmp_path / "out.yaml"
     result = runner.invoke(main, [
         "--from", "alfa", "--to", "yacal",
@@ -374,3 +377,68 @@ def test_provenance_with_validate_warns_that_the_spec_change_is_pending(runner, 
         str(ALFA / "xpath-datatype.alfa"),
     ])
     assert "proposed, not adopted" in result.output
+    assert "not a conformance result" in result.output
+
+
+def test_provenance_validation_applies_the_metadata_proposal(runner, tmp_path, monkeypatch):
+    """The converter wrote the Metadata, so it is the one that has to name the proposal
+    admitting it — rather than asking the validator to be lenient in general."""
+    seen: list[list[str]] = []
+
+    class _Result:
+        returncode = 0
+
+    monkeypatch.setattr(
+        cli.subprocess, "run",
+        lambda argv, **kw: seen.append(argv) or _Result(),
+    )
+
+    out = tmp_path / "out.yaml"
+    runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        "--provenance", "--validate", "-o", str(out),
+        str(ALFA / "xpath-datatype.alfa"),
+    ])
+    assert seen and seen[0][0] == "yacal-validate"
+    assert seen[0][-2:] == ["--proposal", "metadata"]
+
+
+def test_validation_without_provenance_names_no_proposal(runner, tmp_path, monkeypatch):
+    seen: list[list[str]] = []
+
+    class _Result:
+        returncode = 0
+
+    monkeypatch.setattr(
+        cli.subprocess, "run",
+        lambda argv, **kw: seen.append(argv) or _Result(),
+    )
+
+    out = tmp_path / "out.yaml"
+    runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal", "--validate", "-o", str(out),
+        str(ALFA / "xpath-datatype.alfa"),
+    ])
+    assert seen and "--proposal" not in seen[0]
+
+
+def test_provenance_preserves_alfa_attribute_declarations(runner, tmp_path):
+    """The ALFA answer to #12's ShortIdType question.
+
+    An ALFA declaration binds a short name to an id, a category and a type. Conversion
+    resolves the name away and copies category and type onto every referencing
+    designator, so the declaration itself does not survive. Carrying the symbol table in
+    the document-level Metadata preserves it without asking the TC to change ShortIdType.
+    """
+    out = tmp_path / "out.yaml"
+    result = runner.invoke(main, [
+        "--from", "alfa", "--to", "yacal",
+        "--provenance", "-o", str(out),
+        str(ALFA / "xpath-datatype.alfa"),
+    ])
+    assert result.exit_code == 0, result.output
+
+    decl = metadata.provenance(load_yacal(str(out)))["source_symbols"]["attributes"]["docPath"]
+    assert decl["id"] == "urn:example:attribute:doc-path"
+    assert decl["category"].endswith("attribute-category:resource")
+    assert decl["type"] == "xpath"

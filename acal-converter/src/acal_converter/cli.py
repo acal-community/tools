@@ -72,8 +72,9 @@ from acal_core.writers import write
         "Stamp source language, tool version and the conversion report into a Metadata "
         "property on the output document, so fidelity information survives the pipeline "
         "instead of living only in this process. Metadata is non-normative and a PDP must "
-        "ignore it, but the spec change is still proposed (acal-community/tools#12) — "
-        "output will not validate against the published schemas until it is adopted."
+        "ignore it, but the spec change is proposed, not adopted "
+        "(acal-community/tools#12) — the published schemas do not admit it, so --validate "
+        "checks against the proposal in docs/proposals/metadata/ instead."
     ),
 )
 @click.option(
@@ -118,13 +119,14 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
         )
 
     if provenance and validate:
-        # Say this up front rather than let the validator report a bare "not valid under
-        # any of the given schemas" for a key we knowingly added.
+        # Say this up front rather than let a PASS be read as conformance. The document
+        # is checked against the published schemas *plus* the metadata proposal; the
+        # validator repeats the caveat on its own result line.
         click.echo(
-            "Warning: --provenance emits a Metadata property, which the published ACAL "
-            "schemas do not yet admit — the spec change is proposed, not adopted "
-            "(acal-community/tools#12). --validate will therefore fail on this output "
-            "until it lands.",
+            "Note: --provenance emits a Metadata property, which the published ACAL "
+            "schemas do not admit — the spec change is proposed, not adopted "
+            "(acal-community/tools#12). --validate will apply the proposal in "
+            "docs/proposals/metadata/, so a PASS here is not a conformance result.",
             err=True,
         )
 
@@ -169,7 +171,7 @@ def main(input_file, from_fmt, to_fmt, output, validate, strict, no_strict, incl
                 err=True,
             )
         else:
-            sys.exit(_validate(output, to_fmt))
+            sys.exit(_validate(output, to_fmt, provenance=provenance))
 
 
 def _tool_identity() -> str:
@@ -182,7 +184,13 @@ def _tool_identity() -> str:
         return "acal-convert"
 
 
-def _validate(path: str, fmt: str) -> int:
+def _validate(path: str, fmt: str, provenance: bool = False) -> int:
     cmd = "yacal-validate" if fmt == "yacal" else "jacal-validate"
-    result = subprocess.run([cmd, path], capture_output=False)
+    argv = [cmd, path]
+    if provenance:
+        # We wrote the Metadata property, so we are the ones who have to say which
+        # unadopted proposal admits it. Passing the name rather than a blanket
+        # "be lenient" flag keeps the validator's result honest about what it applied.
+        argv += ["--proposal", "metadata"]
+    result = subprocess.run(argv, capture_output=False)
     return result.returncode

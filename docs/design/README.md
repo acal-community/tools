@@ -43,7 +43,9 @@ structural rules:
   the schema but whose evaluation is ambiguous, or that our own validator rejects, is a bug.
   **([ADR-0004](0004-unambiguous-output.md))**
 - **Every ACAL-facing document stays pure.** Conversion metadata travels beside the document,
-  never inside it. **([ADR-0004](0004-unambiguous-output.md))**
+  never inside it. **([ADR-0004](0004-unambiguous-output.md))** Where it must travel *with* the
+  document, it goes in a property the PDP is required to ignore — never in one the PDP
+  evaluates. **([ADR-0007](0007-inert-facts-never-ride-evaluated-constructs.md))**
 
 The knowledge that drives all of this is not scattered through code — it is **data**:
 
@@ -66,6 +68,7 @@ The knowledge that drives all of this is not scattered through code — it is **
 | [0004](0004-unambiguous-output.md) | Output must be semantically unambiguous, not merely schema-valid |
 | [0005](0005-capability-matrix.md) | The capability matrix is the single source of truth |
 | [0006](0006-decisions-as-data.md) | Conversion decisions are data, not flags |
+| [0007](0007-inert-facts-never-ride-evaluated-constructs.md) | Inert facts never ride evaluated constructs |
 
 ## Related
 

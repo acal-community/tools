@@ -294,3 +294,185 @@ def test_real_conversion_stamps_the_language_it_came_from():
         "or the native ACAL XML serialization"
     )
     assert recovered["lossy"] is False
+
+
+# ---------------------------------------------------------------------------
+# Structural defects in a Metadata this module did not write
+#
+# Everything above stamps a document and reads it back, so `attach` gets to guarantee
+# the shape it later relies on. These start from a document someone else wrote.
+# ---------------------------------------------------------------------------
+
+def test_attach_refuses_a_metadata_that_is_not_an_object():
+    """`Metadata: [...]` used to crash with a bare AttributeError from setdefault."""
+    doc = {"Policy": {"PolicyId": "p", "Metadata": ["not", "an", "object"]}}
+    with pytest.raises(metadata.MetadataError, match="not an object"):
+        metadata.attach(doc, [metadata.attribute(metadata.TOOL, "acal-convert/test")])
+
+
+def test_read_refuses_a_metadata_that_is_not_an_object():
+    """Absent and malformed are different answers; both used to be None.
+
+    Returning None for a malformed property let a hand-written `Metadata:` of the wrong
+    shape travel through a conversion and back out into the written document unremarked.
+    """
+    doc = {"Policy": {"PolicyId": "p", "Metadata": "a string"}}
+    with pytest.raises(metadata.MetadataError, match="not an object"):
+        metadata.read(doc)
+
+
+def test_empty_metadata_is_rejected_rather_than_ignored():
+    """MetadataType has no 'declared but empty' state — that is the point of the guard."""
+    doc = {"Policy": {"PolicyId": "p", "Metadata": {}}}
+    with pytest.raises(metadata.MetadataError, match="empty"):
+        metadata.attributes(doc)
+
+
+def test_metadata_holding_only_content_is_not_empty():
+    """The non-empty constraint is a disjunction: Content alone satisfies it.
+
+    This module never emits Content (§7.34 makes ContentType support optional), but a
+    document that uses it is conformant and must not be rejected on the way through.
+    """
+    doc = {"Policy": {"PolicyId": "p", "Metadata": {"Content": {"Value": "<x/>"}}}}
+    assert metadata.attributes(doc) == []
+
+
+def test_duplicate_attribute_id_is_reported_not_silently_resolved():
+    doc = {"Policy": {"PolicyId": "p", "Metadata": {"Attribute": [
+        {"AttributeId": metadata.TOOL, "Value": ["acal-convert/1"]},
+        {"AttributeId": metadata.TOOL, "Value": ["acal-convert/2"]},
+    ]}}}
+    with pytest.raises(metadata.MetadataError, match="Duplicate"):
+        metadata.attribute_values(doc, metadata.TOOL)
+
+
+def test_same_attribute_id_from_different_issuers_is_legal():
+    """Uniqueness is by (AttributeId, Issuer), amending the isUnique(AttributeId) of #12.
+
+    AttributeType carries an Issuer and two same-id attributes from different issuers are
+    meaningful everywhere else in ACAL; a container defined by a MUST-ignore rule has no
+    reason to be the one place it is forbidden.
+    """
+    doc = {"Policy": {"PolicyId": "p", "Metadata": {"Attribute": [
+        {"AttributeId": "urn:example:author", "Issuer": "a", "Value": ["one"]},
+        {"AttributeId": "urn:example:author", "Issuer": "b", "Value": ["two"]},
+    ]}}}
+    assert len(metadata.attributes(doc)) == 2
+
+
+def test_restamping_replaces_only_the_matching_issuer():
+    """A converter refreshing its own facts must not clobber another issuer's."""
+    doc = {"Policy": {"PolicyId": "p", "Metadata": {"Attribute": [
+        {"AttributeId": metadata.TOOL, "Issuer": "someone-else", "Value": ["theirs"]},
+        {"AttributeId": metadata.TOOL, "Value": ["acal-convert/old"]},
+    ]}}}
+    metadata.attach(doc, [metadata.attribute(metadata.TOOL, "acal-convert/new")])
+
+    attrs = doc["Policy"]["Metadata"]["Attribute"]
+    assert len(attrs) == 2
+    assert {a.get("Issuer"): a["Value"][0] for a in attrs} == {
+        "someone-else": "theirs",
+        None: "acal-convert/new",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fidelity is tri-state on the way back out
+# ---------------------------------------------------------------------------
+
+def test_absent_fidelity_reads_as_unknown_not_as_lossless():
+    """Silence is not a clean bill of health.
+
+    The write side goes out of its way to emit an explicit `lossless` rather than omit
+    the attribute; reading a missing attribute as False would undo that distinction.
+    """
+    doc = {"Policy": {"PolicyId": "p", "Metadata": {"Attribute": [
+        {"AttributeId": metadata.SOURCE_LANGUAGE, "Value": ["alfa"]},
+    ]}}}
+    assert metadata.provenance(doc)["lossy"] is None
+
+
+def test_recorded_lossless_reads_as_false():
+    doc = {"Policy": {"PolicyId": "p"}}
+    metadata.stamp_provenance(doc, _lossless_report())
+    assert metadata.provenance(doc)["lossy"] is False
+
+
+# ---------------------------------------------------------------------------
+# ALFA declarations survive as metadata rather than as a ShortIdType change
+# ---------------------------------------------------------------------------
+
+def test_alfa_declarations_are_preserved_in_metadata():
+    """An ALFA attribute declaration binds four facts; conversion spends three of them.
+
+    The transformer resolves the short name away and stamps category and datatype onto
+    every referencing designator, so the declaration itself is gone. This is the whole
+    reason #12 does not need `Metadata` on `ShortIdType`: the symbol table rides in the
+    document-level `Metadata` that proposal already asks for.
+    """
+    doc, report = load_with_report(str(FIXTURES / "alfa" / "xpath-datatype.alfa"), "alfa")
+    metadata.stamp_provenance(doc, report, tool="acal-convert/test")
+
+    symbols = metadata.provenance(doc)["source_symbols"]
+    assert symbols["namespace"] == "com.example"
+
+    decl = symbols["attributes"]["docPath"]
+    assert decl["id"] == "urn:example:attribute:doc-path"
+    assert decl["category"] == "urn:oasis:names:tc:acal:1.0:attribute-category:resource"
+    assert decl["type"] == "xpath", (
+        "the declared ALFA type, not the ACAL datatype it was mapped to — this is source "
+        "material for a writer back to ALFA, not a fact about the ACAL document"
+    )
+
+
+def test_source_symbols_use_the_tool_namespace_not_the_oasis_one():
+    """The payload shape is defined here, so the identifier must not claim TC assignment.
+
+    The generic provenance facts are candidates for standardisation and keep the OASIS
+    namespace; a per-language symbol table is not.
+    """
+    assert metadata.SOURCE_SYMBOLS.startswith("urn:com.github.acal-community.tools:")
+    assert metadata.SOURCE_LANGUAGE.startswith("urn:oasis:names:tc:acal:")
+
+
+def test_readers_with_nothing_to_preserve_emit_no_symbols_attribute():
+    doc, report = load_with_report(str(XACML4 / "simple-policy.xml"), "xacml")
+    metadata.stamp_provenance(doc, report)
+
+    ids = [a["AttributeId"] for a in metadata.attributes(doc)]
+    assert metadata.SOURCE_SYMBOLS not in ids
+    assert metadata.provenance(doc)["source_symbols"] == {}
+
+
+def test_unparseable_symbol_payload_degrades_rather_than_raising():
+    """A blob this module cannot read is never a reason to reject the policy.
+
+    Structural defects raise; opaque content does not. The payload is opaque by design,
+    and the enclosing policy is unaffected either way.
+    """
+    doc = {"Policy": {"PolicyId": "p", "Metadata": {"Attribute": [
+        {"AttributeId": metadata.SOURCE_LANGUAGE, "Value": ["alfa"]},
+        {"AttributeId": metadata.SOURCE_SYMBOLS, "Value": ["{not json"]},
+    ]}}}
+    assert metadata.provenance(doc)["source_symbols"] == {}
+
+
+# ---------------------------------------------------------------------------
+# XACML reader
+# ---------------------------------------------------------------------------
+
+def test_empty_metadata_element_is_rejected_not_dropped(tmp_path):
+    """This reader rejects rather than ignores; deleting an empty property would hide
+    the bug in whatever wrote it."""
+    path = tmp_path / "empty-metadata.xml"
+    path.write_text(
+        '<Policy xmlns="urn:oasis:names:tc:xacml:4.0:core:schema" '
+        'PolicyId="p" Version="1.0" '
+        'CombiningAlgId="urn:oasis:names:tc:acal:1.0:combining-algorithm:deny-overrides">'
+        "<Metadata/>"
+        "</Policy>",
+        encoding="utf-8",
+    )
+    with pytest.raises(XACMLUnsupportedFeatureError, match="empty"):
+        load_xacml(str(path))
