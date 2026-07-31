@@ -1,0 +1,53 @@
+{
+  "Proposal": "metadata",
+  "Target": "acal-core-json-v1.0-schema.json",
+  "Status": "proposed, not adopted",
+
+  "$comment": "MetadataType for the JACAL schema. Shaped as EntityType, down to the minProperties/if-then non-empty guard and the absence of additionalProperties. JACAL expresses the guard differently from YACAL (if/then rather than anyOf) because the published JSON schema already does so for EntityType; this fragment follows each serialization's own house style rather than imposing one. PropertyAdditions names the existing types that gain the property, so no published definition is restated here.",
+
+  "$defs": {
+    "MetadataType": {
+      "type": "object",
+      "required": [],
+      "minProperties": 1,
+      "properties": {
+        "Content": {
+          "$ref": "#/$defs/ContentType"
+        },
+        "Attribute": {
+          "$comment": "Uniqueness is by (AttributeId, Issuer) and is not expressible in JSON Schema 2020-12; see the uniqueKeys TODO on EntityType.Attribute for the same gap. The constraint catalog carries the rule (metadata-attribute-unique).",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/AttributeType"
+          }
+        }
+      },
+      "if": {
+        "not": {
+          "required": [
+            "Content"
+          ]
+        }
+      },
+      "then": {
+        "required": [
+          "Attribute"
+        ]
+      }
+    }
+  },
+
+  "PropertyAdditions": {
+    "PolicyType": {
+      "Metadata": {
+        "$ref": "#/$defs/MetadataType"
+      }
+    },
+    "BundleType": {
+      "Metadata": {
+        "$ref": "#/$defs/MetadataType"
+      }
+    }
+  }
+}

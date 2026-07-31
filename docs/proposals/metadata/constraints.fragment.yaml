@@ -1,0 +1,80 @@
+# MetadataType — constraint catalog fragment
+#
+# Overlay for acal-core-yaml-v1.0-constraints.yaml. Entries are appended to the catalog's
+# `Rule` list; nothing published is restated or replaced.
+#
+# Uniqueness within a Metadata property cannot be expressed in any of the three structural
+# schemas — JSON Schema 2020-12 has no uniqueness-by-key, and XSD's xs:unique silently
+# skips tuples with an absent field, which is every Attribute that omits Issuer. The
+# published JSON schema already records this gap as a TODO on EntityType.Attribute. The
+# constraint catalog is the layer built for exactly these, so the rule lives here and the
+# structural fragments stay silent about it.
+#
+# No Provenance block: these rules cite a specification section that does not exist yet.
+# Adding one when the proposal lands is the TC's call, not ours to guess.
+
+Proposal: metadata
+Target: acal-core-yaml-v1.0-constraints.yaml
+Status: proposed, not adopted
+
+Rule:
+
+  # The key is (AttributeId, Issuer), not AttributeId alone.
+  #
+  # This amends the shape first proposed in discussion, which read isUnique(AttributeId).
+  # AttributeType carries an Issuer, and two attributes sharing an AttributeId but
+  # differing in Issuer are meaningful everywhere else the type is used — a metadata
+  # container has no reason to be the one place that is forbidden. An author stamp from
+  # two different issuers is a realistic document, and keying on AttributeId alone would
+  # reject it.
+  #
+  # An Attribute that omits Issuer keys on a null and so compares as distinct from one
+  # that carries it, which means the common single-issuer case still gets full uniqueness
+  # checking. That is the behaviour xs:unique cannot express, and the reason this rule is
+  # not in the XSD.
+  #
+  # Three rules rather than one because the catalog's path notation addresses nesting
+  # explicitly rather than by wildcard — the same reason the published catalog carries
+  # both `$.Policy.VariableDefinition` and `$.Policy.CombinerInput[].Rule.VariableDefinition`.
+  # These cover the three positions a converter can produce. Metadata on a policy nested
+  # more deeply via CombinerInput is legal and goes unchecked here; that is a limit of the
+  # notation, not a licence to duplicate.
+
+  - Id: "policy-metadata-attribute-unique"
+    Kind: uniqueByProperty
+    Severity: error
+    AppliesTo:
+      ObjectType: MetadataType
+      CollectionPath: "$.Policy.Metadata.Attribute"
+    KeyProperties:
+      - AttributeId
+      - Issuer
+    Requirement: >
+      Within a single MetadataType, Attribute entries MUST be unique by the
+      combination of AttributeId and Issuer.
+
+  - Id: "bundle-metadata-attribute-unique"
+    Kind: uniqueByProperty
+    Severity: error
+    AppliesTo:
+      ObjectType: MetadataType
+      CollectionPath: "$.Bundle.Metadata.Attribute"
+    KeyProperties:
+      - AttributeId
+      - Issuer
+    Requirement: >
+      Within a single MetadataType, Attribute entries MUST be unique by the
+      combination of AttributeId and Issuer.
+
+  - Id: "bundle-policy-metadata-attribute-unique"
+    Kind: uniqueByProperty
+    Severity: error
+    AppliesTo:
+      ObjectType: MetadataType
+      CollectionPath: "$.Bundle.Policy[].Metadata.Attribute"
+    KeyProperties:
+      - AttributeId
+      - Issuer
+    Requirement: >
+      Within a single MetadataType, Attribute entries MUST be unique by the
+      combination of AttributeId and Issuer.

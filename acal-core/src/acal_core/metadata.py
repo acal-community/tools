@@ -10,7 +10,7 @@ reject outright (§7.4).
 Shape, following `EntityType` rather than inventing new grammar::
 
     MetadataType {
-      Attribute: AttributeType [*]   {unique by AttributeId}
+      Attribute: AttributeType [*]   {unique by (AttributeId, Issuer)}
       Content:   ContentType   [0..1]
     }
     -- Content <> null or Attribute->notEmpty()
@@ -33,9 +33,17 @@ the format by convention. Minting a datatype identifier for it would pull a meta
 into the type system, where datatypes carry equality and matching functions and take part
 in designator resolution — none of which a blob wants.
 
-Status: the spec change is proposed, not adopted (acal-community/tools#12). Documents
-carrying `Metadata` will not validate against the published schemas until it lands, which
-is why stamping is opt-in (``acal-convert --provenance``) rather than the default.
+`Metadata` attaches to `BundleType` and `PolicyType`, and to nothing else. Attaching it to
+`ShortIdType` was considered — an ALFA attribute declaration binds a `category` and a
+`type` that `Name`/`Value` cannot hold — and dropped. The declarations ride here instead,
+as the source language's whole symbol table under `SOURCE_SYMBOLS`, which asks nothing
+further of the schemas and keeps inert facts out of a type the PDP resolves.
+
+Status: the spec change is proposed, not adopted (acal-community/tools#12). The proposal
+and the schema fragments that implement it live in ``docs/proposals/metadata/``; the
+validators apply them on demand via ``--proposal metadata``, so a stamped document can be
+validated without pretending the published schemas admit it. Stamping stays opt-in
+(``acal-convert --provenance``) for the same reason.
 """
 from __future__ import annotations
 
@@ -43,7 +51,19 @@ import json
 
 from .report import ConversionReport
 
-#: Namespace for provenance facts within `Metadata`.
+
+class MetadataError(ValueError):
+    """A document's `Metadata` property violates `MetadataType`.
+
+    Raised for structural problems — a non-object `Metadata`, an empty one, a duplicate
+    attribute key. Deliberately *not* raised for unparseable content inside an attribute
+    value: those are opaque blobs this module has no standing to police, and a
+    non-normative annotation is never a reason to reject an otherwise valid policy.
+    """
+
+
+#: Namespace for provenance facts within `Metadata`. Assigned by the TC, so it holds only
+#: facts general enough to be worth standardising.
 PROVENANCE_NS = "urn:oasis:names:tc:acal:1.0:provenance:"
 
 SOURCE_LANGUAGE = PROVENANCE_NS + "source-language"
@@ -51,6 +71,16 @@ SOURCE_DIALECT = PROVENANCE_NS + "source-dialect"
 TOOL = PROVENANCE_NS + "tool"
 FIDELITY = PROVENANCE_NS + "fidelity"
 CONVERSION_REPORT = PROVENANCE_NS + "conversion-report"
+
+#: Namespace for facts whose *shape* is defined by this toolchain rather than by the TC.
+#: The distinction is not ceremony: an identifier in the OASIS namespace is a claim that
+#: the TC has assigned it, and a payload whose structure only this repository defines has
+#: no business making that claim.
+TOOL_NS = "urn:com.github.acal-community.tools:1.0:provenance:"
+
+#: The source language's declarations, as a JSON object. Tool-namespaced because the shape
+#: is per-language and defined here — see `acal_core.readers.alfa.symbol_table_as_dict`.
+SOURCE_SYMBOLS = TOOL_NS + "source-symbols"
 
 #: Document root keys a `Metadata` property may attach to. A YACAL/JACAL document is
 #: either ``{Policy: PolicyType}`` or ``{Bundle: BundleType}``, and both types take
@@ -112,28 +142,52 @@ def provenance_attributes(
         ]
         attrs.append(attribute(CONVERSION_REPORT, json.dumps(notes, separators=(",", ":"))))
 
+    # Declarations the source bound and the conversion spent. Distinct from the notes
+    # above: nothing here was lost in a way that changes what the policy decides, so
+    # filing it as fidelity loss would overstate it. It is the material a writer back to
+    # the source language would need, and the reason the ALFA case needs no `Metadata`
+    # on `ShortIdType`.
+    if report.source_symbols:
+        attrs.append(
+            attribute(
+                SOURCE_SYMBOLS,
+                json.dumps(report.source_symbols, separators=(",", ":"), sort_keys=True),
+            )
+        )
+
     return attrs
 
 
-def attach(doc: dict, attributes: list[dict]) -> dict:
-    """Stamp *attributes* into the document's `Metadata` property, in place.
+def attach(doc: dict, additions: list[dict]) -> dict:
+    """Stamp *additions* into the document's `Metadata` property, in place.
 
     Attaches to whichever root the document has — `Bundle` for a bundle, `Policy` for a
     single policy. Existing attributes are preserved; an incoming attribute replaces an
-    existing one with the same `AttributeId`, since `MetadataType` requires uniqueness
-    there and a converter re-stamping a document should refresh its own facts rather
-    than duplicate them.
+    existing one with the same `(AttributeId, Issuer)`, since `MetadataType` requires
+    uniqueness there and a converter re-stamping a document should refresh its own facts
+    rather than duplicate them. Keying on the issuer too means refreshing our own tool
+    stamp does not clobber someone else's attribute of the same name.
     """
-    if not attributes:
+    if not additions:
         return doc
 
     root = _root_object(doc)
     metadata = root.setdefault("Metadata", {})
+    if not isinstance(metadata, dict):
+        raise MetadataError(
+            f"Cannot stamp into a Metadata property that is {type(metadata).__name__}, "
+            "not an object. MetadataType is {Attribute: [...], Content: {...}}."
+        )
     existing = metadata.get("Attribute", [])
+    if not isinstance(existing, list):
+        raise MetadataError(
+            f"Metadata.Attribute is {type(existing).__name__}, not a list. "
+            "AttributeType has multiplicity [*] and is always a sequence."
+        )
 
-    incoming_ids = {a["AttributeId"] for a in attributes}
-    merged = [a for a in existing if a.get("AttributeId") not in incoming_ids]
-    merged.extend(attributes)
+    incoming = {_attribute_key(a) for a in additions}
+    merged = [a for a in existing if _attribute_key(a) not in incoming]
+    merged.extend(additions)
     metadata["Attribute"] = merged
     return doc
 
@@ -148,23 +202,77 @@ def stamp_provenance(
 
 
 def read(doc: dict) -> dict | None:
-    """Return the document's `Metadata` object, or None if it carries none."""
+    """Return the document's `Metadata` object, or None if it carries none.
+
+    Raises `MetadataError` if the property is present but not an object. Absence and
+    malformation are different answers, and returning None for both — as this did — let
+    a hand-written ``Metadata: [...]`` travel all the way through a conversion and back
+    out into the written document unremarked.
+    """
     try:
         root = _root_object(doc)
-    except ValueError:
+    except MetadataError:
         return None
-    metadata = root.get("Metadata")
-    return metadata if isinstance(metadata, dict) else None
+    if "Metadata" not in root:
+        return None
+    metadata = root["Metadata"]
+    if not isinstance(metadata, dict):
+        raise MetadataError(
+            f"Metadata is {type(metadata).__name__}, not an object. "
+            "MetadataType is {Attribute: [...], Content: {...}}."
+        )
+    return metadata
+
+
+def attributes(doc: dict) -> list[dict]:
+    """Return the document's metadata attributes, validating as it goes.
+
+    Raises `MetadataError` on a `Metadata` that violates `MetadataType`: an empty one
+    (the type requires ``Content <> null or Attribute->notEmpty()``, so there is no
+    "declared but empty" state), a non-list `Attribute`, or two attributes sharing an
+    `AttributeId` and `Issuer`.
+    """
+    metadata = read(doc)
+    if metadata is None:
+        return []
+
+    attrs = metadata.get("Attribute", [])
+    if not isinstance(attrs, list):
+        raise MetadataError(
+            f"Metadata.Attribute is {type(attrs).__name__}, not a list. "
+            "AttributeType has multiplicity [*] and is always a sequence."
+        )
+    if not attrs and "Content" not in metadata:
+        raise MetadataError(
+            "Metadata is empty. MetadataType requires Content or at least one "
+            "Attribute; a converter must not emit an empty property to say it was here."
+        )
+
+    seen: set[tuple] = set()
+    for attr in attrs:
+        if not isinstance(attr, dict):
+            raise MetadataError(
+                f"Metadata.Attribute contains {type(attr).__name__}, not an object."
+            )
+        key = _attribute_key(attr)
+        if key in seen:
+            issuer = attr.get("Issuer")
+            where = f"{key[0]!r}" + (f" from issuer {issuer!r}" if issuer else "")
+            raise MetadataError(
+                f"Duplicate metadata attribute {where}. MetadataType requires "
+                "uniqueness by (AttributeId, Issuer), and there is no correct way to "
+                "choose between two values for the same fact."
+            )
+        seen.add(key)
+    return attrs
 
 
 def attribute_values(doc: dict, attribute_id: str) -> list:
     """Return the values of one metadata attribute; empty list if it is not present."""
-    metadata = read(doc)
-    if not metadata:
-        return []
-    for attr in metadata.get("Attribute", []):
+    for attr in attributes(doc):
         if attr.get("AttributeId") == attribute_id:
-            return list(attr.get("Value", []))
+            values = attr.get("Value", [])
+            return list(values) if isinstance(values, list) else [values]
     return []
 
 
@@ -172,12 +280,14 @@ def provenance(doc: dict) -> dict | None:
     """Read provenance back out of a document, or None if it carries none.
 
     The inverse of `stamp_provenance`, to the extent one exists: it recovers the facts,
-    not the `ConversionReport` object. Returns a dict with the keys ``source_format``,
-    ``source_dialect``, ``tool``, ``lossy``, and ``notes``, mirroring
-    `ConversionReport.as_dict` so callers can present either interchangeably.
+    not the `ConversionReport` object.
+
+    Raises `MetadataError` if the `Metadata` property is structurally invalid — that is a
+    document defect worth surfacing. A *value* that will not parse is different: the
+    payload is opaque by design, so an unreadable conversion report degrades to no notes
+    rather than taking the whole read down with it.
     """
-    metadata = read(doc)
-    if not metadata:
+    if read(doc) is None:
         return None
 
     source = attribute_values(doc, SOURCE_LANGUAGE)
@@ -185,18 +295,6 @@ def provenance(doc: dict) -> dict | None:
         return None
 
     fidelity = attribute_values(doc, FIDELITY)
-    raw_notes = attribute_values(doc, CONVERSION_REPORT)
-    notes: list = []
-    if raw_notes:
-        try:
-            decoded = json.loads(raw_notes[0])
-        except (TypeError, ValueError):
-            # A malformed report is a reason to say so, not to crash: the policy is
-            # still perfectly valid, and Metadata is non-normative by construction.
-            decoded = None
-        if isinstance(decoded, list):
-            notes = decoded
-
     dialect = attribute_values(doc, SOURCE_DIALECT)
     tool = attribute_values(doc, TOOL)
 
@@ -204,9 +302,43 @@ def provenance(doc: dict) -> dict | None:
         "source_format": source[0],
         "source_dialect": dialect[0] if dialect else None,
         "tool": tool[0] if tool else None,
-        "lossy": bool(fidelity) and fidelity[0] == FIDELITY_LOSSY,
-        "notes": notes,
+        # Tri-state, on purpose. False means the converter recorded a lossless
+        # conversion; None means nothing recorded a fidelity claim at all. Collapsing
+        # the second into the first reads silence as a clean bill of health, which is
+        # the same conflation the write side goes out of its way to avoid by emitting
+        # an explicit `lossless` rather than omitting the attribute.
+        "lossy": (fidelity[0] == FIDELITY_LOSSY) if fidelity else None,
+        "notes": _decode_json_value(attribute_values(doc, CONVERSION_REPORT), list) or [],
+        # The source language's declarations, if the reader had any to preserve.
+        "source_symbols": _decode_json_value(attribute_values(doc, SOURCE_SYMBOLS), dict) or {},
     }
+
+
+def _decode_json_value(values: list, expected: type):
+    """Decode a JSON-string attribute value, or None if it will not decode.
+
+    Metadata is non-normative by construction, so a payload this module cannot read is
+    never a reason to reject the enclosing policy — the policy is unaffected either way.
+    """
+    if not values:
+        return None
+    try:
+        decoded = json.loads(values[0])
+    except (TypeError, ValueError):
+        return None
+    return decoded if isinstance(decoded, expected) else None
+
+
+def _attribute_key(attr: dict) -> tuple:
+    """The identity of a metadata attribute: `AttributeId` paired with `Issuer`.
+
+    Not `AttributeId` alone. `AttributeType` carries an `Issuer`, and two attributes
+    sharing an id while differing in issuer are meaningful everywhere else the type is
+    used — an author stamp from two issuers is an ordinary document. An attribute with no
+    issuer keys on None and so stays distinct from one that has it, which leaves the
+    common single-issuer case fully checked.
+    """
+    return (attr.get("AttributeId"), attr.get("Issuer"))
 
 
 def _root_object(doc: dict) -> dict:
@@ -220,7 +352,7 @@ def _root_object(doc: dict) -> dict:
         value = doc.get(key)
         if isinstance(value, dict):
             return value
-    raise ValueError(
+    raise MetadataError(
         "Document has no Bundle or Policy root to attach Metadata to. "
         f"Found top-level keys: {sorted(doc)!r}"
     )

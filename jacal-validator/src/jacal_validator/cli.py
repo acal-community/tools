@@ -9,6 +9,7 @@ import click
 from . import __version__
 from .config import load as load_config
 from .output import as_json, human
+from .proposals import ProposalError
 from .schemas import SCHEMA_FILES, SchemaStore
 from .validator import validate
 
@@ -36,12 +37,22 @@ from .validator import validate
         "SharedVariableReference elements whose definitions live in external files."
     ),
 )
+@click.option(
+    "--proposal", "proposal_names",
+    multiple=True,
+    metavar="NAME",
+    help=(
+        "Also admit an unadopted schema proposal from docs/proposals/NAME (repeatable). "
+        "The result is not a conformance result and says so."
+    ),
+)
 @click.version_option(__version__, prog_name="jacal-validate")
 def main(
     policy_file: Path,
     output_json: bool,
     refresh_schemas: bool,
     include_paths: tuple[Path, ...],
+    proposal_names: tuple[str, ...],
 ) -> None:
     """Validate a JACAL v1.0 (JSON) policy document.
 
@@ -89,7 +100,11 @@ def main(
             xpath_structure_path=store.try_resolve(SCHEMA_FILES["xpath_structure"]),
             jsonpath_structure_path=store.try_resolve(SCHEMA_FILES["jsonpath_structure"]),
             include_paths=list(include_paths) if include_paths else None,
+            proposals=list(proposal_names),
         )
+    except ProposalError as exc:
+        click.echo(f"error: {exc}", err=True)
+        sys.exit(2)
     except FileNotFoundError as exc:
         click.echo(
             f"error: {exc}\n"

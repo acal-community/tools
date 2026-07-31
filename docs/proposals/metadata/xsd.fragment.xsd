@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MetadataType — XACML 4.0 XML schema fragment.
+
+  Overlay for acal-core-xml-v4.0-schema.xsd. Not a standalone schema: the element and
+  complexType below are additions, and the two <PropertyAddition> notes at the end
+  describe where the element reference goes in host types this fragment does not restate.
+
+  XML is the one serialization where placement is normative. PolicyType and BundleType are
+  xs:sequence, so a new child element needs a declared slot, not merely permission to
+  exist. The slots chosen put Metadata adjacent to the other non-evaluated annotations, so
+  a reader encounters the document's provenance before its policy content.
+
+  There is deliberately no xs:unique identity constraint on Metadata/Attribute. Uniqueness
+  is by (AttributeId, Issuer); xs:unique skips any tuple with a missing field, so an
+  Attribute with no Issuer — the common case — would go unchecked, while a constraint on
+  AttributeId alone would be wrong in the other direction, forbidding two same-id
+  attributes from different issuers. The constraint catalog carries the rule instead. That
+  matches how the JSON schema handles the identical gap on EntityType.Attribute.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning"
+           xmlns:xacml="urn:oasis:names:tc:xacml:4.0:core:schema:wd-01"
+           targetNamespace="urn:oasis:names:tc:xacml:4.0:core:schema:wd-01"
+           elementFormDefault="qualified">
+
+	<xs:element name="Metadata" type="xacml:MetadataType" />
+
+	<!-- Shaped as EntityType, including the xs:assert non-empty guard. Reusing that shape
+	means an implementation that can already read an EntityType can read a MetadataType. -->
+	<xs:complexType name="MetadataType">
+		<xs:sequence>
+			<xs:element ref="xacml:Content" minOccurs="0" />
+			<xs:element ref="xacml:Attribute" minOccurs="0" maxOccurs="unbounded" />
+		</xs:sequence>
+		<xs:assert vc:minVersion="1.1" test="xacml:Content or xacml:Attribute" />
+	</xs:complexType>
+
+	<!--
+	<PropertyAddition type="PolicyType">
+	  Insert into the existing xs:sequence immediately after the Description element and
+	  before PolicyIssuer:
+
+	    <xs:element ref="xacml:Metadata" minOccurs="0" />
+
+	  Description and Metadata are the two non-evaluated properties of a PolicyType, and
+	  keeping them together separates them from PolicyIssuer, which is evaluated and which
+	  a PDP without the Administration and Delegation profile must reject.
+	</PropertyAddition>
+
+	<PropertyAddition type="BundleType">
+	  Insert as the first element of the existing xs:sequence, before ShortIdSet:
+
+	    <xs:element ref="xacml:Metadata" minOccurs="0" />
+
+	  BundleType has no Description, so Metadata is its only annotation and belongs first.
+	</PropertyAddition>
+	-->
+
+</xs:schema>

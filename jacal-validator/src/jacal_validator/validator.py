@@ -19,6 +19,12 @@ from referencing import Registry, Resource
 
 from .base import Severity, ValidationIssue, ValidationResult
 from .constraints import evaluate as eval_constraints, load_catalog
+from .proposals import (
+    apply as apply_proposal,
+    apply_constraints as apply_proposal_constraints,
+    load as load_proposal,
+    load_constraints as load_proposal_constraints,
+)
 
 _JACAL_SPEC_REF = "JACAL §5 / RFC 8259"
 
@@ -47,10 +53,13 @@ def validate(
     xpath_structure_path: Path | None,
     jsonpath_structure_path: Path | None,
     include_paths: list[Path] | None = None,
+    proposals: list[str] | None = None,
 ) -> ValidationResult:
     content = json_path.read_text(encoding="utf-8")
     profiles = detect_profiles(content)
-    result = ValidationResult(format="jacal", profiles=profiles)
+    result = ValidationResult(
+        format="jacal", profiles=profiles, proposals=list(proposals or [])
+    )
 
     for issue in _lint_json_features(content):
         result.add_issue(issue)
@@ -79,7 +88,8 @@ def validate(
         return result
 
     core, registry, ids = _build_registry(
-        core_structure_path, xpath_structure_path, jsonpath_structure_path
+        core_structure_path, xpath_structure_path, jsonpath_structure_path,
+        proposals=result.proposals,
     )
     root_schema = _composed_root(ids, profiles)
     registry = registry.with_resource(root_schema["$id"], Resource.from_contents(root_schema))
@@ -95,6 +105,8 @@ def validate(
 
     if result.valid and core_constraints_path.exists():
         catalog = load_catalog(core_constraints_path)
+        for name in result.proposals:
+            apply_proposal_constraints(catalog, load_proposal_constraints(name))
         extra_docs = _load_include_docs(include_paths) if include_paths else []
         issues, total, evaluated, skipped = eval_constraints(document, catalog, extra_docs)
         result.constraints_total = total
@@ -200,8 +212,9 @@ def _build_registry(
     core_path: Path,
     xpath_path: Path | None,
     jsonpath_path: Path | None,
+    proposals: list[str] | None = None,
 ) -> tuple[dict, Registry, dict[str, str]]:
-    core = _load_json_schema(core_path)
+    core = _load_json_schema(core_path, proposals=proposals)
     ids = {"core": core.get("$id", "urn:oasis:names:tc:jacal:1.0:core:schema")}
     resources = [(ids["core"], Resource.from_contents(core))]
 
@@ -296,6 +309,12 @@ def _composed_root(ids: dict[str, str], profiles: list[str]) -> dict:
 # out) and those types no longer carry unevaluatedProperties, so the patch became a no-op and was
 # removed. The XPath fixtures' real problem was PolicyDefaults/RequestDefaults cardinality (object
 # vs the schema's required array), fixed in the fixtures themselves.
-def _load_json_schema(path: Path) -> dict:
+def _load_json_schema(path: Path, proposals: list[str] | None = None) -> dict:
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        schema = json.load(f)
+    # Only the core schema; the profile schemas are separate documents, and a proposal
+    # that touched one would ship its own fragment for it.
+    if proposals and path.name == "acal-core-json-v1.0-schema.json":
+        for name in proposals:
+            apply_proposal(schema, load_proposal(name), name)
+    return schema

@@ -12,6 +12,12 @@ def human(result: ValidationResult, filename: str, file: TextIO = sys.stdout) ->
     label = "YACAL v1.0 (YAML)"
     if result.profiles:
         label += f" + {', '.join(p.upper() for p in result.profiles)} Profile"
+    # On the outcome line rather than in a footnote. A PASS earned by admitting an
+    # unadopted schema change is not a conformance result, and the one line most likely
+    # to be quoted out of context has to say so on its own.
+    if result.proposals:
+        names = ", ".join(f"'{p}'" for p in result.proposals)
+        label += f" + UNADOPTED proposal {names}"
 
     if result.valid and result.incomplete:
         sc = result.constraints_skipped
@@ -86,6 +92,7 @@ def as_json(result: ValidationResult, filename: str, file: TextIO = sys.stdout) 
         "file": filename,
         "format": result.format,
         "profiles": result.profiles,
+        "proposals": result.proposals,
         "valid": result.valid,
         "incomplete": result.incomplete,
         "error_count": result.error_count,

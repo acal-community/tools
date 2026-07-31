@@ -6,7 +6,76 @@
 > structural enough to shape the whole toolchain, write or update the ADR and keep this entry as
 > the log record; the ADRs cite these slugs back. Entries with an ADR are tagged `(→ ADR-NNNN)`.
 
-## provenance-rides-a-metadata-property-behind-an-opt-in-flag (July 2026)
+## unadopted-spec-changes-are-applied-by-name-never-by-leniency (July 2026) (→ ADR-0007)
+
+A schema change we want but the TC has not adopted lives in `docs/proposals/<name>/` as
+fragments in every serialization it touches, and the validators apply it only when asked:
+`yacal-validate --proposal metadata`. The applied proposals are named on the outcome line
+(`PASS ... + UNADOPTED proposal 'metadata'`), recorded on `ValidationResult`, and emitted in
+`--json`. `acal-convert --provenance --validate` passes the name through, because the tool
+that wrote the `Metadata` is the one that has to declare what admits it.
+
+**WHY**: (→ provenance-rides-a-metadata-property-behind-an-opt-in-flag) left `--provenance`
+output unvalidatable, which made the feature impossible to demonstrate — the one thing a
+proposal to a committee needs. Three alternatives were rejected:
+
+- **Folding it into `_patch_core_schema_shape_bugs`.** That function repairs defects in the
+  published schema and runs unconditionally, which is right for defects. A proposal is the
+  opposite case: the schema is behaving as intended and we are asking it to say something new.
+  Hiding one among the other would make an unadopted feature indistinguishable from a
+  workaround, and the validator would be lying about what ACAL admits.
+- **A general `--lenient` or `--experimental` flag.** "Experimental" is the wrong word — the
+  design is settled, just unadopted — and a blanket relaxation cannot say *what* it admitted.
+- **Hardcoding the proposed shape in Python.** This is the important one. The fragment the TC
+  reviews and the fragment the validator applies are the **same file**. A Python copy would
+  drift from the written proposal the first time either moved, and the drift would be
+  invisible, because the demonstration would still pass.
+
+A fragment may only *add* — `$defs` entries and `PropertyAdditions` on named existing types.
+Redefining a host type raises. That restriction is what stops a fragment silently reverting an
+upstream change to a type it happens to mention, and it is why fragments carry no copy of any
+published definition.
+
+
+---
+
+## source-language-declarations-ride-document-metadata-not-shortidtype (July 2026) (→ ADR-0007)
+
+An ALFA attribute declaration binds four facts — short name, `id`, `category`, `type` — and
+`ShortIdType` is `Name` → `Value`, so two of them have nowhere to go. They ride the
+document-level `Metadata` instead, as the source language's whole symbol table serialized to
+one JSON attribute under `urn:com.github.acal-community.tools:1.0:provenance:source-symbols`.
+`ShortIdType` is left alone.
+
+**WHY**: the obvious fix — `Metadata` on `ShortIdType` — was the wrong ask twice over.
+Mechanically, `ShortIdType` is attribute-only in the XSD, so a child element converts it from
+an empty complexType into one with a content model, in the type with the most instances per
+document. Structurally, it would put the same fact in two places, since the transformer must
+stamp `category` and datatype onto every referencing `AttributeDesignator` regardless.
+
+The alternative on the table — model each declaration as a `SharedVariableDefinition` wrapping
+an `AttributeDesignator` — needs no schema change at all, and was still rejected: a
+`SharedVariableDefinition` is normative and evaluable. It fabricates policy content to store
+facts that are not policy, so the document gains variables its author never wrote and no reader
+can afterwards tell a synthesised one from an intended one. Same category error as
+`PolicyIssuer`, one level down.
+
+The payoff is that the *ask* shrinks. With ALFA solved inside the container, the required
+attachment points drop from five (`Bundle`, `Policy`, `ShortIdSet`, `ShortId`,
+`SharedVariableDefinition`) to two — one new type, one sentence of normative text.
+`ShortIdSetType` and `SharedVariableDefinitionType` remain reasonable and are documented as
+not-required rather than dropped.
+
+Two notes on honesty here: the payload uses the **tool** namespace, not
+`urn:oasis:names:tc:acal:1.0:`, because an identifier in the OASIS namespace claims TC
+assignment and this payload's shape is defined only by this repository. And this **preserves**
+what a writer back to ALFA would need — it does not restore ALFA. There is no ALFA writer
+(`languages.py`: `can_write=False`), so calling it round-tripping would overclaim.
+
+
+---
+
+## provenance-rides-a-metadata-property-behind-an-opt-in-flag (July 2026) (→ ADR-0007)
 
 Fidelity information may now enter the document, but only through a `Metadata` property and
 only when the caller asks for it (`acal-convert --provenance`). This qualifies rather than

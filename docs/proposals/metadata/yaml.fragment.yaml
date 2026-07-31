@@ -1,0 +1,56 @@
+# MetadataType — YACAL structure schema fragment
+#
+# Overlay for acal-core-yaml-v1.0-structure.schema.yaml.
+#
+# Two sections. `$defs` adds the new type; `PropertyAdditions` names the existing types
+# that gain a `Metadata` property and the sub-schema each one gains. The split exists
+# because a fragment cannot restate a host type it does not own — restating it would
+# freeze a copy of the published definition in this repo and go stale the first time
+# upstream touched it.
+#
+# yacal-validate --proposal metadata applies this file directly, so what the TC reviews
+# and what the demonstration validates against are the same bytes.
+
+Proposal: metadata
+Target: acal-core-yaml-v1.0-structure.schema.yaml
+Status: proposed, not adopted
+
+$defs:
+
+  # Deliberately shaped as EntityType (the type PolicyIssuer already uses), down to the
+  # anyOf non-empty guard and additionalProperties: false. Reusing that shape means no
+  # new grammar in any serialization: an implementation that can already read an
+  # EntityType can read a MetadataType.
+  #
+  # What MetadataType does not inherit from EntityType's host property is PolicyIssuer's
+  # evaluation semantics. A Metadata property is non-normative by definition: a PDP MUST
+  # evaluate the enclosing object exactly as if the property were absent.
+  MetadataType:
+    type: object
+    properties:
+      Content:
+        $ref: "#/$defs/ContentType"
+      Attribute:
+        type: array
+        items:
+          $ref: "#/$defs/AttributeType"
+        minItems: 1
+    anyOf:
+      - required:
+          - Content
+      - required:
+          - Attribute
+    additionalProperties: false
+
+# Each entry is merged into the named type's `properties` map. No other part of the host
+# type is touched, and both host types are already closed with additionalProperties: false
+# — which is precisely why the property has to be added rather than smuggled in.
+PropertyAdditions:
+
+  PolicyType:
+    Metadata:
+      $ref: "#/$defs/MetadataType"
+
+  BundleType:
+    Metadata:
+      $ref: "#/$defs/MetadataType"

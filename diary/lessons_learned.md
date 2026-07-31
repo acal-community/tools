@@ -1,5 +1,57 @@
 # Lessons Learned
 
+## a-guarantee-emergent-from-your-write-path-is-not-a-guarantee (July 2026)
+
+**Rule**: When a module both writes and reads a structure, check the invariants on the *read*
+side too. An invariant that holds because your own writer maintains it is not enforced — it is
+merely true so far, for documents you happened to produce.
+
+**Why**: `acal_core.metadata` guaranteed every property of `MetadataType` — non-empty,
+attributes unique, `Metadata` an object — entirely through `attach()`. Nothing checked a
+document that arrived from anywhere else, and the YACAL reader is a bare YAML load with no
+schema check. So a hand-written `Metadata: {}` or a duplicated `AttributeId` passed straight
+through a conversion and back out into the written document, and `attribute_values()` resolved
+the duplicate by silently returning whichever came first. Worse, the asymmetry was already
+visible in the code and read as caution: `read()` defensively `isinstance`-checked the field
+while `attach()` called `.setdefault()` on it and crashed with a bare `AttributeError` on
+`Metadata: [...]`. Two functions, same field, opposite assumptions.
+
+The fix that made it stick was drawing the line explicitly rather than hardening everything:
+**structural defects raise, opaque content degrades.** A malformed `Metadata` shape is the
+thing being proposed and emitting it wrongly is a bug worth surfacing; a conversion-report blob
+that will not parse is opaque by design and the enclosing policy is unaffected either way.
+Without that line the choice keeps getting relitigated per-function, which is how the asymmetry
+got there in the first place. (→ ADR-0002, and
+unadopted-spec-changes-are-applied-by-name-never-by-leniency)
+
+
+---
+
+## borrowing-a-type-borrows-its-whole-identity-key (July 2026)
+
+**Rule**: When a new construct reuses an existing type, its uniqueness key must account for
+every field that type carries — not just the one field the new use case cares about.
+
+**Why**: `MetadataType` was first specified as `Attribute: AttributeType [*]` with
+`isUnique(AttributeId)`, which reads correctly and is wrong. `AttributeType` also carries an
+`Issuer`, and everywhere else in ACAL two attributes sharing an `AttributeId` while differing
+in `Issuer` are meaningful. Keying on `AttributeId` alone would have made a metadata container
+the one place that is forbidden, rejecting an author stamp from two issuers — an ordinary
+document. It would also have made a converter re-stamping its own `tool` attribute clobber
+somebody else's attribute of the same name.
+
+The corrected key is `(AttributeId, Issuer)`, which then exposed *where* the rule can live. No
+structural schema can express it: JSON Schema 2020-12 has no uniqueness-by-key (the published
+schema already carries a TODO saying so on `EntityType.Attribute`), and XSD's `xs:unique` skips
+any tuple with an absent field — which is every `Attribute` that omits `Issuer`, i.e. almost
+all of them. The constraint catalog's existing `uniqueByProperty` takes a multi-field key list
+and treats an absent field as a distinct `None`, so it expressed the amended rule with no new
+machinery. Worth checking which layer can actually state a constraint before writing it into
+the layer you were already editing.
+
+
+---
+
 ## a-field-that-looks-inert-may-carry-an-error-clause (July 2026)
 
 **Rule**: Before reusing an existing spec field as a place to park metadata, read its *own*

@@ -339,7 +339,17 @@ class _Converter:
             attr["Value"] = values
             attrs.append(attr)
 
-        return {"Attribute": attrs} if attrs else None
+        if not attrs:
+            # Dropping it would be the easy move — Metadata is non-normative, so an empty
+            # one costs nothing at evaluation. But this reader rejects rather than ignores
+            # everywhere else, and MetadataType has no "declared but empty" state: the
+            # non-empty constraint exists precisely so a tool cannot write the property to
+            # say it was here. Silently deleting it would hide a bug in whatever wrote it.
+            raise XACMLUnsupportedFeatureError(
+                "<Metadata> is empty. MetadataType requires Content or at least one "
+                "Attribute; remove the element rather than emitting it empty."
+            )
+        return {"Attribute": attrs}
 
     def _check_xpath_version(self, policy_elem: ET.Element) -> None:
         """Raise if PolicyDefaults/XPathVersion is present."""

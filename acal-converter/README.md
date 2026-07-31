@@ -49,7 +49,7 @@ acal-convert [OPTIONS] FILE
 | `--to FORMAT` | **Required.** Output format: `yacal` or `jacal`. |
 | `--strict` / `--no-strict` | Whether to treat non-semantic deprecations (e.g. `IncludeInResult`) as errors. Default: `--no-strict`. |
 | `-o FILE`, `--output FILE` | Write output to `FILE` (default: stdout) |
-| `--provenance` | Stamp source language, tool version and the conversion report into a `Metadata` property, so fidelity travels with the document. See [Provenance](#provenance-experimental). |
+| `--provenance` | Stamp source language, tool version and the conversion report into a `Metadata` property, so fidelity travels with the document. See [Provenance](#provenance). |
 | `--validate` | Validate the output with the appropriate ACAL validator (requires `-o`) |
 | `--help` | Show help and exit |
 
@@ -143,7 +143,7 @@ acal-convert --to jacal -o out.json legacy-policy.xml --validate
 
 ---
 
-## Provenance (experimental)
+## Provenance
 
 By default, what a conversion lost is reported to stderr and then gone. Convert an ALFA
 policy to YACAL and the resulting document has no memory that it was ever ALFA:
@@ -153,11 +153,15 @@ acal-convert policy.alfa --to yacal -o policy.yaml   # notes printed, then lost
 acal-explain policy.yaml                             # no idea this was ever ALFA
 ```
 
-`--provenance` stamps that record into the document itself, in a `Metadata` property:
+`--provenance` stamps that record into the document itself, in a `Metadata` property, so
+the fact survives the process that found it:
 
 ```bash
 acal-convert policy.alfa --to yacal --provenance -o policy.yaml
 ```
+
+(Reading it back is `acal_core.metadata.provenance()`. No CLI surfaces it yet —
+`acal-explain` does not read `Metadata`.)
 
 ```yaml
 Policy:
@@ -179,14 +183,56 @@ Policy:
 property were absent. That is what distinguishes it from `PolicyIssuer`, which a PDP
 lacking the Administration and Delegation profile must reject outright.
 
-**This is not yet a spec feature.** The proposal is
-[acal-community/tools#12](https://github.com/acal-community/tools/issues/12); until the
-XACML TC adopts it, the published schemas do not admit a `Metadata` property, so
-`--provenance` output **will fail `yacal-validate` / `jacal-validate`**. That is why the
-flag is opt-in and the default behaviour is unchanged. Combining `--provenance` with
-`--validate` prints a warning saying so.
+### Validating stamped output
 
-Two shapes are deliberate and worth knowing:
+**This is not yet a spec feature.** The proposal is
+[acal-community/tools#12](https://github.com/acal-community/tools/issues/12), written up
+with its schema fragments in [`docs/proposals/metadata/`](../docs/proposals/metadata/).
+Until the XACML TC adopts it, the published schemas do not admit a `Metadata` property.
+
+The validators can apply the proposal by name:
+
+```bash
+yacal-validate policy.yaml                       # FAIL — Metadata is not admitted today
+yacal-validate --proposal metadata policy.yaml   # PASS, and says which proposal it applied
+```
+
+`--provenance --validate` passes `--proposal metadata` through for you. The validator
+names every applied proposal on its outcome line, so a pass under one never reads as a
+conformance result:
+
+```
+PASS  YACAL v1.0 (YAML) + UNADOPTED proposal 'metadata' — policy.yaml
+```
+
+The fragments the validator applies are the same files the TC reviews, so the
+demonstration cannot drift from the proposal.
+
+### ALFA declarations
+
+An ALFA attribute declaration binds four facts, and conversion spends three of them —
+the short name is resolved away, and `category` and `type` are copied onto every
+referencing designator:
+
+```alfa
+attribute docPath {
+  id       = "urn:example:doc-path"
+  category = resourceCat
+  type     = string
+}
+```
+
+`--provenance` preserves the binding itself, as the source language's symbol table:
+
+```yaml
+      - AttributeId: urn:com.github.acal-community.tools:1.0:provenance:source-symbols
+        Value: ['{"attributes":{"docPath":{"id":"urn:example:doc-path","category":"…:attribute-category:resource","type":"string","is_bag":false}},"namespace":"com.example"}']
+```
+
+This is what lets the proposal leave `ShortIdType` alone. It **preserves** what a writer
+back to ALFA would need; it does not restore ALFA, and there is no ALFA writer.
+
+Three shapes are deliberate and worth knowing:
 
 - **Attributes only, never `Content`.** ACAL makes `ContentType` support optional (§7.34),
   and the JSON schema tells implementers they may delete the subschema outright. Metadata
@@ -195,6 +241,10 @@ Two shapes are deliberate and worth knowing:
   datatype; the `AttributeId` defines its format by convention. Minting a datatype for it
   would pull a metadata blob into the type system, where datatypes carry equality and
   matching functions.
+- **Two namespaces.** The generic facts sit under `urn:oasis:names:tc:acal:1.0:provenance:`
+  — that namespace is TC-assigned, so only facts worth standardising belong in it. The
+  symbol table's shape is defined by this toolchain, so it sits under
+  `urn:com.github.acal-community.tools:1.0:provenance:` instead.
 
 ---
 

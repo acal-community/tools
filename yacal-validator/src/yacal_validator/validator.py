@@ -21,6 +21,12 @@ from ruamel.yaml.scalarint import OctalInt
 
 from .base import Severity, ValidationIssue, ValidationResult
 from .constraints import evaluate as eval_constraints, load_catalog
+from .proposals import (
+    apply as apply_proposal,
+    apply_constraints as apply_proposal_constraints,
+    load as load_proposal,
+    load_constraints as load_proposal_constraints,
+)
 
 _yaml = YAML()
 _yaml.preserve_quotes = True
@@ -57,10 +63,13 @@ def validate(
     xpath_structure_path: Path | None,
     jsonpath_structure_path: Path | None,
     include_paths: list[Path] | None = None,
+    proposals: list[str] | None = None,
 ) -> ValidationResult:
     content = yaml_path.read_text(encoding="utf-8")
     profiles = detect_profiles(content)
-    result = ValidationResult(format="yacal", profiles=profiles)
+    result = ValidationResult(
+        format="yacal", profiles=profiles, proposals=list(proposals or [])
+    )
 
     try:
         documents = list(_yaml.load_all(StringIO(content)))
@@ -99,7 +108,8 @@ def validate(
     document_plain = _to_plain(document)
 
     core, registry, ids = _build_registry(
-        core_structure_path, xpath_structure_path, jsonpath_structure_path
+        core_structure_path, xpath_structure_path, jsonpath_structure_path,
+        proposals=result.proposals,
     )
     root_schema = _composed_root(ids, profiles)
     registry = registry.with_resource(root_schema["$id"], Resource.from_contents(root_schema))
@@ -115,6 +125,8 @@ def validate(
 
     if result.valid and core_constraints_path.exists():
         catalog = load_catalog(core_constraints_path)
+        for name in result.proposals:
+            apply_proposal_constraints(catalog, load_proposal_constraints(name))
         extra_docs = _load_include_docs(include_paths) if include_paths else []
         issues, total, evaluated, skipped = eval_constraints(document_plain, catalog, extra_docs)
         result.constraints_total = total
@@ -153,8 +165,9 @@ def _build_registry(
     core_path: Path,
     xpath_path: Path | None,
     jsonpath_path: Path | None,
+    proposals: list[str] | None = None,
 ) -> tuple[dict, Registry, dict[str, str]]:
-    core = _load_yaml_schema(core_path)
+    core = _load_yaml_schema(core_path, proposals=proposals)
     ids = {"core": core.get("$id", "acal-core-yaml-v1.0-structure.schema.yaml")}
     resources = [(ids["core"], Resource.from_contents(core))]
 
@@ -243,7 +256,7 @@ def _composed_root(ids: dict[str, str], profiles: list[str]) -> dict:
     }
 
 
-def _load_yaml_schema(path: Path) -> dict:
+def _load_yaml_schema(path: Path, proposals: list[str] | None = None) -> dict:
     # Schema files may have trailing tabs and duplicate keys in $defs.
     content = path.read_text(encoding="utf-8")
     content = "\n".join(line.rstrip() for line in content.splitlines())
@@ -253,6 +266,11 @@ def _load_yaml_schema(path: Path) -> dict:
     patched = _patch_schema(_to_plain(raw))
     if path.name == "acal-core-yaml-v1.0-structure.schema.yaml":
         _patch_core_schema_shape_bugs(patched)
+        # Strictly after the bug patches, and strictly separate from them: those repair
+        # the published schema, this one changes what it admits. Keeping the two in one
+        # function would make an unadopted feature indistinguishable from a workaround.
+        for name in proposals or []:
+            apply_proposal(patched, load_proposal(name), name)
     return patched
 
 

@@ -155,6 +155,7 @@ class _Converter:
         }
         _set_if(p, "Description", self._text(elem, "Description"))
         _set_if(p, "MaxDelegationDepth", _int_attr(elem, "MaxDelegationDepth"))
+        _set_if(p, "Metadata", self._metadata(elem.find(self._t("Metadata"))))
 
         target = elem.find(self._t("Target"))
         if target is not None:
@@ -489,6 +490,8 @@ class _Converter:
     def _bundle(self, elem: ET.Element) -> dict:
         bundle: dict = {}
 
+        _set_if(bundle, "Metadata", self._metadata(elem.find(self._t("Metadata"))))
+
         short_id_sets = [self._short_id_set(s)
                          for s in elem.findall(self._t("ShortIdSet"))]
         _set_if(bundle, "ShortIdSet", short_id_sets or None)
@@ -505,6 +508,39 @@ class _Converter:
             bundle["PolicyReference"] = self._policy_ref_4(ref)
 
         return bundle
+
+    def _metadata(self, elem: ET.Element | None) -> dict | None:
+        """Read a <Metadata> element into a `MetadataType` object.
+
+        `Metadata` is non-normative — a PDP must evaluate the enclosing object as if it
+        were absent — so nothing here influences the rest of the conversion. It is read
+        for one reason: a document that carries provenance should not lose it by passing
+        through this tool rather than through acal-convert. The two converters disagreeing
+        about whether an annotation survives would be worse than either answer.
+
+        Only <Attribute> is read. `Metadata` also admits a <Content> child, but ACAL makes
+        ContentType support optional (§7.34), so metadata depending on it is metadata
+        conforming implementations may drop.
+
+        Note: the `Metadata` property is proposed, not adopted (acal-community/tools#12).
+        Reading it costs nothing if it never lands; dropping it costs a document.
+        """
+        if elem is None:
+            return None
+        attrs = []
+        for child in elem:
+            if _local(child) != "Attribute":
+                continue
+            attr: dict = {}
+            _set_if(attr, "AttributeId", child.get("AttributeId"))
+            _set_if(attr, "Issuer", child.get("Issuer"))
+            _set_if(attr, "DataType", self._dt(child.get("DataType")))
+            values = [(v.text or "") for v in child.findall(self._t("AttributeValue"))]
+            if not values:
+                continue
+            attr["Value"] = values
+            attrs.append(attr)
+        return {"Attribute": attrs} if attrs else None
 
     def _short_id_set(self, elem: ET.Element) -> dict:
         sid: dict = {}

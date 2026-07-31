@@ -72,6 +72,12 @@ exact gap this ADR exists to close.
   a convert-then-explain across process boundaries. Carrying it properly needs a provenance
   extension point in the ACAL spec, which is on the roadmap rather than hacked past the schema.
 
+  *Update:* that extension point now exists as a proposal — a `Metadata` property a PDP must
+  ignore ([ADR-0007](0007-inert-facts-never-ride-evaluated-constructs.md), and
+  [`../proposals/metadata/`](../proposals/metadata/)). It is opt-in behind
+  `acal-convert --provenance` and unadopted, so this ADR's rule still governs the default:
+  ordinary output carries no conversion metadata.
+
 ## See also
 
 - [ADR-0003](0003-fidelity-over-hardening.md) — why the report exists and stays external.
